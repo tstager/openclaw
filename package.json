@@ -1570,8 +1570,9 @@
     "prompt:snapshots:check": "node --import tsx scripts/generate-prompt-snapshots.ts --check",
     "prompt:snapshots:gen": "node --import tsx scripts/generate-prompt-snapshots.ts --write",
     "prompt:snapshots:sync-codex-model": "node --import tsx scripts/sync-codex-model-prompt-fixture.ts",
-    "protocol:check": "pnpm protocol:gen && pnpm protocol:gen:swift && git diff --exit-code -- dist/protocol.schema.json apps/macos/Sources/OpenClawProtocol/GatewayModels.swift apps/shared/OpenClawKit/Sources/OpenClawProtocol/GatewayModels.swift",
+    "protocol:check": "pnpm protocol:gen && pnpm protocol:gen:swift && pnpm protocol:gen:csharp && git diff --exit-code -- dist/protocol.schema.json apps/macos/Sources/OpenClawProtocol/GatewayModels.swift apps/shared/OpenClawKit/Sources/OpenClawProtocol/GatewayModels.swift apps/windows/OpenClaw.Protocol/Generated/GatewayModels.g.cs",
     "protocol:gen": "node --import tsx scripts/protocol-gen.ts",
+    "protocol:gen:csharp": "node --import tsx scripts/protocol-gen-csharp.ts",
     "protocol:gen:swift": "node --import tsx scripts/protocol-gen-swift.ts",
     "proxy:coverage": "node scripts/run-node.mjs proxy coverage",
     "proxy:gateway": "node scripts/run-node.mjs proxy run -- node scripts/run-node.mjs gateway",
@@ -1795,7 +1796,11 @@
     "ui:i18n:check": "node --import tsx scripts/control-ui-i18n.ts check",
     "ui:i18n:report": "node --import tsx scripts/control-ui-i18n-report.ts",
     "ui:i18n:sync": "node --import tsx scripts/control-ui-i18n.ts sync --write",
-    "ui:install": "node scripts/ui.js install"
+    "ui:install": "node scripts/ui.js install",
+    "windows:build": "dotnet build apps/windows/OpenClaw.Windows.sln -c Release",
+    "windows:protocol:check": "node --import tsx scripts/protocol-gen-csharp.ts --check",
+    "windows:protocol:gen": "node --import tsx scripts/protocol-gen-csharp.ts",
+    "windows:test": "dotnet test apps/windows/OpenClaw.Windows.sln -c Release"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "0.22.1",
