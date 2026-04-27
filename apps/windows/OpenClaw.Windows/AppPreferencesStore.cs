@@ -4,11 +4,19 @@ namespace OpenClaw.Windows;
 
 public sealed record AppPreferences(
     bool OpenMainWindowOnLaunch,
+    string GatewayUrl,
+    string? GatewayToken,
+    string? DeviceToken,
+    string ChatSessionKey,
     string? LastStatus,
     DateTimeOffset? LastStatusCheckedAt)
 {
     public static AppPreferences Default { get; } = new(
         OpenMainWindowOnLaunch: true,
+        GatewayUrl: "ws://127.0.0.1:18789",
+        GatewayToken: null,
+        DeviceToken: null,
+        ChatSessionKey: "main",
         LastStatus: null,
         LastStatusCheckedAt: null);
 }
