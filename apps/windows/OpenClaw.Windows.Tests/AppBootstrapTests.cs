@@ -14,6 +14,5 @@ public sealed class AppBootstrapTests
         Assert.AreEqual("OpenClaw", summary.AppName);
         Assert.AreEqual(GatewayProtocol.Version, summary.GatewayProtocolVersion);
         Assert.IsTrue(summary.HostCapabilities.SupportsTray);
-        Assert.IsTrue(summary.HostCapabilities.SupportsOverlays);
     }
 }

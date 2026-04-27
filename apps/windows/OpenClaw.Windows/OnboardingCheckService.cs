@@ -1,8 +1,5 @@
 namespace OpenClaw.Windows;
 
-/// <summary>
-/// Severity shown for one onboarding prerequisite.
-/// </summary>
 public enum OnboardingCheckState
 {
     Passed,
@@ -10,40 +7,25 @@ public enum OnboardingCheckState
     Failed,
 }
 
-/// <summary>
-/// Display-ready onboarding check result.
-/// </summary>
 public sealed record OnboardingCheckResult(
     string Key,
     string Label,
     OnboardingCheckState State,
     string Detail);
 
-/// <summary>
-/// Runs lightweight local checks that explain whether the Windows companion can reach OpenClaw.
-/// </summary>
-public sealed class OnboardingCheckService(
-    IGatewayCliCommandRunner commandRunner,
-    AppPreferencesStore preferences)
+public sealed class OnboardingCheckService(IGatewayCliCommandRunner commandRunner)
 {
     private readonly IGatewayCliCommandRunner commandRunner = commandRunner;
-    private readonly AppPreferencesStore preferences = preferences;
 
-    /// <summary>
-    /// Checks CLI, Node, gateway reachability, and pairing capability in one refresh pass.
-    /// </summary>
     public async Task<IReadOnlyList<OnboardingCheckResult>> RunAsync(CancellationToken cancellationToken = default)
     {
         var results = new List<OnboardingCheckResult>
         {
-            await CheckRunnerAsync("openclaw", "OpenClaw CLI", this.commandRunner, ["--version"], cancellationToken),
+            await CheckCommandAsync("openclaw", this.commandRunner.CommandName, ["--version"], cancellationToken),
             await CheckCommandAsync("node", "node", ["--version"], cancellationToken),
         };
 
-        var currentPreferences = await this.preferences.LoadAsync(cancellationToken);
-        var status = await this.commandRunner.RunAsync(
-            GatewayCompanionController.BuildGatewayStatusArgs(currentPreferences),
-            cancellationToken);
+        var status = await this.commandRunner.RunAsync(["gateway", "status", "--json"], cancellationToken);
         if (!status.Succeeded)
         {
             results.Add(new OnboardingCheckResult(
@@ -78,9 +60,6 @@ public sealed class OnboardingCheckService(
         return results;
     }
 
-    /// <summary>
-    /// Runs a standalone command such as node where no resolved OpenClaw runner is available.
-    /// </summary>
     private static async Task<OnboardingCheckResult> CheckCommandAsync(
         string key,
         string command,
@@ -104,35 +83,6 @@ public sealed class OnboardingCheckService(
                 key == "node" ? "Node runtime" : "OpenClaw CLI",
                 OnboardingCheckState.Failed,
                 $"{command} was not found on PATH.");
-        }
-    }
-
-    /// <summary>
-    /// Runs a command through the app's resolved OpenClaw CLI runner.
-    /// </summary>
-    private static async Task<OnboardingCheckResult> CheckRunnerAsync(
-        string key,
-        string label,
-        IGatewayCliCommandRunner runner,
-        IReadOnlyList<string> args,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            var result = await runner.RunAsync(args, cancellationToken);
-            return new OnboardingCheckResult(
-                key,
-                label,
-                result.Succeeded ? OnboardingCheckState.Passed : OnboardingCheckState.Failed,
-                result.Succeeded ? result.CombinedOutput : $"Command failed: {result.CombinedOutput}");
-        }
-        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or FileNotFoundException)
-        {
-            return new OnboardingCheckResult(
-                key,
-                label,
-                OnboardingCheckState.Failed,
-                $"{runner.CommandName} was not found.");
         }
     }
 }
