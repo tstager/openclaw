@@ -35,6 +35,10 @@ apps/android/.cxx/
 apps/android/.kotlin/
 apps/android/benchmark/results/
 
+# Windows app build artifacts
+apps/windows/**/bin/
+apps/windows/**/obj/
+
 # Bun build artifacts
 *.bun-build
 apps/macos/.build/
