@@ -8,24 +8,12 @@ using Windows.Storage;
 
 namespace OpenClaw.Windows.Native;
 
-/// <summary>
-/// Minimal media device metadata shown in the Devices page.
-/// </summary>
 public sealed record WindowsMediaDevice(string Id, string Name, bool IsEnabled);
 
-/// <summary>
-/// Human-readable permission/capability state for one Windows integration.
-/// </summary>
 public sealed record WindowsDevicePermissionStatus(string Capability, string State, string Detail);
 
-/// <summary>
-/// Result returned by native capture actions so the UI can show status and reveal files.
-/// </summary>
 public sealed record WindowsCaptureResult(bool Succeeded, string? Path, string Detail);
 
-/// <summary>
-/// Owns Windows device probes and capture actions used by the companion Devices page.
-/// </summary>
 public sealed class WindowsDeviceCapabilityService
 {
     public WindowsDeviceCapabilityService(string? captureRoot = null)
@@ -35,10 +23,7 @@ public sealed class WindowsDeviceCapabilityService
 
     public string CaptureRoot { get; }
 
-    /// <summary>
-    /// Returns static and consent-gated capability descriptions without prompting the user.
-    /// </summary>
-    public static IReadOnlyList<WindowsDevicePermissionStatus> GetPermissionStatus()
+    public IReadOnlyList<WindowsDevicePermissionStatus> GetPermissionStatus()
     {
         var capabilities = WindowsHostCapabilityProbe.Current;
         return
@@ -52,29 +37,20 @@ public sealed class WindowsDeviceCapabilityService
         ];
     }
 
-    /// <summary>
-    /// Lists camera devices through WinRT device enumeration.
-    /// </summary>
-    public static async Task<IReadOnlyList<WindowsMediaDevice>> ListCameraDevicesAsync()
+    public async Task<IReadOnlyList<WindowsMediaDevice>> ListCameraDevicesAsync()
     {
         return await ListDevicesAsync(DeviceClass.VideoCapture);
     }
 
-    /// <summary>
-    /// Lists audio capture devices through WinRT device enumeration.
-    /// </summary>
-    public static async Task<IReadOnlyList<WindowsMediaDevice>> ListMicrophoneDevicesAsync()
+    public async Task<IReadOnlyList<WindowsMediaDevice>> ListMicrophoneDevicesAsync()
     {
         return await ListDevicesAsync(DeviceClass.AudioCapture);
     }
 
-    /// <summary>
-    /// Captures a single photo using the first enabled camera, allowing Windows to request consent.
-    /// </summary>
     public async Task<WindowsCaptureResult> CaptureCameraPhotoAsync()
     {
         var cameras = await ListCameraDevicesAsync();
-        var camera = cameras.FirstOrDefault(device => device.IsEnabled) ?? (cameras.Count > 0 ? cameras[0] : null);
+        var camera = cameras.FirstOrDefault(device => device.IsEnabled) ?? cameras.FirstOrDefault();
         if (camera is null)
         {
             return new WindowsCaptureResult(false, null, "No camera is available.");
@@ -96,9 +72,6 @@ public sealed class WindowsDeviceCapabilityService
         return new WindowsCaptureResult(true, file.Path, $"Saved camera capture to {file.Path}");
     }
 
-    /// <summary>
-    /// Captures the primary desktop using GDI screen copy APIs.
-    /// </summary>
     public WindowsCaptureResult CapturePrimaryScreen()
     {
         var screen = Screen.PrimaryScreen;
@@ -116,9 +89,6 @@ public sealed class WindowsDeviceCapabilityService
         return new WindowsCaptureResult(true, path, $"Saved primary screen snapshot to {path}");
     }
 
-    /// <summary>
-    /// Captures a short sequence of primary-screen frames for quick motion/debug checks.
-    /// </summary>
     public IReadOnlyList<WindowsCaptureResult> CaptureScreenFrameSequence(int frameCount = 3, int delayMs = 250)
     {
         if (frameCount <= 0)
@@ -139,9 +109,6 @@ public sealed class WindowsDeviceCapabilityService
         return captures;
     }
 
-    /// <summary>
-    /// Generates stable capture filenames that remain sortable by timestamp.
-    /// </summary>
     public static string CreateCapturePath(string root, string prefix, string extension, DateTimeOffset? timestamp = null)
     {
         var safePrefix = string.IsNullOrWhiteSpace(prefix) ? "capture" : prefix.Trim();

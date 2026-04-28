@@ -5,7 +5,9 @@ public sealed record WindowsHostCapabilities(
     bool SupportsToastNotifications,
     bool SupportsScreenCapture,
     bool SupportsCameraCapture,
-    bool SupportsGlobalHotkeys);
+    bool SupportsMicrophoneCapture,
+    bool SupportsGlobalHotkeys,
+    bool SupportsOverlays);
 
 public static class WindowsHostCapabilityProbe
 {
@@ -14,5 +16,7 @@ public static class WindowsHostCapabilityProbe
         SupportsToastNotifications: true,
         SupportsScreenCapture: true,
         SupportsCameraCapture: true,
-        SupportsGlobalHotkeys: true);
+        SupportsMicrophoneCapture: true,
+        SupportsGlobalHotkeys: true,
+        SupportsOverlays: true);
 }

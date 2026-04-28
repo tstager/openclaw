@@ -12,6 +12,7 @@ public sealed record WindowsCompanionState(
     AppStartupSummary Summary,
     GatewayCompanionController Gateway,
     GatewayRealtimeClient Realtime,
+    WindowsDeviceCapabilityService DeviceCapabilities,
     OnboardingCheckService OnboardingChecks,
     AppPreferencesStore Preferences);
 
@@ -34,6 +35,7 @@ public static class AppBootstrap
             Summary: CreateStartupSummary(),
             Gateway: gateway,
             Realtime: new GatewayRealtimeClient(preferences),
+            DeviceCapabilities: new WindowsDeviceCapabilityService(),
             OnboardingChecks: new OnboardingCheckService(commandRunner),
             Preferences: preferences);
     }

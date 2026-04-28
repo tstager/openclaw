@@ -33,6 +33,11 @@ public sealed class WindowsTrayHost : IDisposable
         this.notifyIcon.DoubleClick += (_, _) => onShow();
     }
 
+    public void ShowNotification(string title, string message)
+    {
+        this.notifyIcon.ShowBalloonTip(5000, title, message, ToolTipIcon.Info);
+    }
+
     public void Dispose()
     {
         this.notifyIcon.Visible = false;

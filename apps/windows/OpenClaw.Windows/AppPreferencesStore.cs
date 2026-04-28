@@ -8,6 +8,8 @@ public sealed record AppPreferences(
     string? GatewayToken,
     string? DeviceToken,
     string ChatSessionKey,
+    bool VoiceControlsEnabled,
+    bool GlobalHotkeyEnabled,
     string? LastStatus,
     DateTimeOffset? LastStatusCheckedAt)
 {
@@ -17,6 +19,8 @@ public sealed record AppPreferences(
         GatewayToken: null,
         DeviceToken: null,
         ChatSessionKey: "main",
+        VoiceControlsEnabled: false,
+        GlobalHotkeyEnabled: false,
         LastStatus: null,
         LastStatusCheckedAt: null);
 }
