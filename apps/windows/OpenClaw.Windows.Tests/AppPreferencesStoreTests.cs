@@ -21,5 +21,7 @@ public sealed class AppPreferencesStoreTests
 
         Assert.AreEqual(expected.LastStatus, actual.LastStatus);
         Assert.AreEqual(expected.LastStatusCheckedAt, actual.LastStatusCheckedAt);
+        Assert.AreEqual(expected.VoiceControlsEnabled, actual.VoiceControlsEnabled);
+        Assert.AreEqual(expected.GlobalHotkeyEnabled, actual.GlobalHotkeyEnabled);
     }
 }

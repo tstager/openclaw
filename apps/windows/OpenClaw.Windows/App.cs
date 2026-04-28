@@ -24,6 +24,7 @@ public sealed class App : XamlApplication
                 this.trayHost?.Dispose();
                 Exit();
             });
+        this.window.AttachTrayHost(this.trayHost);
 
         this.window.Closed += (_, _) => this.trayHost?.Dispose();
         this.window.Activate();
