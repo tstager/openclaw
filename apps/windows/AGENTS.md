@@ -15,6 +15,7 @@ This subtree owns the native Windows companion app.
 - Check generated protocol models: `pnpm windows:protocol:check`
 - Build: `pnpm windows:build`
 - Test: `pnpm windows:test`
+- Package MSIX artifacts: `pnpm windows:package`
 
 ## Boundaries
 
@@ -22,4 +23,4 @@ This subtree owns the native Windows companion app.
 - Windows API adapters live in `OpenClaw.Windows.Native`.
 - Generated protocol code lives under `OpenClaw.Protocol/Generated` and must not be edited by hand.
 - Tests live in `OpenClaw.Windows.Tests`.
-
+- MSIX output under `OpenClaw.Windows/AppPackages` is generated and must not be committed.

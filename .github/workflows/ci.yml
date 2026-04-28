@@ -258,7 +258,10 @@ jobs:
             run_checks_windows: runWindows,
             checks_windows_matrix: createMatrix(
               runWindows
-                ? [{ check_name: "checks-windows-node-test", runtime: "node", task: "test" }]
+                ? [
+                    { check_name: "checks-windows-node-test", runtime: "node", task: "test" },
+                    { check_name: "checks-windows-app", runtime: "dotnet", task: "app" },
+                  ]
                 : [],
             ),
             run_macos_node: runMacos,
@@ -1529,11 +1532,24 @@ jobs:
               # Windows-native process/path wrappers so platform regressions fail fast.
               pnpm test:windows:ci
               ;;
+            app)
+              pnpm windows:protocol:check
+              pnpm windows:test
+              pnpm windows:package
+              ;;
             *)
               echo "Unsupported Windows checks task: $TASK" >&2
               exit 1
               ;;
           esac
+
+      - name: Upload Windows app package
+        if: matrix.task == 'app'
+        uses: actions/upload-artifact@v4
+        with:
+          name: openclaw-windows-app
+          path: apps/windows/OpenClaw.Windows/AppPackages/**
+          if-no-files-found: error
 
   macos-node:
     permissions:

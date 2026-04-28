@@ -1800,6 +1800,7 @@
     "ui:i18n:sync": "node --import tsx scripts/control-ui-i18n.ts sync --write",
     "ui:install": "node scripts/ui.js install",
     "windows:build": "dotnet build apps/windows/OpenClaw.Windows.sln -c Release",
+    "windows:package": "dotnet publish apps/windows/OpenClaw.Windows/OpenClaw.Windows.csproj -c Release -r win-x64 /p:EnableMsixTooling=true /p:WindowsPackageType=MSIX /p:GenerateAppxPackageOnBuild=true /p:AppxPackageSigningEnabled=false /p:UapAppxPackageBuildMode=SideloadOnly",
     "windows:protocol:check": "node --import tsx scripts/protocol-gen-csharp.ts --check",
     "windows:protocol:gen": "node --import tsx scripts/protocol-gen-csharp.ts",
     "windows:test": "dotnet test apps/windows/OpenClaw.Windows.sln -c Release"

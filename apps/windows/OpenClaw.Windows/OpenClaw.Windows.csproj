@@ -19,4 +19,9 @@
     <ProjectReference Include="..\OpenClaw.Protocol\OpenClaw.Protocol.csproj" />
     <ProjectReference Include="..\OpenClaw.Windows.Native\OpenClaw.Windows.Native.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <AppxManifest Include="Package.appxmanifest" />
+    <Content Include="Assets\*.png" />
+  </ItemGroup>
 </Project>

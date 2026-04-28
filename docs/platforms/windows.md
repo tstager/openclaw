@@ -1,5 +1,5 @@
 ---
-summary: "Windows support: native and WSL2 install paths, daemon, and current caveats"
+summary: "Windows support: native app, native CLI and Gateway, and WSL2 install paths"
 read_when:
   - Installing OpenClaw on Windows
   - Choosing between native Windows and WSL2
@@ -7,12 +7,9 @@ read_when:
 title: "Windows"
 ---
 
-OpenClaw supports both **native Windows** and **WSL2**. WSL2 is the more
-stable path and recommended for the full experience — the CLI, Gateway, and
-tooling run inside Linux with full compatibility. Native Windows works for
-core CLI and Gateway use, with some caveats noted below.
-
-Native Windows companion apps are planned.
+OpenClaw supports both **native Windows** and **WSL2**. WSL2 is the more stable
+path for Unix-like tooling. Native Windows supports the CLI, Gateway, and the
+OpenClaw Windows companion app.
 
 ## WSL2 (recommended)
 
@@ -22,12 +19,15 @@ Native Windows companion apps are planned.
 
 ## Native Windows status
 
-Native Windows CLI flows are improving, but WSL2 is still the recommended path.
+Native Windows CLI and app flows are supported. WSL2 remains useful when your
+workflow depends on Linux tools or Linux-only plugin dependencies.
 
 What works well on native Windows today:
 
 - website installer via `install.ps1`
 - local CLI use such as `openclaw --version`, `openclaw doctor`, and `openclaw plugins list --json`
+- native Windows companion app for chat, Gateway controls, pairing, approvals,
+  and device capabilities
 - embedded local-agent/provider smoke such as:
 
 ```powershell
@@ -56,7 +56,8 @@ openclaw gateway install
 openclaw gateway status --json
 ```
 
-If Scheduled Task creation is blocked, the fallback service mode still auto-starts after login through the current user's Startup folder.
+If Scheduled Task creation is blocked, the fallback service mode still
+auto-starts after login through the current user's Startup folder.
 
 ## Gateway
 
@@ -67,19 +68,19 @@ If Scheduled Task creation is blocked, the fallback service mode still auto-star
 
 Inside WSL2:
 
-```
+```bash
 openclaw onboard --install-daemon
 ```
 
 Or:
 
-```
+```bash
 openclaw gateway install
 ```
 
 Or:
 
-```
+```bash
 openclaw configure
 ```
 
@@ -87,16 +88,71 @@ Select **Gateway service** when prompted.
 
 Repair/migrate:
 
-```
+```bash
 openclaw doctor
 ```
+
+## Windows companion app
+
+The Windows companion app lives in `apps/windows` and is built with WinUI 3,
+Windows App SDK, and C#. It uses the same Gateway protocol as the other native
+apps and does not own Gateway configuration.
+
+Install the source dependencies once:
+
+```powershell
+pnpm install
+```
+
+Build and test the app:
+
+```powershell
+pnpm windows:protocol:check
+pnpm windows:test
+pnpm windows:build
+```
+
+Launch from source:
+
+```powershell
+dotnet run --project apps/windows/OpenClaw.Windows/OpenClaw.Windows.csproj -c Release
+```
+
+Package MSIX artifacts:
+
+```powershell
+pnpm windows:package
+```
+
+The package output is written under `apps/windows/OpenClaw.Windows/AppPackages`.
+CI uploads the same directory as the `openclaw-windows-app` artifact from the
+Windows app check. The default package command creates unsigned sideload
+artifacts for build verification; release builds must sign the MSIX with a
+trusted certificate before installing on a clean Windows machine.
+
+After launch, the app connects to the local Gateway URL, usually
+`ws://127.0.0.1:18789`. Use the Gateway tab to install, start, stop, restart,
+or inspect the native Windows Gateway service. Use the Pairing tab to approve a
+pending device pairing request. Use the Devices tab to verify screen capture,
+camera, microphone, hotkey, notification, and overlay capabilities.
+
+Uninstall through **Settings > Apps > Installed apps > OpenClaw**, or from
+PowerShell:
+
+```powershell
+Get-AppxPackage OpenClaw.Windows | Remove-AppxPackage
+```
+
+Uninstall removes app-owned package state. Gateway configuration and credentials
+remain in the normal OpenClaw user state so reinstalling the app does not erase
+the user's existing Gateway setup.
 
 ## Gateway auto-start before Windows login
 
 For headless setups, ensure the full boot chain runs even when no one logs into
 Windows.
 
-### 1) Keep user services running without login
+### 1. Keep user services running without login
 
 Inside WSL:
 
@@ -104,7 +160,7 @@ Inside WSL:
 sudo loginctl enable-linger "$(whoami)"
 ```
 
-### 2) Install the OpenClaw gateway user service
+### 2. Install the OpenClaw gateway user service
 
 Inside WSL:
 
@@ -112,7 +168,7 @@ Inside WSL:
 openclaw gateway install
 ```
 
-### 3) Start WSL automatically at Windows boot
+### 3. Start WSL automatically at Windows boot
 
 In PowerShell as Administrator:
 
@@ -128,7 +184,7 @@ wsl --list --verbose
 
 ### Verify startup chain
 
-After a reboot (before Windows sign-in), check from WSL:
+After a reboot before Windows sign-in, check from WSL:
 
 ```bash
 systemctl --user is-enabled openclaw-gateway.service
@@ -156,7 +212,7 @@ netsh interface portproxy add v4tov4 listenaddress=0.0.0.0 listenport=$ListenPor
   connectaddress=$WslIp connectport=$TargetPort
 ```
 
-Allow the port through Windows Firewall (one-time):
+Allow the port through Windows Firewall one time:
 
 ```powershell
 New-NetFirewallRule -DisplayName "WSL SSH $ListenPort" -Direction Inbound `
@@ -177,14 +233,14 @@ Notes:
 - Remote nodes must point at a **reachable** Gateway URL (not `127.0.0.1`); use
   `openclaw status --all` to confirm.
 - Use `listenaddress=0.0.0.0` for LAN access; `127.0.0.1` keeps it local only.
-- If you want this automatic, register a Scheduled Task to run the refresh
-  step at login.
+- If you want this automatic, register a Scheduled Task to run the refresh step
+  at login.
 
 ## Step-by-step WSL2 install
 
-### 1) Install WSL2 + Ubuntu
+### 1. Install WSL2 + Ubuntu
 
-Open PowerShell (Admin):
+Open PowerShell as Administrator:
 
 ```powershell
 wsl --install
@@ -195,7 +251,7 @@ wsl --install -d Ubuntu-24.04
 
 Reboot if Windows asks.
 
-### 2) Enable systemd (required for gateway install)
+### 2. Enable systemd (required for gateway install)
 
 In your WSL terminal:
 
@@ -218,7 +274,7 @@ Re-open Ubuntu, then verify:
 systemctl --user status
 ```
 
-### 3) Install OpenClaw (inside WSL)
+### 3. Install OpenClaw (inside WSL)
 
 For a normal first-time setup inside WSL, follow the Linux Getting Started flow:
 
@@ -231,8 +287,8 @@ pnpm ui:build
 pnpm openclaw onboard --install-daemon
 ```
 
-If you are developing from source instead of doing first-time onboarding, use the
-source dev loop from [Setup](/start/setup):
+If you are developing from source instead of doing first-time onboarding, use
+the source dev loop from [Setup](/start/setup):
 
 ```bash
 pnpm install
@@ -242,11 +298,6 @@ pnpm gateway:watch
 ```
 
 Full guide: [Getting Started](/start/getting-started)
-
-## Windows companion app
-
-We do not have a Windows companion app yet. Contributions are welcome if you want to
-help make it happen.
 
 ## Git and GitHub connectivity (contributors)
 

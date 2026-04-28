@@ -196,6 +196,9 @@ apps/swabble/build/
 *.xcresult
 *.trace
 *.profraw
+Swabble/build/
+apps/windows/**/AppPackages/
+apps/windows/**/BundleArtifacts/
 
 # Generated protocol schema (produced via pnpm protocol:gen)
 dist/protocol.schema.json
