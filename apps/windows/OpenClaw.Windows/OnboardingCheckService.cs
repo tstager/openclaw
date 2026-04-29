@@ -21,7 +21,7 @@ public sealed class OnboardingCheckService(IGatewayCliCommandRunner commandRunne
     {
         var results = new List<OnboardingCheckResult>
         {
-            await CheckCommandAsync("openclaw", this.commandRunner.CommandName, ["--version"], cancellationToken),
+            await CheckRunnerAsync("openclaw", "OpenClaw CLI", this.commandRunner, ["--version"], cancellationToken),
             await CheckCommandAsync("node", "node", ["--version"], cancellationToken),
         };
 
@@ -83,6 +83,32 @@ public sealed class OnboardingCheckService(IGatewayCliCommandRunner commandRunne
                 key == "node" ? "Node runtime" : "OpenClaw CLI",
                 OnboardingCheckState.Failed,
                 $"{command} was not found on PATH.");
+        }
+    }
+
+    private static async Task<OnboardingCheckResult> CheckRunnerAsync(
+        string key,
+        string label,
+        IGatewayCliCommandRunner runner,
+        IReadOnlyList<string> args,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await runner.RunAsync(args, cancellationToken);
+            return new OnboardingCheckResult(
+                key,
+                label,
+                result.Succeeded ? OnboardingCheckState.Passed : OnboardingCheckState.Failed,
+                result.Succeeded ? result.CombinedOutput : $"Command failed: {result.CombinedOutput}");
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or FileNotFoundException)
+        {
+            return new OnboardingCheckResult(
+                key,
+                label,
+                OnboardingCheckState.Failed,
+                $"{runner.CommandName} was not found.");
         }
     }
 }

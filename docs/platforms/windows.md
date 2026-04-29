@@ -142,6 +142,10 @@ or inspect the native Windows Gateway service. Use the Pairing tab to approve a
 pending device pairing request. Use the Devices tab to verify screen capture,
 camera, microphone, hotkey, notification, and overlay capabilities.
 
+When the app is launched from a source checkout, it looks for `openclaw.mjs` in
+the current repo and runs it through `node`. A global `openclaw` executable is
+only required when the app is launched outside a source checkout.
+
 Uninstall through **Settings > Apps > Installed apps > OpenClaw**, or from
 PowerShell:
 
