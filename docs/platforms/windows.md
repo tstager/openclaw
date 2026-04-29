@@ -118,6 +118,12 @@ Launch from source:
 dotnet run --project apps/windows/OpenClaw.Windows/OpenClaw.Windows.csproj -c Release
 ```
 
+For local source launches on Windows, prefer the explicit x64 runtime:
+
+```powershell
+dotnet run --project apps/windows/OpenClaw.Windows/OpenClaw.Windows.csproj -c Release -r win-x64
+```
+
 Package MSIX artifacts:
 
 ```powershell

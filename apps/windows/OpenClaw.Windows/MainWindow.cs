@@ -349,41 +349,50 @@ public sealed class MainWindow : Window
     {
         try
         {
-            var status = await this.appState.Gateway.RefreshStatusAsync();
-            this.RenderStatus(status);
+            try
+            {
+                var status = await this.appState.Gateway.RefreshStatusAsync();
+                this.RenderStatus(status);
+            }
+            catch (Exception ex)
+            {
+                this.statusText.Text = "Gateway status unavailable";
+                this.detailText.Text = ex.Message;
+            }
+
+            var checks = await this.appState.OnboardingChecks.RunAsync();
+            this.onboardingList.Children.Clear();
+            foreach (var check in checks)
+            {
+                this.onboardingList.Children.Add(new TextBlock
+                {
+                    Text = $"{check.Label}: {check.State} - {check.Detail}",
+                    TextWrapping = TextWrapping.Wrap,
+                    Foreground = new SolidColorBrush(check.State == OnboardingCheckState.Failed ? Microsoft.UI.Colors.Firebrick : Microsoft.UI.Colors.Black),
+                });
+            }
+
+            var preferences = await this.appState.Preferences.LoadAsync();
+            this.gatewayUrlInput.Text = preferences.GatewayUrl;
+            this.gatewayTokenInput.Text = preferences.GatewayToken ?? "";
+            this.chatSessionInput.Text = preferences.ChatSessionKey;
+            this.voiceControlsToggle.IsChecked = preferences.VoiceControlsEnabled;
+            this.globalHotkeyToggle.IsChecked = preferences.GlobalHotkeyEnabled;
+            this.settingsText.Text =
+                $"Open main window on launch: {preferences.OpenMainWindowOnLaunch}\n" +
+                $"Last status: {preferences.LastStatus ?? "unknown"}\n" +
+                $"Last checked: {preferences.LastStatusCheckedAt?.ToLocalTime().ToString("g") ?? "never"}\n" +
+                $"Device token cached: {!string.IsNullOrWhiteSpace(preferences.DeviceToken)}\n" +
+                $"Voice controls: {preferences.VoiceControlsEnabled}\n" +
+                $"Global hotkey: {preferences.GlobalHotkeyEnabled}";
+            await this.RefreshDeviceCapabilitiesAsync();
         }
         catch (Exception ex)
         {
-            this.statusText.Text = "Gateway status unavailable";
+            CrashLog.Write(ex);
+            this.statusText.Text = "Startup refresh failed";
             this.detailText.Text = ex.Message;
         }
-
-        var checks = await this.appState.OnboardingChecks.RunAsync();
-        this.onboardingList.Children.Clear();
-        foreach (var check in checks)
-        {
-            this.onboardingList.Children.Add(new TextBlock
-            {
-                Text = $"{check.Label}: {check.State} - {check.Detail}",
-                TextWrapping = TextWrapping.Wrap,
-                Foreground = new SolidColorBrush(check.State == OnboardingCheckState.Failed ? Microsoft.UI.Colors.Firebrick : Microsoft.UI.Colors.Black),
-            });
-        }
-
-        var preferences = await this.appState.Preferences.LoadAsync();
-        this.gatewayUrlInput.Text = preferences.GatewayUrl;
-        this.gatewayTokenInput.Text = preferences.GatewayToken ?? "";
-        this.chatSessionInput.Text = preferences.ChatSessionKey;
-        this.voiceControlsToggle.IsChecked = preferences.VoiceControlsEnabled;
-        this.globalHotkeyToggle.IsChecked = preferences.GlobalHotkeyEnabled;
-        this.settingsText.Text =
-            $"Open main window on launch: {preferences.OpenMainWindowOnLaunch}\n" +
-            $"Last status: {preferences.LastStatus ?? "unknown"}\n" +
-            $"Last checked: {preferences.LastStatusCheckedAt?.ToLocalTime().ToString("g") ?? "never"}\n" +
-            $"Device token cached: {!string.IsNullOrWhiteSpace(preferences.DeviceToken)}\n" +
-            $"Voice controls: {preferences.VoiceControlsEnabled}\n" +
-            $"Global hotkey: {preferences.GlobalHotkeyEnabled}";
-        await this.RefreshDeviceCapabilitiesAsync();
     }
 
     private async Task ConnectRealtimeAsync()
