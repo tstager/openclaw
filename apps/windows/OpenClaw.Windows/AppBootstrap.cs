@@ -29,7 +29,7 @@ public static class AppBootstrap
     public static WindowsCompanionState CreateAppState()
     {
         var preferences = AppPreferencesStore.CreateDefault();
-        var commandRunner = new GatewayCliCommandRunner("openclaw");
+        var commandRunner = GatewayCliCommandRunner.CreateDefault();
         var gateway = new GatewayCompanionController(commandRunner, preferences);
         return new WindowsCompanionState(
             Summary: CreateStartupSummary(),
