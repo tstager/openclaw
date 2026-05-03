@@ -38,14 +38,24 @@ public sealed class GatewayRpcException(string code, string message) : Exception
     public string Code { get; } = code;
 }
 
-public sealed class GatewayRealtimeClient(AppPreferencesStore preferences)
+public sealed class GatewayRealtimeClient : IAsyncDisposable
 {
-    private readonly AppPreferencesStore preferences = preferences;
+    private static readonly TimeSpan DefaultRequestTimeout = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan DisconnectCloseTimeout = TimeSpan.FromSeconds(2);
+    private readonly TimeSpan requestTimeout;
+    private readonly AppPreferencesStore preferences;
     private readonly ConcurrentDictionary<string, TaskCompletionSource<JsonElement>> pending = new();
     private readonly JsonSerializerOptions jsonOptions = GatewayProtocolJson.SerializerOptions;
     private ClientWebSocket? socket;
     private CancellationTokenSource? receiveCts;
+    private Task? receiveTask;
     private int nextRequestId;
+
+    public GatewayRealtimeClient(AppPreferencesStore preferences, TimeSpan? requestTimeout = null)
+    {
+        this.preferences = preferences;
+        this.requestTimeout = requestTimeout ?? DefaultRequestTimeout;
+    }
 
     public GatewayRealtimeState State { get; private set; } = GatewayRealtimeState.Disconnected;
 
@@ -63,12 +73,21 @@ public sealed class GatewayRealtimeClient(AppPreferencesStore preferences)
     {
         await this.DisconnectAsync();
         this.SetState(GatewayRealtimeState.Connecting, null);
-        this.socket = new ClientWebSocket();
-        await this.socket.ConnectAsync(new Uri(prefs.GatewayUrl), cancellationToken);
-        this.receiveCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        _ = this.ReceiveLoopAsync(this.socket, this.receiveCts.Token);
-        await this.SendConnectAsync(prefs, cancellationToken);
-        this.SetState(GatewayRealtimeState.Connected, null);
+        var connectingSocket = new ClientWebSocket();
+        try
+        {
+            this.socket = connectingSocket;
+            await connectingSocket.ConnectAsync(new Uri(prefs.GatewayUrl), cancellationToken);
+            this.receiveCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            this.receiveTask = this.ReceiveLoopAsync(connectingSocket, this.receiveCts.Token);
+            await this.SendConnectAsync(prefs, cancellationToken);
+            this.SetState(GatewayRealtimeState.Connected, null);
+        }
+        catch
+        {
+            await this.DisconnectAsync();
+            throw;
+        }
     }
 
     public async Task ReconnectAsync(CancellationToken cancellationToken = default)
@@ -78,14 +97,46 @@ public sealed class GatewayRealtimeClient(AppPreferencesStore preferences)
 
     public async Task DisconnectAsync()
     {
-        this.receiveCts?.Cancel();
-        if (this.socket is { State: WebSocketState.Open } socketToClose)
-        {
-            await socketToClose.CloseAsync(WebSocketCloseStatus.NormalClosure, "closing", CancellationToken.None);
-        }
-        this.socket?.Dispose();
+        var socketToClose = this.socket;
+        var receiveTaskSnapshot = this.receiveTask;
+        var receiveCtsSnapshot = this.receiveCts;
+        receiveCtsSnapshot?.Cancel();
+        this.receiveCts = null;
+        this.receiveTask = null;
         this.socket = null;
+
+        if (socketToClose is { State: WebSocketState.Open or WebSocketState.CloseReceived })
+        {
+            using var closeCts = new CancellationTokenSource(DisconnectCloseTimeout);
+            try
+            {
+                await socketToClose.CloseAsync(WebSocketCloseStatus.NormalClosure, "closing", closeCts.Token);
+            }
+            catch (Exception ex) when (ex is OperationCanceledException or WebSocketException)
+            {
+                socketToClose.Abort();
+            }
+        }
+
+        socketToClose?.Dispose();
+        receiveCtsSnapshot?.Dispose();
+        if (receiveTaskSnapshot is not null)
+        {
+            try
+            {
+                await receiveTaskSnapshot.WaitAsync(DisconnectCloseTimeout);
+            }
+            catch (Exception ex) when (ex is OperationCanceledException or TimeoutException or WebSocketException)
+            {
+            }
+        }
+        this.FailPending(new OperationCanceledException("Gateway WebSocket disconnected."));
         this.SetState(GatewayRealtimeState.Disconnected, null);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await this.DisconnectAsync();
     }
 
     public async Task<IReadOnlyList<ChatMessage>> LoadChatHistoryAsync(
@@ -198,15 +249,43 @@ public sealed class GatewayRealtimeClient(AppPreferencesStore preferences)
         var id = Interlocked.Increment(ref this.nextRequestId).ToString();
         var completion = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
         this.pending[id] = completion;
-        await this.SendJsonAsync(socketSnapshot, new
+        using var timeoutCts = new CancellationTokenSource(this.requestTimeout);
+        using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+        using var registration = linkedCts.Token.Register(() =>
         {
-            type = "req",
-            id,
-            method,
-            @params = parameters,
-        }, cancellationToken);
-        await using var registration = cancellationToken.Register(() => completion.TrySetCanceled(cancellationToken));
-        return await completion.Task;
+            if (!this.pending.TryRemove(id, out var pendingCompletion))
+            {
+                return;
+            }
+
+            if (timeoutCts.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+            {
+                pendingCompletion.TrySetException(new TimeoutException(
+                    $"Gateway request '{method}' timed out after {this.requestTimeout.TotalSeconds:0.#} seconds."));
+                return;
+            }
+
+            pendingCompletion.TrySetCanceled(cancellationToken.IsCancellationRequested
+                ? cancellationToken
+                : linkedCts.Token);
+        });
+
+        try
+        {
+            await this.SendJsonAsync(socketSnapshot, new
+            {
+                type = "req",
+                id,
+                method,
+                @params = parameters,
+            }, linkedCts.Token);
+            return await completion.Task;
+        }
+        catch
+        {
+            this.pending.TryRemove(id, out _);
+            throw;
+        }
     }
 
     private async Task SendConnectAsync(AppPreferences prefs, CancellationToken cancellationToken)
@@ -259,6 +338,7 @@ public sealed class GatewayRealtimeClient(AppPreferencesStore preferences)
 
     private async Task ReceiveLoopAsync(ClientWebSocket socketSnapshot, CancellationToken cancellationToken)
     {
+        Exception? disconnectReason = null;
         try
         {
             while (!cancellationToken.IsCancellationRequested && socketSnapshot.State == WebSocketState.Open)
@@ -266,17 +346,31 @@ public sealed class GatewayRealtimeClient(AppPreferencesStore preferences)
                 var json = await ReceiveTextAsync(socketSnapshot, cancellationToken);
                 if (json is null)
                 {
+                    disconnectReason = new IOException("Gateway WebSocket closed.");
                     break;
                 }
                 this.HandleFrame(json);
             }
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
         }
-        catch (WebSocketException ex)
+        catch (Exception ex)
         {
-            this.SetState(GatewayRealtimeState.Disconnected, ex.Message);
+            disconnectReason = ex;
+        }
+        finally
+        {
+            if (!cancellationToken.IsCancellationRequested)
+            {
+                disconnectReason ??= new IOException("Gateway WebSocket disconnected.");
+                this.FailPending(disconnectReason);
+                if (ReferenceEquals(this.socket, socketSnapshot))
+                {
+                    this.socket = null;
+                    this.SetState(GatewayRealtimeState.Disconnected, disconnectReason.Message);
+                }
+            }
         }
     }
 
@@ -353,6 +447,17 @@ public sealed class GatewayRealtimeClient(AppPreferencesStore preferences)
     {
         this.State = state;
         this.StateChanged?.Invoke(state, reason);
+    }
+
+    private void FailPending(Exception exception)
+    {
+        foreach (var entry in this.pending.ToArray())
+        {
+            if (this.pending.TryRemove(entry.Key, out var completion))
+            {
+                completion.TrySetException(exception);
+            }
+        }
     }
 
     private static ChatMessage? ParseChatMessage(JsonElement element)
