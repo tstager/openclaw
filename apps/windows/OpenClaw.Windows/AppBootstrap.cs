@@ -28,13 +28,14 @@ public static class AppBootstrap
 
     public static WindowsCompanionState CreateAppState()
     {
-        var preferences = AppPreferencesStore.CreateDefault();
+        var credentials = new PasswordVaultAppCredentialStore();
+        var preferences = AppPreferencesStore.CreateDefault(credentials);
         var commandRunner = GatewayCliCommandRunner.CreateDefault();
         var gateway = new GatewayCompanionController(commandRunner, preferences);
         return new WindowsCompanionState(
             Summary: CreateStartupSummary(),
             Gateway: gateway,
-            Realtime: new GatewayRealtimeClient(preferences),
+            Realtime: new GatewayRealtimeClient(preferences, new DeviceIdentityStore(credentials)),
             DeviceCapabilities: new WindowsDeviceCapabilityService(),
             OnboardingChecks: new OnboardingCheckService(commandRunner),
             Preferences: preferences);

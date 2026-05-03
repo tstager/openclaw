@@ -139,15 +139,72 @@ public sealed class GatewayRealtimeClientTests
         await client.DisposeAsync();
     }
 
+    [TestMethod]
+    public async Task ConnectAsyncSendsStoredDeviceTokenAsDeviceTokenAndSignedDeviceIdentity()
+    {
+        var connectRequest = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var server = GatewayRealtimeTestServer.Start(
+            async (socket, request) =>
+            {
+                using var document = JsonDocument.Parse(request);
+                var frame = document.RootElement;
+                if (ReadString(frame, "method") == "connect")
+                {
+                    connectRequest.TrySetResult(frame.Clone());
+                    await SendOkResponseAsync(socket, ReadString(frame, "id") ?? "", "issued-device-token");
+                }
+            },
+            challengeNonce: "nonce-1");
+        var credentials = new InMemoryAppCredentialStore();
+        await credentials.SaveDeviceTokenAsync("stored-device-token");
+        var client = CreateClient(
+            server.WebSocketUrl,
+            TimeSpan.FromSeconds(5),
+            credentials,
+            new DeviceIdentityStore(credentials));
+
+        await client.ConnectAsync();
+
+        var connect = await connectRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var parameters = connect.GetProperty("params");
+        var auth = parameters.GetProperty("auth");
+        Assert.AreEqual("stored-device-token", auth.GetProperty("deviceToken").GetString());
+        Assert.IsFalse(auth.TryGetProperty("token", out var token) && token.GetString() == "stored-device-token");
+        var device = parameters.GetProperty("device");
+        Assert.IsFalse(string.IsNullOrWhiteSpace(device.GetProperty("id").GetString()));
+        Assert.IsFalse(string.IsNullOrWhiteSpace(device.GetProperty("publicKey").GetString()));
+        Assert.IsFalse(string.IsNullOrWhiteSpace(device.GetProperty("signature").GetString()));
+        Assert.AreEqual("nonce-1", device.GetProperty("nonce").GetString());
+        Assert.IsGreaterThan(0, device.GetProperty("signedAt").GetInt64());
+        Assert.AreEqual("issued-device-token", await credentials.LoadDeviceTokenAsync());
+        await client.DisposeAsync();
+    }
+
     private static GatewayRealtimeClient CreateClient(string gatewayUrl, TimeSpan requestTimeout)
     {
+        return CreateClient(
+            gatewayUrl,
+            requestTimeout,
+            new InMemoryAppCredentialStore(),
+            deviceIdentityStore: null);
+    }
+
+    private static GatewayRealtimeClient CreateClient(
+        string gatewayUrl,
+        TimeSpan requestTimeout,
+        IAppCredentialStore credentials,
+        DeviceIdentityStore? deviceIdentityStore)
+    {
         var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName(), "preferences.json");
-        var store = new AppPreferencesStore(path);
-        store.SaveAsync(AppPreferences.Default with
+        var store = new AppPreferencesStore(path, credentials);
+        var current = store.LoadAsync().GetAwaiter().GetResult();
+        store.SaveAsync(current with
         {
             GatewayUrl = gatewayUrl,
         }).GetAwaiter().GetResult();
-        return new GatewayRealtimeClient(store, requestTimeout);
+        return deviceIdentityStore is null
+            ? new GatewayRealtimeClient(store, requestTimeout)
+            : new GatewayRealtimeClient(store, deviceIdentityStore, requestTimeout);
     }
 
     private static async Task<TException> ThrowsAsync<TException>(Func<Task> action)
@@ -173,11 +230,12 @@ public sealed class GatewayRealtimeClientTests
             : null;
     }
 
-    private static Task SendOkResponseAsync(WebSocket socket, string id)
+    private static Task SendOkResponseAsync(WebSocket socket, string id, string? deviceToken = null)
     {
+        var deviceTokenJson = deviceToken is null ? "" : $",\"deviceToken\":\"{deviceToken}\"";
         return SendTextAsync(
             socket,
-            $"{{\"type\":\"res\",\"id\":\"{id}\",\"ok\":true,\"payload\":{{\"auth\":{{\"role\":\"operator\",\"scopes\":[]}}}}}}");
+            $"{{\"type\":\"res\",\"id\":\"{id}\",\"ok\":true,\"payload\":{{\"auth\":{{\"role\":\"operator\",\"scopes\":[]{deviceTokenJson}}}}}}}");
     }
 
     private static async Task SendTextAsync(WebSocket socket, string text)
@@ -189,12 +247,17 @@ public sealed class GatewayRealtimeClientTests
     private sealed class GatewayRealtimeTestServer : IAsyncDisposable
     {
         private readonly Func<WebSocket, string, Task> handleRequest;
+        private readonly string? challengeNonce;
         private readonly HttpListener listener = new();
         private readonly Task serverTask;
 
-        private GatewayRealtimeTestServer(int port, Func<WebSocket, string, Task> handleRequest)
+        private GatewayRealtimeTestServer(
+            int port,
+            Func<WebSocket, string, Task> handleRequest,
+            string? challengeNonce)
         {
             this.handleRequest = handleRequest;
+            this.challengeNonce = challengeNonce;
             this.WebSocketUrl = $"ws://127.0.0.1:{port}/gateway/";
             this.listener.Prefixes.Add($"http://127.0.0.1:{port}/gateway/");
             this.listener.Start();
@@ -203,9 +266,11 @@ public sealed class GatewayRealtimeClientTests
 
         public string WebSocketUrl { get; }
 
-        public static GatewayRealtimeTestServer Start(Func<WebSocket, string, Task> handleRequest)
+        public static GatewayRealtimeTestServer Start(
+            Func<WebSocket, string, Task> handleRequest,
+            string? challengeNonce = null)
         {
-            return new GatewayRealtimeTestServer(GetAvailablePort(), handleRequest);
+            return new GatewayRealtimeTestServer(GetAvailablePort(), handleRequest, challengeNonce);
         }
 
         public async ValueTask DisposeAsync()
@@ -235,6 +300,12 @@ public sealed class GatewayRealtimeClientTests
 
                 var webSocketContext = await context.AcceptWebSocketAsync(null);
                 using var socket = webSocketContext.WebSocket;
+                if (!string.IsNullOrWhiteSpace(this.challengeNonce))
+                {
+                    await SendTextAsync(
+                        socket,
+                        $"{{\"type\":\"event\",\"event\":\"connect.challenge\",\"payload\":{{\"nonce\":\"{this.challengeNonce}\",\"ts\":1}}}}");
+                }
                 while (socket.State is WebSocketState.Open or WebSocketState.CloseReceived)
                 {
                     var request = await ReceiveTextAsync(socket);
@@ -275,6 +346,46 @@ public sealed class GatewayRealtimeClientTests
                 stream.Write(buffer, 0, result.Count);
             } while (!result.EndOfMessage);
             return Encoding.UTF8.GetString(stream.ToArray());
+        }
+    }
+
+    private sealed class InMemoryAppCredentialStore : IAppCredentialStore
+    {
+        private string? gatewayToken;
+        private string? deviceToken;
+        private string? devicePrivateKey;
+
+        public Task<string?> LoadGatewayTokenAsync(CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(this.gatewayToken);
+        }
+
+        public Task SaveGatewayTokenAsync(string? token, CancellationToken cancellationToken = default)
+        {
+            this.gatewayToken = token;
+            return Task.CompletedTask;
+        }
+
+        public Task<string?> LoadDeviceTokenAsync(CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(this.deviceToken);
+        }
+
+        public Task SaveDeviceTokenAsync(string? token, CancellationToken cancellationToken = default)
+        {
+            this.deviceToken = token;
+            return Task.CompletedTask;
+        }
+
+        public Task<string?> LoadDevicePrivateKeyAsync(CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(this.devicePrivateKey);
+        }
+
+        public Task SaveDevicePrivateKeyAsync(string? privateKey, CancellationToken cancellationToken = default)
+        {
+            this.devicePrivateKey = privateKey;
+            return Task.CompletedTask;
         }
     }
 }
