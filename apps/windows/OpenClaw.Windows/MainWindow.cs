@@ -39,34 +39,9 @@ public sealed class MainWindow : Window
     {
         this.appState = appState;
         this.Title = "OpenClaw";
-        this.appState.Realtime.StateChanged += (state, reason) =>
-        {
-            _ = this.DispatcherQueue.TryEnqueue(() =>
-            {
-                this.statusText.Text = $"Gateway: {state}";
-                if (!string.IsNullOrWhiteSpace(reason))
-                {
-                    this.detailText.Text = reason;
-                }
-            });
-        };
-        this.appState.Realtime.EventReceived += @event =>
-        {
-            _ = this.DispatcherQueue.TryEnqueue(() =>
-            {
-                this.chatMessages.Children.Add(new TextBlock
-                {
-                    Text = $"event:{@event.Name} {@event.Payload?.ToString() ?? ""}",
-                    TextWrapping = TextWrapping.Wrap,
-                    Opacity = 0.76,
-                });
-            });
-        };
-        this.Closed += (_, _) =>
-        {
-            this.hotkeyService?.Dispose();
-            this.overlayWindow?.Close();
-        };
+        this.appState.Realtime.StateChanged += this.OnRealtimeStateChanged;
+        this.appState.Realtime.EventReceived += this.OnRealtimeEventReceived;
+        this.Closed += this.OnClosed;
         this.Content = this.BuildContent();
     }
 
@@ -343,6 +318,47 @@ public sealed class MainWindow : Window
             Content = label,
             Command = new RelayCommand(async () => await this.RunGatewayActionAsync(action)),
         };
+    }
+
+    private void OnRealtimeStateChanged(GatewayRealtimeState state, string? reason)
+    {
+        _ = this.DispatcherQueue.TryEnqueue(() =>
+        {
+            this.statusText.Text = $"Gateway: {state}";
+            if (!string.IsNullOrWhiteSpace(reason))
+            {
+                this.detailText.Text = reason;
+            }
+        });
+    }
+
+    private void OnRealtimeEventReceived(GatewayRealtimeEvent @event)
+    {
+        _ = this.DispatcherQueue.TryEnqueue(() =>
+        {
+            this.chatMessages.Children.Add(new TextBlock
+            {
+                Text = $"event:{@event.Name} {@event.Payload?.ToString() ?? ""}",
+                TextWrapping = TextWrapping.Wrap,
+                Opacity = 0.76,
+            });
+        });
+    }
+
+    private async void OnClosed(object sender, WindowEventArgs args)
+    {
+        this.appState.Realtime.StateChanged -= this.OnRealtimeStateChanged;
+        this.appState.Realtime.EventReceived -= this.OnRealtimeEventReceived;
+        this.hotkeyService?.Dispose();
+        this.overlayWindow?.Close();
+        try
+        {
+            await this.appState.Realtime.DisposeAsync();
+        }
+        catch (Exception ex)
+        {
+            CrashLog.Write(ex);
+        }
     }
 
     private async Task RefreshAllAsync()
