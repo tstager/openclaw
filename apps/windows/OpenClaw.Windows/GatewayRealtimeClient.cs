@@ -44,16 +44,27 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
     private static readonly TimeSpan DisconnectCloseTimeout = TimeSpan.FromSeconds(2);
     private readonly TimeSpan requestTimeout;
     private readonly AppPreferencesStore preferences;
+    private readonly DeviceIdentityStore? deviceIdentityStore;
     private readonly ConcurrentDictionary<string, TaskCompletionSource<JsonElement>> pending = new();
     private readonly JsonSerializerOptions jsonOptions = GatewayProtocolJson.SerializerOptions;
     private ClientWebSocket? socket;
     private CancellationTokenSource? receiveCts;
     private Task? receiveTask;
+    private TaskCompletionSource<string>? connectChallenge;
     private int nextRequestId;
 
     public GatewayRealtimeClient(AppPreferencesStore preferences, TimeSpan? requestTimeout = null)
+        : this(preferences, deviceIdentityStore: null, requestTimeout)
+    {
+    }
+
+    public GatewayRealtimeClient(
+        AppPreferencesStore preferences,
+        DeviceIdentityStore? deviceIdentityStore,
+        TimeSpan? requestTimeout = null)
     {
         this.preferences = preferences;
+        this.deviceIdentityStore = deviceIdentityStore;
         this.requestTimeout = requestTimeout ?? DefaultRequestTimeout;
     }
 
@@ -79,8 +90,10 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
             this.socket = connectingSocket;
             await connectingSocket.ConnectAsync(new Uri(prefs.GatewayUrl), cancellationToken);
             this.receiveCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            this.connectChallenge = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
             this.receiveTask = this.ReceiveLoopAsync(connectingSocket, this.receiveCts.Token);
             await this.SendConnectAsync(prefs, cancellationToken);
+            this.connectChallenge = null;
             this.SetState(GatewayRealtimeState.Connected, null);
         }
         catch
@@ -103,6 +116,8 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
         receiveCtsSnapshot?.Cancel();
         this.receiveCts = null;
         this.receiveTask = null;
+        this.connectChallenge?.TrySetCanceled();
+        this.connectChallenge = null;
         this.socket = null;
 
         if (socketToClose is { State: WebSocketState.Open or WebSocketState.CloseReceived })
@@ -290,48 +305,86 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
 
     private async Task SendConnectAsync(AppPreferences prefs, CancellationToken cancellationToken)
     {
-        var authToken = string.IsNullOrWhiteSpace(prefs.DeviceToken) ? prefs.GatewayToken : prefs.DeviceToken;
-        var auth = string.IsNullOrWhiteSpace(authToken)
-            ? new Dictionary<string, string>()
-            : new Dictionary<string, string> { ["token"] = authToken };
-        var payload = await this.RequestAsync(
-            "connect",
-            new
+        var scopes = new[]
+        {
+            "operator.read",
+            "operator.write",
+            "operator.approvals",
+            "operator.pairing",
+        };
+        var sharedToken = NormalizeToken(prefs.GatewayToken);
+        var deviceToken = NormalizeToken(prefs.DeviceToken);
+        var auth = new Dictionary<string, string>();
+        if (sharedToken is not null)
+        {
+            auth["token"] = sharedToken;
+        }
+        if (deviceToken is not null)
+        {
+            auth["deviceToken"] = deviceToken;
+        }
+        var connectParams = new Dictionary<string, object?>
+        {
+            ["minProtocol"] = GatewayProtocol.Version,
+            ["maxProtocol"] = GatewayProtocol.Version,
+            ["client"] = new
             {
-                minProtocol = GatewayProtocol.Version,
-                maxProtocol = GatewayProtocol.Version,
-                client = new
-                {
-                    id = "windows-companion",
-                    version = "0.1.0",
-                    platform = "windows",
-                    mode = "operator",
-                },
-                role = "operator",
-                scopes = new[]
-                {
-                    "operator.read",
-                    "operator.write",
-                    "operator.approvals",
-                    "operator.pairing",
-                },
-                caps = Array.Empty<string>(),
-                commands = Array.Empty<string>(),
-                permissions = new { },
-                auth,
-                locale = Thread.CurrentThread.CurrentCulture.Name,
-                userAgent = "openclaw-windows/0.1.0",
+                id = "windows-companion",
+                version = "0.1.0",
+                platform = "windows",
+                mode = "operator",
             },
+            ["role"] = "operator",
+            ["scopes"] = scopes,
+            ["caps"] = Array.Empty<string>(),
+            ["commands"] = Array.Empty<string>(),
+            ["permissions"] = new { },
+            ["locale"] = Thread.CurrentThread.CurrentCulture.Name,
+            ["userAgent"] = "openclaw-windows/0.1.0",
+        };
+        if (auth.Count > 0)
+        {
+            connectParams["auth"] = auth;
+        }
+        if (this.deviceIdentityStore is not null)
+        {
+            var identity = await this.deviceIdentityStore.LoadOrCreateAsync(cancellationToken);
+            var nonce = await this.WaitForConnectChallengeAsync(cancellationToken);
+            var signedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var signedPayload = DeviceIdentityStore.BuildDeviceAuthPayloadV3(
+                identity.DeviceId,
+                "windows-companion",
+                "operator",
+                "operator",
+                scopes,
+                signedAt,
+                sharedToken ?? deviceToken,
+                nonce,
+                "windows",
+                deviceFamily: null);
+            connectParams["device"] = new
+            {
+                id = identity.DeviceId,
+                publicKey = identity.PublicKeyPem,
+                signature = identity.SignPayload(signedPayload),
+                signedAt,
+                nonce,
+            };
+        }
+
+        var responsePayload = await this.RequestAsync(
+            "connect",
+            connectParams,
             cancellationToken);
 
-        if (payload.TryGetProperty("auth", out var authPayload) &&
-            authPayload.TryGetProperty("deviceToken", out var deviceToken) &&
-            deviceToken.ValueKind == JsonValueKind.String &&
-            !string.IsNullOrWhiteSpace(deviceToken.GetString()))
+        if (responsePayload.TryGetProperty("auth", out var authPayload) &&
+            authPayload.TryGetProperty("deviceToken", out var issuedDeviceToken) &&
+            issuedDeviceToken.ValueKind == JsonValueKind.String &&
+            !string.IsNullOrWhiteSpace(issuedDeviceToken.GetString()))
         {
             await this.preferences.UpdateAsync(current => current with
             {
-                DeviceToken = deviceToken.GetString(),
+                DeviceToken = issuedDeviceToken.GetString(),
             }, cancellationToken);
         }
     }
@@ -384,8 +437,23 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
         }
         if (frame.Event is not null)
         {
+            this.HandleEvent(frame.Event);
             this.EventReceived?.Invoke(new GatewayRealtimeEvent(frame.Event.Event, frame.Event.Payload));
         }
+    }
+
+    private void HandleEvent(EventFrame @event)
+    {
+        if (@event.Event != "connect.challenge" ||
+            @event.Payload is not { } payload ||
+            !payload.TryGetProperty("nonce", out var nonce) ||
+            nonce.ValueKind != JsonValueKind.String ||
+            string.IsNullOrWhiteSpace(nonce.GetString()))
+        {
+            return;
+        }
+
+        this.connectChallenge?.TrySetResult(nonce.GetString()!);
     }
 
     private void HandleResponse(ResponseFrame response)
@@ -447,6 +515,29 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
     {
         this.State = state;
         this.StateChanged?.Invoke(state, reason);
+    }
+
+    private async Task<string> WaitForConnectChallengeAsync(CancellationToken cancellationToken)
+    {
+        var challenge = this.connectChallenge ??
+            throw new InvalidOperationException("Gateway connect challenge is not initialized.");
+        using var timeout = new CancellationTokenSource(this.requestTimeout);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
+        using var registration = linked.Token.Register(() =>
+        {
+            if (timeout.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+            {
+                challenge.TrySetException(new TimeoutException("Gateway connect challenge timed out."));
+                return;
+            }
+            challenge.TrySetCanceled(cancellationToken.IsCancellationRequested ? cancellationToken : linked.Token);
+        });
+        return await challenge.Task;
+    }
+
+    private static string? NormalizeToken(string? token)
+    {
+        return string.IsNullOrWhiteSpace(token) ? null : token.Trim();
     }
 
     private void FailPending(Exception exception)

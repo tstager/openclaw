@@ -25,46 +25,173 @@ public sealed record AppPreferences(
         LastStatusCheckedAt: null);
 }
 
-public sealed class AppPreferencesStore(string path)
+public sealed class AppPreferencesStore
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         WriteIndented = true,
     };
+    private readonly IAppCredentialStore? credentials;
+    private readonly SemaphoreSlim gate = new(1, 1);
 
-    public string Path { get; } = path;
+    public AppPreferencesStore(string path, IAppCredentialStore? credentials = null)
+    {
+        this.Path = path;
+        this.credentials = credentials;
+    }
 
-    public static AppPreferencesStore CreateDefault()
+    public string Path { get; }
+
+    public static AppPreferencesStore CreateDefault(IAppCredentialStore credentials)
     {
         var root = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        return new AppPreferencesStore(System.IO.Path.Combine(root, "OpenClaw", "WindowsCompanion", "preferences.json"));
+        return new AppPreferencesStore(
+            System.IO.Path.Combine(root, "OpenClaw", "WindowsCompanion", "preferences.json"),
+            credentials);
     }
 
     public async Task<AppPreferences> LoadAsync(CancellationToken cancellationToken = default)
     {
-        if (!File.Exists(this.Path))
+        await this.gate.WaitAsync(cancellationToken);
+        try
         {
-            return AppPreferences.Default;
+            return await this.LoadUnlockedAsync(cancellationToken);
         }
-
-        await using var stream = File.OpenRead(this.Path);
-        return await JsonSerializer.DeserializeAsync<AppPreferences>(stream, JsonOptions, cancellationToken) ??
-            AppPreferences.Default;
+        finally
+        {
+            this.gate.Release();
+        }
     }
 
     public async Task SaveAsync(AppPreferences preferences, CancellationToken cancellationToken = default)
     {
-        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(this.Path)!);
-        await using var stream = File.Create(this.Path);
-        await JsonSerializer.SerializeAsync(stream, preferences, JsonOptions, cancellationToken);
+        await this.gate.WaitAsync(cancellationToken);
+        try
+        {
+            await this.SaveUnlockedAsync(preferences, cancellationToken);
+        }
+        finally
+        {
+            this.gate.Release();
+        }
     }
 
     public async Task<AppPreferences> UpdateAsync(
         Func<AppPreferences, AppPreferences> update,
         CancellationToken cancellationToken = default)
     {
-        var next = update(await this.LoadAsync(cancellationToken));
-        await this.SaveAsync(next, cancellationToken);
-        return next;
+        await this.gate.WaitAsync(cancellationToken);
+        try
+        {
+            var next = update(await this.LoadUnlockedAsync(cancellationToken));
+            await this.SaveUnlockedAsync(next, cancellationToken);
+            return next;
+        }
+        finally
+        {
+            this.gate.Release();
+        }
+    }
+
+    private async Task<AppPreferences> LoadUnlockedAsync(CancellationToken cancellationToken)
+    {
+        var persisted = AppPreferences.Default;
+        if (File.Exists(this.Path))
+        {
+            await using var stream = File.OpenRead(this.Path);
+            persisted = (await JsonSerializer.DeserializeAsync<PersistedAppPreferences>(
+                stream,
+                JsonOptions,
+                cancellationToken))?.ToAppPreferences() ?? AppPreferences.Default;
+        }
+
+        if (this.credentials is null)
+        {
+            return persisted;
+        }
+
+        return persisted with
+        {
+            GatewayToken = await this.credentials.LoadGatewayTokenAsync(cancellationToken),
+            DeviceToken = await this.credentials.LoadDeviceTokenAsync(cancellationToken),
+        };
+    }
+
+    private async Task SaveUnlockedAsync(AppPreferences preferences, CancellationToken cancellationToken)
+    {
+        if (this.credentials is not null)
+        {
+            await this.credentials.SaveGatewayTokenAsync(preferences.GatewayToken, cancellationToken);
+            await this.credentials.SaveDeviceTokenAsync(preferences.DeviceToken, cancellationToken);
+        }
+
+        var directory = System.IO.Path.GetDirectoryName(this.Path)!;
+        Directory.CreateDirectory(directory);
+        var tempPath = System.IO.Path.Combine(
+            directory,
+            $"{System.IO.Path.GetFileName(this.Path)}.{Guid.NewGuid():N}.tmp");
+        try
+        {
+            await using (var stream = new FileStream(
+                tempPath,
+                FileMode.CreateNew,
+                FileAccess.Write,
+                FileShare.None,
+                4096,
+                useAsync: true))
+            {
+                await JsonSerializer.SerializeAsync(
+                    stream,
+                    PersistedAppPreferences.From(preferences),
+                    JsonOptions,
+                    cancellationToken);
+                await stream.FlushAsync(cancellationToken);
+            }
+
+            File.Move(tempPath, this.Path, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(tempPath))
+            {
+                File.Delete(tempPath);
+            }
+        }
+    }
+
+    private sealed record PersistedAppPreferences(
+        bool OpenMainWindowOnLaunch,
+        string GatewayUrl,
+        string ChatSessionKey,
+        bool VoiceControlsEnabled,
+        bool GlobalHotkeyEnabled,
+        string? LastStatus,
+        DateTimeOffset? LastStatusCheckedAt)
+    {
+        public static PersistedAppPreferences From(AppPreferences preferences)
+        {
+            return new PersistedAppPreferences(
+                preferences.OpenMainWindowOnLaunch,
+                preferences.GatewayUrl,
+                preferences.ChatSessionKey,
+                preferences.VoiceControlsEnabled,
+                preferences.GlobalHotkeyEnabled,
+                preferences.LastStatus,
+                preferences.LastStatusCheckedAt);
+        }
+
+        public AppPreferences ToAppPreferences()
+        {
+            return new AppPreferences(
+                this.OpenMainWindowOnLaunch,
+                string.IsNullOrWhiteSpace(this.GatewayUrl) ? AppPreferences.Default.GatewayUrl : this.GatewayUrl,
+                GatewayToken: null,
+                DeviceToken: null,
+                string.IsNullOrWhiteSpace(this.ChatSessionKey) ? AppPreferences.Default.ChatSessionKey : this.ChatSessionKey,
+                this.VoiceControlsEnabled,
+                this.GlobalHotkeyEnabled,
+                this.LastStatus,
+                this.LastStatusCheckedAt);
+        }
     }
 }

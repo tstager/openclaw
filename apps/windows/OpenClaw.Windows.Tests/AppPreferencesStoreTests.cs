@@ -1,3 +1,4 @@
+using System.Text.Json;
 using OpenClaw.Windows;
 
 namespace OpenClaw.Windows.Tests;
@@ -23,5 +24,90 @@ public sealed class AppPreferencesStoreTests
         Assert.AreEqual(expected.LastStatusCheckedAt, actual.LastStatusCheckedAt);
         Assert.AreEqual(expected.VoiceControlsEnabled, actual.VoiceControlsEnabled);
         Assert.AreEqual(expected.GlobalHotkeyEnabled, actual.GlobalHotkeyEnabled);
+    }
+
+    [TestMethod]
+    public async Task SavesTokensToCredentialStoreInsteadOfPreferencesJson()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName(), "preferences.json");
+        var credentials = new InMemoryAppCredentialStore();
+        var store = new AppPreferencesStore(path, credentials);
+
+        await store.SaveAsync(AppPreferences.Default with
+        {
+            GatewayToken = "shared-token",
+            DeviceToken = "device-token",
+        });
+
+        var raw = await File.ReadAllTextAsync(path);
+        Assert.IsFalse(raw.Contains("shared-token", StringComparison.Ordinal));
+        Assert.IsFalse(raw.Contains("device-token", StringComparison.Ordinal));
+        Assert.AreEqual("shared-token", await credentials.LoadGatewayTokenAsync());
+        Assert.AreEqual("device-token", await credentials.LoadDeviceTokenAsync());
+
+        var actual = await store.LoadAsync();
+        Assert.AreEqual("shared-token", actual.GatewayToken);
+        Assert.AreEqual("device-token", actual.DeviceToken);
+    }
+
+    [TestMethod]
+    public async Task UpdateAsyncSerializesConcurrentPreferenceWrites()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName(), "preferences.json");
+        var store = new AppPreferencesStore(path, new InMemoryAppCredentialStore());
+        await store.SaveAsync(AppPreferences.Default with { LastStatus = "0" });
+
+        var updates = Enumerable.Range(0, 20).Select(_ => store.UpdateAsync(current =>
+        {
+            var currentValue = int.Parse(current.LastStatus ?? "0");
+            return current with { LastStatus = (currentValue + 1).ToString() };
+        }));
+
+        await Task.WhenAll(updates);
+
+        var actual = await store.LoadAsync();
+        Assert.AreEqual("20", actual.LastStatus);
+        using var document = JsonDocument.Parse(await File.ReadAllTextAsync(path));
+        Assert.AreEqual(JsonValueKind.Object, document.RootElement.ValueKind);
+    }
+
+    private sealed class InMemoryAppCredentialStore : IAppCredentialStore
+    {
+        private string? gatewayToken;
+        private string? deviceToken;
+        private string? devicePrivateKey;
+
+        public Task<string?> LoadGatewayTokenAsync(CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(this.gatewayToken);
+        }
+
+        public Task SaveGatewayTokenAsync(string? token, CancellationToken cancellationToken = default)
+        {
+            this.gatewayToken = token;
+            return Task.CompletedTask;
+        }
+
+        public Task<string?> LoadDeviceTokenAsync(CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(this.deviceToken);
+        }
+
+        public Task SaveDeviceTokenAsync(string? token, CancellationToken cancellationToken = default)
+        {
+            this.deviceToken = token;
+            return Task.CompletedTask;
+        }
+
+        public Task<string?> LoadDevicePrivateKeyAsync(CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(this.devicePrivateKey);
+        }
+
+        public Task SaveDevicePrivateKeyAsync(string? privateKey, CancellationToken cancellationToken = default)
+        {
+            this.devicePrivateKey = privateKey;
+            return Task.CompletedTask;
+        }
     }
 }
