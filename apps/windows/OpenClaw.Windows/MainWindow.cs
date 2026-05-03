@@ -7,6 +7,7 @@ using XamlButton = Microsoft.UI.Xaml.Controls.Button;
 using XamlCheckBox = Microsoft.UI.Xaml.Controls.CheckBox;
 using XamlHorizontalAlignment = Microsoft.UI.Xaml.HorizontalAlignment;
 using XamlOrientation = Microsoft.UI.Xaml.Controls.Orientation;
+using XamlPasswordBox = Microsoft.UI.Xaml.Controls.PasswordBox;
 using XamlTextBox = Microsoft.UI.Xaml.Controls.TextBox;
 
 namespace OpenClaw.Windows;
@@ -26,7 +27,7 @@ public sealed class MainWindow : Window
     private readonly TextBlock settingsText = new();
     private readonly XamlTextBox chatInput = new() { AcceptsReturn = true, Height = 88, TextWrapping = TextWrapping.Wrap };
     private readonly XamlTextBox gatewayUrlInput = new();
-    private readonly XamlTextBox gatewayTokenInput = new();
+    private readonly XamlPasswordBox gatewayTokenInput = new();
     private readonly XamlTextBox chatSessionInput = new();
     private readonly XamlCheckBox voiceControlsToggle = new() { Content = "Enable voice controls" };
     private readonly XamlCheckBox globalHotkeyToggle = new() { Content = "Register Ctrl+Shift+Space push-to-talk hotkey" };
@@ -390,7 +391,7 @@ public sealed class MainWindow : Window
 
             var preferences = await this.appState.Preferences.LoadAsync();
             this.gatewayUrlInput.Text = preferences.GatewayUrl;
-            this.gatewayTokenInput.Text = preferences.GatewayToken ?? "";
+            this.gatewayTokenInput.Password = preferences.GatewayToken ?? "";
             this.chatSessionInput.Text = preferences.ChatSessionKey;
             this.voiceControlsToggle.IsChecked = preferences.VoiceControlsEnabled;
             this.globalHotkeyToggle.IsChecked = preferences.GlobalHotkeyEnabled;
@@ -537,7 +538,7 @@ public sealed class MainWindow : Window
             GatewayUrl = string.IsNullOrWhiteSpace(this.gatewayUrlInput.Text)
                 ? AppPreferences.Default.GatewayUrl
                 : this.gatewayUrlInput.Text.Trim(),
-            GatewayToken = string.IsNullOrWhiteSpace(this.gatewayTokenInput.Text) ? null : this.gatewayTokenInput.Text.Trim(),
+            GatewayToken = string.IsNullOrWhiteSpace(this.gatewayTokenInput.Password) ? null : this.gatewayTokenInput.Password.Trim(),
             ChatSessionKey = string.IsNullOrWhiteSpace(this.chatSessionInput.Text)
                 ? AppPreferences.Default.ChatSessionKey
                 : this.chatSessionInput.Text.Trim(),
