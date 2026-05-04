@@ -20,6 +20,23 @@ public sealed class GatewayCompanionControllerTests
     }
 
     [TestMethod]
+    public async Task GatewayActionStopsAfterMissingCliFailure()
+    {
+        var runner = new FakeGatewayCliCommandRunner(
+            new GatewayCliResult(1, "", "OpenClaw CLI was not found."));
+        var store = new AppPreferencesStore(Path.Combine(Path.GetTempPath(), Path.GetRandomFileName(), "preferences.json"));
+        var controller = new GatewayCompanionController(runner, store);
+
+        var result = await controller.RunActionAsync(GatewayCliAction.Start);
+
+        Assert.IsFalse(result.Succeeded);
+        Assert.AreEqual("unavailable", result.Status.State);
+        StringAssert.Contains(result.Output, "OpenClaw CLI was not found");
+        Assert.HasCount(1, runner.Calls);
+        CollectionAssert.AreEqual(new[] { "gateway", "start", "--json" }, runner.Calls[0].ToArray());
+    }
+
+    [TestMethod]
     public void ParsesGatewayStatusJson()
     {
         var snapshot = GatewayStatusSnapshot.FromJson(

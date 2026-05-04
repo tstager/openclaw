@@ -42,6 +42,17 @@ public sealed class GatewayCompanionController(
             _ => throw new ArgumentOutOfRangeException(nameof(action), action, null),
         };
         var result = await this.commandRunner.RunAsync(args, cancellationToken);
+        if (!result.Succeeded)
+        {
+            var failedStatus = GatewayStatusSnapshot.FromCliResult(result);
+            await this.preferences.UpdateAsync(current => current with
+            {
+                LastStatus = failedStatus.State,
+                LastStatusCheckedAt = DateTimeOffset.UtcNow,
+            }, cancellationToken);
+            return new GatewayActionResult(action, false, result.CombinedOutput, failedStatus);
+        }
+
         var status = await this.RefreshStatusAsync(cancellationToken);
         return new GatewayActionResult(action, result.Succeeded, result.CombinedOutput, status);
     }
