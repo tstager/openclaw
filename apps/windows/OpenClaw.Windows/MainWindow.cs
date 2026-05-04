@@ -51,7 +51,7 @@ public sealed class MainWindow : Window
     private IReadOnlyList<PairingRequest> latestPairingRequests = [];
     private bool approvalsLoaded;
     private bool pairingLoaded;
-    private readonly StackPanel deviceStatusList = new() { Spacing = 6 };
+    private readonly StackPanel deviceCapabilityCards = new() { Spacing = 12 };
     private readonly StackPanel mediaDevicesList = new() { Spacing = 6 };
     private readonly TextBlock nativeActionsText = new();
     private readonly TextBlock logsText = new();
@@ -60,8 +60,16 @@ public sealed class MainWindow : Window
     private readonly XamlTextBox gatewayUrlInput = new();
     private readonly XamlPasswordBox gatewayTokenInput = new();
     private readonly XamlTextBox chatSessionInput = new();
-    private readonly XamlCheckBox voiceControlsToggle = new() { Content = "Enable voice controls" };
-    private readonly XamlCheckBox globalHotkeyToggle = new() { Content = "Register Ctrl+Shift+Space push-to-talk hotkey" };
+    private bool voiceControlsEnabled;
+    private bool globalHotkeyEnabled;
+    private IReadOnlyList<WindowsDevicePermissionStatus> latestDevicePermissionStatuses = [];
+    private string mediaDeviceSummary = "Media devices have not been checked yet.";
+    private string screenActionResult = "No screen capture run yet.";
+    private string cameraActionResult = "No camera capture run yet.";
+    private string microphoneActionResult = "Voice controls have not been saved yet.";
+    private string notificationActionResult = "No notification sent yet.";
+    private string hotkeyActionResult = "Global hotkey preference has not been saved yet.";
+    private string overlayActionResult = "No overlay shown yet.";
     private WindowsTrayHost? trayHost;
     private WindowsGlobalHotkeyService? hotkeyService;
     private Window? overlayWindow;
@@ -280,7 +288,7 @@ public sealed class MainWindow : Window
 
     private UIElement BuildGatewayActions()
     {
-        var buttons = new StackPanel { Orientation = XamlOrientation.Horizontal, Spacing = 8 };
+        var buttons = new StackPanel { Spacing = 8 };
         buttons.Children.Add(ActionButton("Install", GatewayCliAction.Install));
         buttons.Children.Add(ActionButton("Start", GatewayCliAction.Start));
         buttons.Children.Add(ActionButton("Restart", GatewayCliAction.Restart));
@@ -561,70 +569,26 @@ public sealed class MainWindow : Window
 
     private UIElement BuildDevicesPanel()
     {
-        var panel = new StackPanel { Spacing = 12 };
+        var panel = new StackPanel { Spacing = 16 };
         panel.Children.Add(new TextBlock
         {
-            Text = "Devices",
+            Text = "Windows capabilities",
             FontSize = 20,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
         });
-        panel.Children.Add(this.deviceStatusList);
-        panel.Children.Add(new TextBlock
+        var refreshButton = new XamlButton
         {
-            Text = "Media devices",
-            FontSize = 16,
-            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-        });
-        panel.Children.Add(this.mediaDevicesList);
-        panel.Children.Add(this.voiceControlsToggle);
-        panel.Children.Add(this.globalHotkeyToggle);
-
-        var buttons = new StackPanel { Orientation = XamlOrientation.Horizontal, Spacing = 8 };
-        buttons.Children.Add(new XamlButton
-        {
-            Content = "Refresh",
+            Content = "Refresh devices",
+            AccessKey = "R",
+            HorizontalAlignment = XamlHorizontalAlignment.Left,
             Command = this.CreateCommand(async () => await this.RefreshDeviceCapabilitiesAsync()),
-        });
-        buttons.Children.Add(new XamlButton
-        {
-            Content = "Screen",
-            Command = this.CreateCommand(async () => await this.CaptureScreenAsync()),
-        });
-        buttons.Children.Add(new XamlButton
-        {
-            Content = "Record",
-            Command = this.CreateCommand(async () => await this.CaptureScreenFramesAsync()),
-        });
-        buttons.Children.Add(new XamlButton
-        {
-            Content = "Camera",
-            Command = this.CreateCommand(async () => await this.CaptureCameraPhotoAsync()),
-        });
-        buttons.Children.Add(new XamlButton
-        {
-            Content = "Notify",
-            Command = this.CreateCommand(() =>
-            {
-                this.ShowNotification("OpenClaw", "Windows companion notifications are available.");
-                return Task.CompletedTask;
-            }),
-        });
-        buttons.Children.Add(new XamlButton
-        {
-            Content = "Overlay",
-            Command = this.CreateCommand(() =>
-            {
-                this.ShowOverlay("OpenClaw overlay", "Native Windows overlays are available.");
-                return Task.CompletedTask;
-            }),
-        });
-        buttons.Children.Add(new XamlButton
-        {
-            Content = "Save toggles",
-            Command = this.CreateCommand(async () => await this.SaveDevicePreferencesAsync()),
-        });
-        panel.Children.Add(buttons);
+        };
+        AutomationProperties.SetName(refreshButton, "Refresh Windows device capabilities");
+        panel.Children.Add(refreshButton);
+        panel.Children.Add(this.deviceCapabilityCards);
+        panel.Children.Add(this.mediaDevicesList);
         panel.Children.Add(this.nativeActionsText);
+        this.RenderDeviceCapabilityCards();
         return panel;
     }
 
@@ -811,8 +775,8 @@ public sealed class MainWindow : Window
             this.gatewayUrlInput.Text = preferences.GatewayUrl;
             this.gatewayTokenInput.Password = preferences.GatewayToken ?? "";
             this.chatSessionInput.Text = preferences.ChatSessionKey;
-            this.voiceControlsToggle.IsChecked = preferences.VoiceControlsEnabled;
-            this.globalHotkeyToggle.IsChecked = preferences.GlobalHotkeyEnabled;
+            this.voiceControlsEnabled = preferences.VoiceControlsEnabled;
+            this.globalHotkeyEnabled = preferences.GlobalHotkeyEnabled;
             this.RenderHomeDashboard();
             this.settingsText.Text =
                 $"Open main window on launch: {preferences.OpenMainWindowOnLaunch}\n" +
@@ -1159,8 +1123,8 @@ public sealed class MainWindow : Window
             ChatSessionKey = string.IsNullOrWhiteSpace(this.chatSessionInput.Text)
                 ? AppPreferences.Default.ChatSessionKey
                 : this.chatSessionInput.Text.Trim(),
-            VoiceControlsEnabled = this.voiceControlsToggle.IsChecked == true,
-            GlobalHotkeyEnabled = this.globalHotkeyToggle.IsChecked == true,
+            VoiceControlsEnabled = this.voiceControlsEnabled,
+            GlobalHotkeyEnabled = this.globalHotkeyEnabled,
         });
         await this.RefreshAllAsync();
     }
@@ -1168,57 +1132,173 @@ public sealed class MainWindow : Window
     private async Task RefreshDeviceCapabilitiesAsync()
     {
         var preferences = await this.appState.Preferences.LoadAsync();
-        this.voiceControlsToggle.IsChecked = preferences.VoiceControlsEnabled;
-        this.globalHotkeyToggle.IsChecked = preferences.GlobalHotkeyEnabled;
+        this.voiceControlsEnabled = preferences.VoiceControlsEnabled;
+        this.globalHotkeyEnabled = preferences.GlobalHotkeyEnabled;
         this.SyncHotkeyRegistration(preferences.GlobalHotkeyEnabled);
-
-        this.deviceStatusList.Children.Clear();
-        foreach (var status in this.appState.DeviceCapabilities.GetPermissionStatus())
-        {
-            this.deviceStatusList.Children.Add(new TextBlock
-            {
-                Text = $"{status.Capability}: {status.State} - {status.Detail}",
-                TextWrapping = TextWrapping.Wrap,
-            });
-        }
+        this.latestDevicePermissionStatuses = this.appState.DeviceCapabilities.GetPermissionStatus();
 
         this.mediaDevicesList.Children.Clear();
         try
         {
+            var cameras = new List<WindowsMediaDevice>();
+            var microphones = new List<WindowsMediaDevice>();
             foreach (var camera in await this.appState.DeviceCapabilities.ListCameraDevicesAsync())
             {
-                this.mediaDevicesList.Children.Add(new TextBlock { Text = $"Camera: {camera.Name}", TextWrapping = TextWrapping.Wrap });
+                cameras.Add(camera);
             }
             foreach (var microphone in await this.appState.DeviceCapabilities.ListMicrophoneDevicesAsync())
             {
-                this.mediaDevicesList.Children.Add(new TextBlock { Text = $"Microphone: {microphone.Name}", TextWrapping = TextWrapping.Wrap });
+                microphones.Add(microphone);
+            }
+            this.mediaDeviceSummary =
+                $"Cameras: {cameras.Count}; microphones: {microphones.Count}.";
+            foreach (var camera in cameras)
+            {
+                this.mediaDevicesList.Children.Add(BuildDashboardRow("Camera", DeviceLabel(camera)));
+            }
+            foreach (var microphone in microphones)
+            {
+                this.mediaDevicesList.Children.Add(BuildDashboardRow("Microphone", DeviceLabel(microphone)));
             }
         }
         catch (Exception ex)
         {
+            this.mediaDeviceSummary = $"Media device enumeration failed: {ex.Message}";
             this.mediaDevicesList.Children.Add(new TextBlock
             {
-                Text = $"Media device enumeration failed: {ex.Message}",
+                Text = this.mediaDeviceSummary,
                 TextWrapping = TextWrapping.Wrap,
+                Foreground = ResourceBrush("SystemFillColorCriticalBrush"),
             });
         }
+        this.RenderDeviceCapabilityCards();
+    }
+
+    private void RenderDeviceCapabilityCards()
+    {
+        this.deviceCapabilityCards.Children.Clear();
+        this.deviceCapabilityCards.Children.Add(this.BuildDeviceCapabilityCard(
+            DeviceCapabilityPresentation.Create("Screen", this.latestDevicePermissionStatuses, this.screenActionResult),
+            [
+                this.DeviceActionButton("Screen", "Capture primary screen", async () => await this.CaptureScreenAsync()),
+                this.DeviceActionButton("Record", "Record screen frame sequence", async () => await this.CaptureScreenFramesAsync()),
+            ]));
+        this.deviceCapabilityCards.Children.Add(this.BuildDeviceCapabilityCard(
+            DeviceCapabilityPresentation.Create("Camera", this.latestDevicePermissionStatuses, this.cameraActionResult),
+            [this.DeviceActionButton("Camera", "Capture camera photo", async () => await this.CaptureCameraPhotoAsync())]));
+        this.deviceCapabilityCards.Children.Add(this.BuildDeviceCapabilityCard(
+            DeviceCapabilityPresentation.Create("Microphone", this.latestDevicePermissionStatuses, this.microphoneActionResult),
+            [
+                this.DeviceToggle("Enable voice controls", this.voiceControlsEnabled, value => this.voiceControlsEnabled = value),
+                this.DeviceActionButton("Save voice", "Save voice controls preference", async () => await this.SaveDevicePreferencesAsync()),
+            ]));
+        this.deviceCapabilityCards.Children.Add(this.BuildDeviceCapabilityCard(
+            DeviceCapabilityPresentation.Create("Hotkeys", this.latestDevicePermissionStatuses, this.hotkeyActionResult),
+            [
+                this.DeviceToggle("Register Ctrl+Shift+Space push-to-talk hotkey", this.globalHotkeyEnabled, value => this.globalHotkeyEnabled = value),
+                this.DeviceActionButton("Save hotkey", "Save global hotkey preference", async () => await this.SaveDevicePreferencesAsync()),
+            ]));
+        this.deviceCapabilityCards.Children.Add(this.BuildDeviceCapabilityCard(
+            DeviceCapabilityPresentation.Create("Notifications", this.latestDevicePermissionStatuses, this.notificationActionResult),
+            [this.DeviceActionButton("Notify", "Send test notification", () =>
+            {
+                this.ShowNotification("OpenClaw", "Windows companion notifications are available.");
+                return Task.CompletedTask;
+            })]));
+        this.deviceCapabilityCards.Children.Add(this.BuildDeviceCapabilityCard(
+            DeviceCapabilityPresentation.Create("Overlays", this.latestDevicePermissionStatuses, this.overlayActionResult),
+            [this.DeviceActionButton("Overlay", "Show test overlay", () =>
+            {
+                this.ShowOverlay("OpenClaw overlay", "Native Windows overlays are available.");
+                return Task.CompletedTask;
+            })]));
+    }
+
+    private UIElement BuildDeviceCapabilityCard(
+        DeviceCapabilityPresentation presentation,
+        IEnumerable<UIElement> actions)
+    {
+        var body = new StackPanel { Spacing = 10 };
+        body.Children.Add(new TextBlock
+        {
+            Text = presentation.Capability,
+            FontSize = 16,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+        });
+        body.Children.Add(BuildDashboardRow("Permission", presentation.State));
+        body.Children.Add(BuildDashboardRow("Detail", presentation.Detail));
+        body.Children.Add(BuildDashboardRow("Last action", presentation.LastAction));
+        body.Children.Add(BuildDashboardRow("Repair", presentation.RepairGuidance));
+        if (presentation.Capability is "Camera" or "Microphone")
+        {
+            body.Children.Add(BuildDashboardRow("Devices", this.mediaDeviceSummary));
+        }
+
+        var buttons = new StackPanel { Orientation = XamlOrientation.Horizontal, Spacing = 8 };
+        foreach (var action in actions)
+        {
+            buttons.Children.Add(action);
+        }
+        body.Children.Add(buttons);
+        return BuildDashboardCard(null, body);
+    }
+
+    private XamlButton DeviceActionButton(string label, string automationName, Func<Task> execute)
+    {
+        var button = new XamlButton
+        {
+            Content = label,
+            Command = this.CreateCommand(execute),
+        };
+        AutomationProperties.SetName(button, automationName);
+        return button;
+    }
+
+    private XamlCheckBox DeviceToggle(string label, bool isChecked, Action<bool> update)
+    {
+        var toggle = new XamlCheckBox
+        {
+            Content = label,
+            IsChecked = isChecked,
+        };
+        toggle.Checked += (_, _) => update(true);
+        toggle.Unchecked += (_, _) => update(false);
+        AutomationProperties.SetName(toggle, label);
+        return toggle;
+    }
+
+    private static string DeviceLabel(WindowsMediaDevice device)
+    {
+        var state = device.IsEnabled ? "enabled" : "disabled";
+        return $"{device.Name} ({state})";
     }
 
     private async Task SaveDevicePreferencesAsync()
     {
         await this.appState.Preferences.UpdateAsync(current => current with
         {
-            VoiceControlsEnabled = this.voiceControlsToggle.IsChecked == true,
-            GlobalHotkeyEnabled = this.globalHotkeyToggle.IsChecked == true,
+            VoiceControlsEnabled = this.voiceControlsEnabled,
+            GlobalHotkeyEnabled = this.globalHotkeyEnabled,
         });
+        this.microphoneActionResult = this.voiceControlsEnabled
+            ? "Voice controls preference saved as enabled."
+            : "Voice controls preference saved as disabled.";
+        this.hotkeyActionResult = this.globalHotkeyEnabled
+            ? "Global hotkey preference saved as enabled."
+            : "Global hotkey preference saved as disabled.";
+        this.nativeActionsText.Text = "Device preferences saved.";
         await this.RefreshDeviceCapabilitiesAsync();
     }
 
     private async Task CaptureScreenAsync()
     {
-        this.nativeActionsText.Text = "Capturing screen...";
+        this.screenActionResult = "Capturing screen...";
+        this.nativeActionsText.Text = this.screenActionResult;
+        this.RenderDeviceCapabilityCards();
         var result = await Task.Run(this.appState.DeviceCapabilities.CapturePrimaryScreen);
-        this.nativeActionsText.Text = result.Detail;
+        this.screenActionResult = result.Detail;
+        this.nativeActionsText.Text = this.screenActionResult;
+        this.RenderDeviceCapabilityCards();
         if (result.Succeeded && !string.IsNullOrWhiteSpace(result.Path))
         {
             WindowsShell.OpenFileInExplorer(result.Path);
@@ -1227,10 +1307,14 @@ public sealed class MainWindow : Window
 
     private async Task CaptureScreenFramesAsync()
     {
-        this.nativeActionsText.Text = "Recording screen frame sequence...";
+        this.screenActionResult = "Recording screen frame sequence...";
+        this.nativeActionsText.Text = this.screenActionResult;
+        this.RenderDeviceCapabilityCards();
         var captures = await Task.Run(() => this.appState.DeviceCapabilities.CaptureScreenFrameSequence());
         var successful = captures.Where(capture => capture.Succeeded).ToArray();
-        this.nativeActionsText.Text = $"Captured {successful.Length} screen frames in {this.appState.DeviceCapabilities.CaptureRoot}";
+        this.screenActionResult = $"Captured {successful.Length} screen frames in {this.appState.DeviceCapabilities.CaptureRoot}";
+        this.nativeActionsText.Text = this.screenActionResult;
+        this.RenderDeviceCapabilityCards();
         if (successful.Length > 0)
         {
             WindowsShell.OpenFileInExplorer(this.appState.DeviceCapabilities.CaptureRoot);
@@ -1239,9 +1323,13 @@ public sealed class MainWindow : Window
 
     private async Task CaptureCameraPhotoAsync()
     {
-        this.nativeActionsText.Text = "Capturing camera photo...";
+        this.cameraActionResult = "Capturing camera photo...";
+        this.nativeActionsText.Text = this.cameraActionResult;
+        this.RenderDeviceCapabilityCards();
         var result = await this.appState.DeviceCapabilities.CaptureCameraPhotoAsync();
-        this.nativeActionsText.Text = result.Detail;
+        this.cameraActionResult = result.Detail;
+        this.nativeActionsText.Text = this.cameraActionResult;
+        this.RenderDeviceCapabilityCards();
         if (result.Succeeded && !string.IsNullOrWhiteSpace(result.Path))
         {
             WindowsShell.OpenFileInExplorer(result.Path);
@@ -1252,12 +1340,16 @@ public sealed class MainWindow : Window
     {
         if (this.trayHost is null)
         {
-            this.nativeActionsText.Text = "Tray host is not ready for notifications.";
+            this.notificationActionResult = "Tray host is not ready for notifications.";
+            this.nativeActionsText.Text = this.notificationActionResult;
+            this.RenderDeviceCapabilityCards();
             return;
         }
 
         this.trayHost.ShowNotification(title, message);
-        this.nativeActionsText.Text = "Notification sent.";
+        this.notificationActionResult = "Notification sent.";
+        this.nativeActionsText.Text = this.notificationActionResult;
+        this.RenderDeviceCapabilityCards();
     }
 
     private void ShowOverlay(string title, string message)
@@ -1300,7 +1392,9 @@ public sealed class MainWindow : Window
             presenter.IsAlwaysOnTop = true;
         }
 
-        this.nativeActionsText.Text = "Overlay shown.";
+        this.overlayActionResult = "Overlay shown.";
+        this.nativeActionsText.Text = this.overlayActionResult;
+        this.RenderDeviceCapabilityCards();
     }
 
     private void SyncHotkeyRegistration(bool enabled)
@@ -1314,8 +1408,10 @@ public sealed class MainWindow : Window
         this.hotkeyService ??= new WindowsGlobalHotkeyService(() =>
             _ = this.DispatcherQueue.TryEnqueue(() =>
             {
-                this.nativeActionsText.Text = "Push-to-talk hotkey pressed.";
+                this.hotkeyActionResult = "Push-to-talk hotkey pressed.";
+                this.nativeActionsText.Text = this.hotkeyActionResult;
                 this.ShowOverlay("Push-to-talk", "Ctrl+Shift+Space was received by the Windows companion.");
+                this.RenderDeviceCapabilityCards();
             }));
         try
         {
@@ -1323,7 +1419,9 @@ public sealed class MainWindow : Window
         }
         catch (Exception ex)
         {
-            this.nativeActionsText.Text = ex.Message;
+            this.hotkeyActionResult = ex.Message;
+            this.nativeActionsText.Text = this.hotkeyActionResult;
+            this.RenderDeviceCapabilityCards();
         }
     }
 
