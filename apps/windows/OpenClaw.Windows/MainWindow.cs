@@ -1,8 +1,11 @@
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using OpenClaw.Windows.Native;
+using Windows.System;
 using XamlButton = Microsoft.UI.Xaml.Controls.Button;
 using XamlCheckBox = Microsoft.UI.Xaml.Controls.CheckBox;
 using XamlHorizontalAlignment = Microsoft.UI.Xaml.HorizontalAlignment;
@@ -17,6 +20,7 @@ public sealed class MainWindow : Window
     private readonly WindowsCompanionState appState;
     private readonly WindowsCompanionCoordinator coordinator;
     private readonly WindowsCompanionCommandFactory commandFactory;
+    private readonly ChatWorkspaceState chatState = new();
     private readonly Dictionary<string, UIElement> navigationPages = new();
     private readonly ContentControl navigationContent = new();
     private readonly TextBlock navigationGatewayStatusText = new();
@@ -31,6 +35,13 @@ public sealed class MainWindow : Window
     private readonly TextBlock homeActivityText = new();
     private readonly StackPanel onboardingList = new() { Spacing = 6 };
     private readonly StackPanel chatMessages = new() { Spacing = 8 };
+    private readonly TextBlock chatStateText = new();
+    private readonly TextBlock chatSessionText = new();
+    private readonly TextBlock chatEmptyText = new();
+    private readonly StackPanel chatEventMessages = new() { Spacing = 8 };
+    private readonly List<GatewayRealtimeEvent> chatRealtimeEvents = [];
+    private readonly XamlButton chatRefreshButton = new();
+    private readonly XamlButton chatSendButton = new();
     private readonly StackPanel approvalsList = new() { Spacing = 8 };
     private readonly StackPanel pairingList = new() { Spacing = 8 };
     private readonly StackPanel deviceStatusList = new() { Spacing = 6 };
@@ -381,27 +392,80 @@ public sealed class MainWindow : Window
 
     private UIElement BuildChatPanel()
     {
-        var panel = new StackPanel { Spacing = 12 };
-        panel.Children.Add(new TextBlock
+        var panel = new StackPanel { Spacing = 16 };
+        this.chatStateText.TextWrapping = TextWrapping.Wrap;
+        this.chatStateText.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
+        this.chatSessionText.TextWrapping = TextWrapping.Wrap;
+        this.chatSessionText.Foreground = ResourceBrush("TextFillColorSecondaryBrush");
+        this.chatEmptyText.Text = "No messages in this session yet.";
+        this.chatEmptyText.TextWrapping = TextWrapping.Wrap;
+        this.chatEmptyText.Foreground = ResourceBrush("TextFillColorSecondaryBrush");
+        this.chatInput.PlaceholderText = "Message the active OpenClaw session";
+        AutomationProperties.SetName(this.chatInput, "Message the active OpenClaw session");
+
+        var header = new Grid
         {
-            Text = "Chat",
+            ColumnSpacing = 12,
+            ColumnDefinitions =
+            {
+                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                new ColumnDefinition { Width = GridLength.Auto },
+            },
+        };
+        var headerText = new StackPanel { Spacing = 4 };
+        headerText.Children.Add(new TextBlock
+        {
+            Text = "Conversation",
             FontSize = 20,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
         });
-        panel.Children.Add(this.chatMessages);
-        panel.Children.Add(this.chatInput);
+        headerText.Children.Add(this.chatSessionText);
+        header.Children.Add(headerText);
+
         var buttons = new StackPanel { Orientation = XamlOrientation.Horizontal, Spacing = 8 };
-        buttons.Children.Add(new XamlButton
+        this.chatRefreshButton.Content = "Refresh";
+        this.chatRefreshButton.AccessKey = "R";
+        this.chatRefreshButton.Command = this.CreateCommand(async () => await this.RefreshChatAsync());
+        AutomationProperties.SetName(this.chatRefreshButton, "Refresh session messages");
+        buttons.Children.Add(this.chatRefreshButton);
+        this.chatSendButton.Content = "Send";
+        this.chatSendButton.AccessKey = "S";
+        this.chatSendButton.Command = this.CreateCommand(async () => await this.SendChatAsync());
+        this.chatSendButton.KeyboardAccelerators.Add(new KeyboardAccelerator
         {
-            Content = "Refresh",
-            Command = this.CreateCommand(async () => await this.RefreshChatAsync()),
+            Key = VirtualKey.Enter,
+            Modifiers = VirtualKeyModifiers.Control,
         });
-        buttons.Children.Add(new XamlButton
+        AutomationProperties.SetName(this.chatSendButton, "Send message");
+        buttons.Children.Add(this.chatSendButton);
+        Grid.SetColumn(buttons, 1);
+        header.Children.Add(buttons);
+        panel.Children.Add(header);
+
+        panel.Children.Add(BuildDashboardCard("Session state", this.chatStateText));
+
+        var conversation = new Border
         {
-            Content = "Send",
-            Command = this.CreateCommand(async () => await this.SendChatAsync()),
-        });
-        panel.Children.Add(buttons);
+            Padding = new Thickness(16),
+            MinHeight = 320,
+            Background = ResourceBrush("CardBackgroundFillColorDefaultBrush"),
+            BorderBrush = ResourceBrush("CardStrokeColorDefaultBrush"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = ResourceCornerRadius("OverlayCornerRadius"),
+            Child = new StackPanel
+            {
+                Spacing = 12,
+                Children =
+                {
+                    this.chatEmptyText,
+                    this.chatMessages,
+                    this.chatEventMessages,
+                },
+            },
+        };
+        panel.Children.Add(conversation);
+        panel.Children.Add(BuildDashboardCard("Composer", this.chatInput));
+        this.RenderChatWorkspace();
         return panel;
     }
 
@@ -625,6 +689,7 @@ public sealed class MainWindow : Window
         _ = this.DispatcherQueue.TryEnqueue(() =>
         {
             this.coordinator.ApplyRealtimeState(state, reason);
+            this.chatState.ApplyRealtimeState(state, reason);
             this.statusText.Text = $"Gateway: {state}";
             this.navigationGatewayStatusText.Text = $"Gateway: {state}";
             if (!string.IsNullOrWhiteSpace(reason))
@@ -632,6 +697,7 @@ public sealed class MainWindow : Window
                 this.detailText.Text = reason;
             }
             this.RenderHomeDashboard();
+            this.RenderChatWorkspace();
         });
     }
 
@@ -641,12 +707,8 @@ public sealed class MainWindow : Window
         {
             this.coordinator.RecordRealtimeEvent(@event);
             this.homeActivityText.Text = this.coordinator.LastActivity ?? "";
-            this.chatMessages.Children.Add(new TextBlock
-            {
-                Text = $"event:{@event.Name} {@event.Payload?.ToString() ?? ""}",
-                TextWrapping = TextWrapping.Wrap,
-                Opacity = 0.76,
-            });
+            this.chatRealtimeEvents.Add(@event);
+            this.RenderChatWorkspace();
         });
     }
 
@@ -728,16 +790,19 @@ public sealed class MainWindow : Window
 
     private async Task RefreshChatAsync()
     {
-        var preferences = await this.appState.Preferences.LoadAsync();
-        var messages = await this.appState.Realtime.LoadChatHistoryAsync(preferences.ChatSessionKey);
-        this.chatMessages.Children.Clear();
-        foreach (var message in messages)
+        try
         {
-            this.chatMessages.Children.Add(new TextBlock
-            {
-                Text = $"{message.Role}: {message.Text}",
-                TextWrapping = TextWrapping.Wrap,
-            });
+            var preferences = await this.appState.Preferences.LoadAsync();
+            var messages = await this.appState.Realtime.LoadChatHistoryAsync(preferences.ChatSessionKey);
+            this.chatRealtimeEvents.Clear();
+            this.chatState.ApplyMessages(messages, this.appState.Realtime.State);
+            this.RenderChatWorkspace(preferences.ChatSessionKey);
+        }
+        catch (Exception ex)
+        {
+            this.chatState.ApplyFailure(ex);
+            this.RenderChatWorkspace();
+            throw;
         }
     }
 
@@ -748,10 +813,95 @@ public sealed class MainWindow : Window
         {
             return;
         }
-        var preferences = await this.appState.Preferences.LoadAsync();
-        await this.appState.Realtime.SendChatAsync(preferences.ChatSessionKey, message);
-        this.chatInput.Text = "";
-        await this.RefreshChatAsync();
+        this.chatState.StartSending();
+        this.RenderChatWorkspace();
+        try
+        {
+            var preferences = await this.appState.Preferences.LoadAsync();
+            await this.appState.Realtime.SendChatAsync(preferences.ChatSessionKey, message);
+            this.chatInput.Text = "";
+            await this.RefreshChatAsync();
+        }
+        catch (Exception ex)
+        {
+            this.chatState.ApplyFailure(ex);
+            this.RenderChatWorkspace();
+            throw;
+        }
+    }
+
+    private void RenderChatWorkspace(string? sessionKey = null)
+    {
+        var activeSession = string.IsNullOrWhiteSpace(sessionKey)
+            ? string.IsNullOrWhiteSpace(this.chatSessionInput.Text)
+                ? AppPreferences.Default.ChatSessionKey
+                : this.chatSessionInput.Text.Trim()
+            : sessionKey;
+        this.chatSessionText.Text = $"Session: {activeSession}";
+        this.chatStateText.Text = $"{this.chatState.Status}: {this.chatState.StatusDetail ?? "No detail available."}";
+        this.chatStateText.Foreground = this.chatState.Status switch
+        {
+            ChatWorkspaceStatus.Connected => ResourceBrush("SystemFillColorSuccessBrush"),
+            ChatWorkspaceStatus.Sending => ResourceBrush("TextFillColorPrimaryBrush"),
+            ChatWorkspaceStatus.Failed => ResourceBrush("SystemFillColorCriticalBrush"),
+            ChatWorkspaceStatus.Disconnected => ResourceBrush("SystemFillColorCautionBrush"),
+            _ => ResourceBrush("TextFillColorSecondaryBrush"),
+        };
+        this.chatSendButton.IsEnabled = this.chatState.Status != ChatWorkspaceStatus.Sending;
+        this.chatRefreshButton.IsEnabled = this.chatState.Status != ChatWorkspaceStatus.Sending;
+
+        this.chatEmptyText.Visibility =
+            this.chatState.Messages.Count == 0 && this.chatRealtimeEvents.Count == 0
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+        this.chatMessages.Children.Clear();
+        foreach (var message in this.chatState.Messages)
+        {
+            this.chatMessages.Children.Add(BuildChatMessageRow(message));
+        }
+
+        this.chatEventMessages.Children.Clear();
+        foreach (var @event in this.chatRealtimeEvents)
+        {
+            this.chatEventMessages.Children.Add(BuildChatEventRow(@event));
+        }
+    }
+
+    private static UIElement BuildChatMessageRow(ChatMessage message)
+    {
+        var role = string.IsNullOrWhiteSpace(message.Role) ? "message" : message.Role.Trim();
+        var body = new StackPanel { Spacing = 4 };
+        body.Children.Add(new TextBlock
+        {
+            Text = role,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Foreground = ResourceBrush("TextFillColorSecondaryBrush"),
+        });
+        body.Children.Add(new TextBlock
+        {
+            Text = message.Text,
+            TextWrapping = TextWrapping.Wrap,
+        });
+
+        return new Border
+        {
+            Padding = new Thickness(12),
+            Background = ResourceBrush("CardBackgroundFillColorDefaultBrush"),
+            BorderBrush = ResourceBrush("CardStrokeColorDefaultBrush"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = ResourceCornerRadius("OverlayCornerRadius"),
+            Child = body,
+        };
+    }
+
+    private static UIElement BuildChatEventRow(GatewayRealtimeEvent @event)
+    {
+        return new TextBlock
+        {
+            Text = $"event:{@event.Name} {@event.Payload?.ToString() ?? ""}",
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = ResourceBrush("TextFillColorSecondaryBrush"),
+        };
     }
 
     private async Task RefreshApprovalsAsync()
