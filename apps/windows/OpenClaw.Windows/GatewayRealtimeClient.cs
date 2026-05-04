@@ -40,6 +40,9 @@ public sealed class GatewayRpcException(string code, string message) : Exception
 
 public sealed class GatewayRealtimeClient : IAsyncDisposable
 {
+    private const string ClientId = "openclaw-windows";
+    private const string ClientMode = "ui";
+    private const string ClientRole = "operator";
     private static readonly TimeSpan DefaultRequestTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan DisconnectCloseTimeout = TimeSpan.FromSeconds(2);
     private readonly TimeSpan requestTimeout;
@@ -329,12 +332,12 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
             ["maxProtocol"] = GatewayProtocol.Version,
             ["client"] = new
             {
-                id = "windows-companion",
+                id = ClientId,
                 version = "0.1.0",
                 platform = "windows",
-                mode = "operator",
+                mode = ClientMode,
             },
-            ["role"] = "operator",
+            ["role"] = ClientRole,
             ["scopes"] = scopes,
             ["caps"] = Array.Empty<string>(),
             ["commands"] = Array.Empty<string>(),
@@ -353,9 +356,9 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
             var signedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
             var signedPayload = DeviceIdentityStore.BuildDeviceAuthPayloadV3(
                 identity.DeviceId,
-                "windows-companion",
-                "operator",
-                "operator",
+                ClientId,
+                ClientMode,
+                ClientRole,
                 scopes,
                 signedAt,
                 sharedToken ?? deviceToken,
