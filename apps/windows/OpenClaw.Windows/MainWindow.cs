@@ -15,6 +15,8 @@ namespace OpenClaw.Windows;
 public sealed class MainWindow : Window
 {
     private readonly WindowsCompanionState appState;
+    private readonly WindowsCompanionCoordinator coordinator;
+    private readonly WindowsCompanionCommandFactory commandFactory;
     private readonly Dictionary<string, UIElement> navigationPages = new();
     private readonly ContentControl navigationContent = new();
     private readonly TextBlock navigationGatewayStatusText = new();
@@ -45,15 +47,18 @@ public sealed class MainWindow : Window
     private WindowsTrayHost? trayHost;
     private WindowsGlobalHotkeyService? hotkeyService;
     private Window? overlayWindow;
-    private GatewayStatusSnapshot? latestGatewayStatus;
-    private GatewayRealtimeState latestRealtimeState = GatewayRealtimeState.Disconnected;
-    private string? latestRealtimeReason;
-    private IReadOnlyList<OnboardingCheckResult> latestOnboardingChecks = Array.Empty<OnboardingCheckResult>();
-    private string? logPath;
 
     public MainWindow(WindowsCompanionState appState)
     {
         this.appState = appState;
+        this.coordinator = new WindowsCompanionCoordinator(appState);
+        this.commandFactory = new WindowsCompanionCommandFactory(
+            () =>
+            {
+                this.ClearCommandError();
+                return Task.CompletedTask;
+            },
+            this.ReportCommandError);
         this.Title = "OpenClaw";
         this.appState.Realtime.StateChanged += this.OnRealtimeStateChanged;
         this.appState.Realtime.EventReceived += this.OnRealtimeEventReceived;
@@ -223,7 +228,7 @@ public sealed class MainWindow : Window
         var panel = new StackPanel { Spacing = 16 };
         this.homeGatewayStateText.Text = "Checking";
         this.homeGatewayHealthText.Text = "Checking";
-        this.homeConnectionStateText.Text = this.latestRealtimeState.ToString();
+        this.homeConnectionStateText.Text = this.coordinator.RealtimeState.ToString();
         this.homeActivityText.TextWrapping = TextWrapping.Wrap;
         this.detailText.TextWrapping = TextWrapping.Wrap;
         this.statusText.Visibility = Visibility.Collapsed;
@@ -271,9 +276,9 @@ public sealed class MainWindow : Window
             Content = "Open Logs",
             Command = this.CreateCommand(() =>
             {
-                if (!string.IsNullOrWhiteSpace(this.logPath))
+                if (!string.IsNullOrWhiteSpace(this.coordinator.LogPath))
                 {
-                    WindowsShell.OpenFileInExplorer(this.logPath);
+                    WindowsShell.OpenFileInExplorer(this.coordinator.LogPath);
                 }
                 return Task.CompletedTask;
             }),
@@ -562,9 +567,9 @@ public sealed class MainWindow : Window
             Content = "Open Logs",
             Command = this.CreateCommand(() =>
             {
-                if (!string.IsNullOrWhiteSpace(this.logPath))
+                if (!string.IsNullOrWhiteSpace(this.coordinator.LogPath))
                 {
-                    WindowsShell.OpenFileInExplorer(this.logPath);
+                    WindowsShell.OpenFileInExplorer(this.coordinator.LogPath);
                 }
 
                 return Task.CompletedTask;
@@ -585,11 +590,7 @@ public sealed class MainWindow : Window
 
     private RelayCommand CreateCommand(Func<Task> execute)
     {
-        return new RelayCommand(async () =>
-        {
-            this.ClearCommandError();
-            await execute();
-        }, this.ReportCommandError);
+        return this.commandFactory.Create(execute);
     }
 
     private static ScrollViewer Scrollable(UIElement content)
@@ -623,8 +624,7 @@ public sealed class MainWindow : Window
     {
         _ = this.DispatcherQueue.TryEnqueue(() =>
         {
-            this.latestRealtimeState = state;
-            this.latestRealtimeReason = reason;
+            this.coordinator.ApplyRealtimeState(state, reason);
             this.statusText.Text = $"Gateway: {state}";
             this.navigationGatewayStatusText.Text = $"Gateway: {state}";
             if (!string.IsNullOrWhiteSpace(reason))
@@ -639,7 +639,8 @@ public sealed class MainWindow : Window
     {
         _ = this.DispatcherQueue.TryEnqueue(() =>
         {
-            this.homeActivityText.Text = $"Latest event: {@event.Name}";
+            this.coordinator.RecordRealtimeEvent(@event);
+            this.homeActivityText.Text = this.coordinator.LastActivity ?? "";
             this.chatMessages.Children.Add(new TextBlock
             {
                 Text = $"event:{@event.Name} {@event.Payload?.ToString() ?? ""}",
@@ -671,19 +672,18 @@ public sealed class MainWindow : Window
         {
             try
             {
-                var status = await this.appState.Gateway.RefreshStatusAsync();
+                var status = await this.coordinator.RefreshGatewayStatusAsync();
                 this.RenderStatus(status);
             }
             catch (Exception ex)
             {
                 this.statusText.Text = "Gateway status unavailable";
                 this.detailText.Text = ex.Message;
-                this.latestGatewayStatus = null;
+                this.coordinator.ClearGatewayStatus(ex);
                 this.RenderHomeDashboard();
             }
 
-            var checks = await this.appState.OnboardingChecks.RunAsync();
-            this.latestOnboardingChecks = checks;
+            var checks = await this.coordinator.RefreshOnboardingAsync();
             this.onboardingList.Children.Clear();
             foreach (var check in checks)
             {
@@ -710,9 +710,10 @@ public sealed class MainWindow : Window
         catch (Exception ex)
         {
             CrashLog.Write(ex);
+            this.coordinator.RecordRefreshFailure(ex);
             this.statusText.Text = "Startup refresh failed";
             this.detailText.Text = ex.Message;
-            this.homeActivityText.Text = $"Startup refresh failed: {ex.Message}";
+            this.homeActivityText.Text = this.coordinator.LastActivity ?? "";
         }
     }
 
@@ -1018,11 +1019,9 @@ public sealed class MainWindow : Window
     {
         this.homeActivityText.Text = $"{action} started.";
         this.statusText.Text = $"{action} in progress...";
-        var result = await this.appState.Gateway.RunActionAsync(action);
+        var result = await this.coordinator.RunGatewayActionAsync(action);
         this.RenderStatus(result.Status);
-        this.homeActivityText.Text = result.Succeeded
-            ? $"{action} completed."
-            : $"{action} failed: {result.Output}";
+        this.homeActivityText.Text = this.coordinator.LastActivity ?? "";
         if (!result.Succeeded)
         {
             this.detailText.Text = result.Output;
@@ -1032,8 +1031,7 @@ public sealed class MainWindow : Window
 
     private void RenderStatus(GatewayStatusSnapshot status)
     {
-        this.latestGatewayStatus = status;
-        this.logPath = status.LogPath;
+        this.coordinator.ApplyGatewayStatus(status);
         this.statusText.Text = $"Gateway: {status.State}";
         this.navigationGatewayStatusText.Text = $"Gateway: {status.State}";
         this.detailText.Text =
@@ -1091,9 +1089,9 @@ public sealed class MainWindow : Window
     private void RenderHomeDashboard()
     {
         var summary = GatewayDashboardSummary.Create(
-            this.latestGatewayStatus,
-            this.latestRealtimeState,
-            this.latestOnboardingChecks);
+            this.coordinator.GatewayStatus,
+            this.coordinator.RealtimeState,
+            this.coordinator.OnboardingChecks);
         this.homeGatewayStateText.Text = summary.GatewayState;
         this.homeGatewayHealthText.Text = summary.HealthState;
         this.homeConnectionStateText.Text = summary.ConnectionState;
@@ -1110,7 +1108,7 @@ public sealed class MainWindow : Window
         this.homeConnectionRows.Children.Add(BuildDashboardRow("Endpoint", this.gatewayUrlInput.Text));
         this.homeConnectionRows.Children.Add(BuildDashboardRow(
             "Last detail",
-            this.latestRealtimeReason ?? this.detailText.Text ?? "No connection detail yet."));
+            this.coordinator.RealtimeReason ?? this.detailText.Text ?? "No connection detail yet."));
         if (string.IsNullOrWhiteSpace(this.homeActivityText.Text))
         {
             this.homeActivityText.Text =
