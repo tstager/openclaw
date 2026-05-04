@@ -51,4 +51,15 @@ public sealed class GatewayCliCommandRunnerTests
             }
         }
     }
+
+    [TestMethod]
+    public async Task MissingExecutableReturnsFailedResult()
+    {
+        var runner = new GatewayCliCommandRunner($"openclaw-missing-for-test-{Guid.NewGuid():N}");
+
+        var result = await runner.RunAsync(["--version"]);
+
+        Assert.IsFalse(result.Succeeded);
+        StringAssert.Contains(result.CombinedOutput, "OpenClaw CLI was not found");
+    }
 }

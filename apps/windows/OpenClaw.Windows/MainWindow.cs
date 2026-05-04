@@ -17,6 +17,7 @@ public sealed class MainWindow : Window
     private readonly WindowsCompanionState appState;
     private readonly TextBlock statusText = new();
     private readonly TextBlock detailText = new();
+    private readonly TextBlock commandErrorText = new();
     private readonly StackPanel onboardingList = new() { Spacing = 6 };
     private readonly StackPanel chatMessages = new() { Spacing = 8 };
     private readonly StackPanel approvalsList = new() { Spacing = 8 };
@@ -58,7 +59,14 @@ public sealed class MainWindow : Window
 
     public async void RunGatewayAction(GatewayCliAction action)
     {
-        await this.RunGatewayActionAsync(action);
+        try
+        {
+            await this.RunGatewayActionAsync(action);
+        }
+        catch (Exception ex)
+        {
+            this.ReportCommandError(ex);
+        }
     }
 
     private UIElement BuildContent()
@@ -85,6 +93,10 @@ public sealed class MainWindow : Window
             Text = $"Gateway protocol {this.appState.Summary.GatewayProtocolVersion}",
             Opacity = 0.72,
         });
+        this.commandErrorText.Visibility = Visibility.Collapsed;
+        this.commandErrorText.TextWrapping = TextWrapping.Wrap;
+        this.commandErrorText.Foreground = new SolidColorBrush(Microsoft.UI.Colors.Firebrick);
+        header.Children.Add(this.commandErrorText);
         root.Children.Add(header);
 
         var tabs = new TabView
@@ -93,12 +105,12 @@ public sealed class MainWindow : Window
             Margin = new Thickness(0, 20, 0, 0),
         };
         Grid.SetRow(tabs, 1);
-        tabs.TabItems.Add(new TabViewItem { Header = "Status", Content = this.BuildStatusPanel() });
-        tabs.TabItems.Add(new TabViewItem { Header = "Chat", Content = this.BuildChatPanel() });
-        tabs.TabItems.Add(new TabViewItem { Header = "Approvals", Content = this.BuildApprovalsPanel() });
-        tabs.TabItems.Add(new TabViewItem { Header = "Pairing", Content = this.BuildPairingPanel() });
-        tabs.TabItems.Add(new TabViewItem { Header = "Devices", Content = this.BuildDevicesPanel() });
-        tabs.TabItems.Add(new TabViewItem { Header = "Settings", Content = this.BuildSettingsPanel() });
+        tabs.TabItems.Add(new TabViewItem { Header = "Status", Content = Scrollable(this.BuildStatusPanel()) });
+        tabs.TabItems.Add(new TabViewItem { Header = "Chat", Content = Scrollable(this.BuildChatPanel()) });
+        tabs.TabItems.Add(new TabViewItem { Header = "Approvals", Content = Scrollable(this.BuildApprovalsPanel()) });
+        tabs.TabItems.Add(new TabViewItem { Header = "Pairing", Content = Scrollable(this.BuildPairingPanel()) });
+        tabs.TabItems.Add(new TabViewItem { Header = "Devices", Content = Scrollable(this.BuildDevicesPanel()) });
+        tabs.TabItems.Add(new TabViewItem { Header = "Settings", Content = Scrollable(this.BuildSettingsPanel()) });
         root.Children.Add(tabs);
         _ = this.RefreshAllAsync();
         return root;
@@ -121,12 +133,12 @@ public sealed class MainWindow : Window
         buttons.Children.Add(new XamlButton
         {
             Content = "Connect",
-            Command = new RelayCommand(async () => await this.ConnectRealtimeAsync()),
+            Command = this.CreateCommand(async () => await this.ConnectRealtimeAsync()),
         });
         buttons.Children.Add(new XamlButton
         {
             Content = "Open Logs",
-            Command = new RelayCommand(() =>
+            Command = this.CreateCommand(() =>
             {
                 if (!string.IsNullOrWhiteSpace(this.logPath))
                 {
@@ -163,12 +175,12 @@ public sealed class MainWindow : Window
         buttons.Children.Add(new XamlButton
         {
             Content = "Refresh",
-            Command = new RelayCommand(async () => await this.RefreshChatAsync()),
+            Command = this.CreateCommand(async () => await this.RefreshChatAsync()),
         });
         buttons.Children.Add(new XamlButton
         {
             Content = "Send",
-            Command = new RelayCommand(async () => await this.SendChatAsync()),
+            Command = this.CreateCommand(async () => await this.SendChatAsync()),
         });
         panel.Children.Add(buttons);
         return panel;
@@ -187,7 +199,7 @@ public sealed class MainWindow : Window
         {
             Content = "Refresh",
             HorizontalAlignment = XamlHorizontalAlignment.Left,
-            Command = new RelayCommand(async () => await this.RefreshApprovalsAsync()),
+            Command = this.CreateCommand(async () => await this.RefreshApprovalsAsync()),
         });
         panel.Children.Add(this.approvalsList);
         return panel;
@@ -206,7 +218,7 @@ public sealed class MainWindow : Window
         {
             Content = "Refresh",
             HorizontalAlignment = XamlHorizontalAlignment.Left,
-            Command = new RelayCommand(async () => await this.RefreshPairingAsync()),
+            Command = this.CreateCommand(async () => await this.RefreshPairingAsync()),
         });
         panel.Children.Add(this.pairingList);
         return panel;
@@ -236,27 +248,27 @@ public sealed class MainWindow : Window
         buttons.Children.Add(new XamlButton
         {
             Content = "Refresh",
-            Command = new RelayCommand(async () => await this.RefreshDeviceCapabilitiesAsync()),
+            Command = this.CreateCommand(async () => await this.RefreshDeviceCapabilitiesAsync()),
         });
         buttons.Children.Add(new XamlButton
         {
             Content = "Screen",
-            Command = new RelayCommand(async () => await this.CaptureScreenAsync()),
+            Command = this.CreateCommand(async () => await this.CaptureScreenAsync()),
         });
         buttons.Children.Add(new XamlButton
         {
             Content = "Record",
-            Command = new RelayCommand(async () => await this.CaptureScreenFramesAsync()),
+            Command = this.CreateCommand(async () => await this.CaptureScreenFramesAsync()),
         });
         buttons.Children.Add(new XamlButton
         {
             Content = "Camera",
-            Command = new RelayCommand(async () => await this.CaptureCameraPhotoAsync()),
+            Command = this.CreateCommand(async () => await this.CaptureCameraPhotoAsync()),
         });
         buttons.Children.Add(new XamlButton
         {
             Content = "Notify",
-            Command = new RelayCommand(() =>
+            Command = this.CreateCommand(() =>
             {
                 this.ShowNotification("OpenClaw", "Windows companion notifications are available.");
                 return Task.CompletedTask;
@@ -265,7 +277,7 @@ public sealed class MainWindow : Window
         buttons.Children.Add(new XamlButton
         {
             Content = "Overlay",
-            Command = new RelayCommand(() =>
+            Command = this.CreateCommand(() =>
             {
                 this.ShowOverlay("OpenClaw overlay", "Native Windows overlays are available.");
                 return Task.CompletedTask;
@@ -274,7 +286,7 @@ public sealed class MainWindow : Window
         buttons.Children.Add(new XamlButton
         {
             Content = "Save toggles",
-            Command = new RelayCommand(async () => await this.SaveDevicePreferencesAsync()),
+            Command = this.CreateCommand(async () => await this.SaveDevicePreferencesAsync()),
         });
         panel.Children.Add(buttons);
         panel.Children.Add(this.nativeActionsText);
@@ -301,12 +313,12 @@ public sealed class MainWindow : Window
         buttons.Children.Add(new XamlButton
         {
             Content = "Save",
-            Command = new RelayCommand(async () => await this.SaveSettingsAsync()),
+            Command = this.CreateCommand(async () => await this.SaveSettingsAsync()),
         });
         buttons.Children.Add(new XamlButton
         {
             Content = "Refresh",
-            Command = new RelayCommand(async () => await this.RefreshAllAsync()),
+            Command = this.CreateCommand(async () => await this.RefreshAllAsync()),
         });
         panel.Children.Add(buttons);
         return panel;
@@ -317,8 +329,44 @@ public sealed class MainWindow : Window
         return new XamlButton
         {
             Content = label,
-            Command = new RelayCommand(async () => await this.RunGatewayActionAsync(action)),
+            Command = this.CreateCommand(async () => await this.RunGatewayActionAsync(action)),
         };
+    }
+
+    private RelayCommand CreateCommand(Func<Task> execute)
+    {
+        return new RelayCommand(async () =>
+        {
+            this.ClearCommandError();
+            await execute();
+        }, this.ReportCommandError);
+    }
+
+    private static ScrollViewer Scrollable(UIElement content)
+    {
+        return new ScrollViewer
+        {
+            Content = content,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+        };
+    }
+
+    private void ClearCommandError()
+    {
+        this.commandErrorText.Text = "";
+        this.commandErrorText.Visibility = Visibility.Collapsed;
+    }
+
+    private void ReportCommandError(Exception ex)
+    {
+        CrashLog.Write(ex);
+        _ = this.DispatcherQueue.TryEnqueue(() =>
+        {
+            this.commandErrorText.Text = ex.Message;
+            this.commandErrorText.Visibility = Visibility.Visible;
+            this.detailText.Text = ex.Message;
+        });
     }
 
     private void OnRealtimeStateChanged(GatewayRealtimeState state, string? reason)
@@ -471,7 +519,7 @@ public sealed class MainWindow : Window
         buttons.Children.Add(new XamlButton
         {
             Content = "Allow once",
-            Command = new RelayCommand(async () =>
+            Command = this.CreateCommand(async () =>
             {
                 await this.appState.Realtime.ResolveApprovalAsync(approval.Id, "allow-once");
                 await this.RefreshApprovalsAsync();
@@ -480,7 +528,7 @@ public sealed class MainWindow : Window
         buttons.Children.Add(new XamlButton
         {
             Content = "Deny",
-            Command = new RelayCommand(async () =>
+            Command = this.CreateCommand(async () =>
             {
                 await this.appState.Realtime.ResolveApprovalAsync(approval.Id, "deny");
                 await this.RefreshApprovalsAsync();
@@ -512,7 +560,7 @@ public sealed class MainWindow : Window
         buttons.Children.Add(new XamlButton
         {
             Content = "Approve",
-            Command = new RelayCommand(async () =>
+            Command = this.CreateCommand(async () =>
             {
                 await this.appState.Realtime.ResolvePairingAsync(request, approve: true);
                 await this.RefreshPairingAsync();
@@ -521,7 +569,7 @@ public sealed class MainWindow : Window
         buttons.Children.Add(new XamlButton
         {
             Content = "Reject",
-            Command = new RelayCommand(async () =>
+            Command = this.CreateCommand(async () =>
             {
                 await this.appState.Realtime.ResolvePairingAsync(request, approve: false);
                 await this.RefreshPairingAsync();

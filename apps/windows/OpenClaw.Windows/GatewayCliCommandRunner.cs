@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Text;
 
@@ -116,7 +117,15 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
             }
         };
 
-        process.Start();
+        try
+        {
+            process.Start();
+        }
+        catch (Exception ex) when (ex is Win32Exception or FileNotFoundException)
+        {
+            return MissingCommandResult(this.CommandName);
+        }
+
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
         await process.WaitForExitAsync(cancellationToken);
@@ -145,5 +154,14 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
         }
 
         return null;
+    }
+
+    private static GatewayCliResult MissingCommandResult(string commandName)
+    {
+        var message = string.Equals(commandName, "node", StringComparison.OrdinalIgnoreCase) ||
+            commandName.StartsWith("node ", StringComparison.OrdinalIgnoreCase)
+            ? "Node runtime was not found on PATH. Install Node.js 22 or newer, then restart the app."
+            : "OpenClaw CLI was not found. Install OpenClaw for Windows or add openclaw to PATH, then restart the app.";
+        return new GatewayCliResult(1, "", message);
     }
 }
