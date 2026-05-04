@@ -15,6 +15,9 @@ namespace OpenClaw.Windows;
 public sealed class MainWindow : Window
 {
     private readonly WindowsCompanionState appState;
+    private readonly Dictionary<string, UIElement> navigationPages = new();
+    private readonly ContentControl navigationContent = new();
+    private readonly TextBlock navigationGatewayStatusText = new();
     private readonly TextBlock statusText = new();
     private readonly TextBlock detailText = new();
     private readonly TextBlock commandErrorText = new();
@@ -25,6 +28,7 @@ public sealed class MainWindow : Window
     private readonly StackPanel deviceStatusList = new() { Spacing = 6 };
     private readonly StackPanel mediaDevicesList = new() { Spacing = 6 };
     private readonly TextBlock nativeActionsText = new();
+    private readonly TextBlock logsText = new();
     private readonly TextBlock settingsText = new();
     private readonly XamlTextBox chatInput = new() { AcceptsReturn = true, Height = 88, TextWrapping = TextWrapping.Wrap };
     private readonly XamlTextBox gatewayUrlInput = new();
@@ -71,6 +75,58 @@ public sealed class MainWindow : Window
 
     private UIElement BuildContent()
     {
+        this.commandErrorText.Visibility = Visibility.Collapsed;
+        this.commandErrorText.TextWrapping = TextWrapping.Wrap;
+        this.commandErrorText.Foreground = new SolidColorBrush(Microsoft.UI.Colors.Firebrick);
+        this.commandErrorText.Margin = new Thickness(24, 12, 24, 0);
+        this.navigationGatewayStatusText.Text = "Gateway: Checking";
+        this.navigationGatewayStatusText.Margin = new Thickness(12);
+        this.navigationGatewayStatusText.TextWrapping = TextWrapping.Wrap;
+        this.navigationGatewayStatusText.Opacity = 0.72;
+
+        var navigation = new NavigationView
+        {
+            PaneTitle = "OpenClaw",
+            IsBackButtonVisible = NavigationViewBackButtonVisible.Collapsed,
+            IsSettingsVisible = true,
+            OpenPaneLength = 220,
+            CompactPaneLength = 48,
+            PaneDisplayMode = NavigationViewPaneDisplayMode.Left,
+            PaneFooter = this.navigationGatewayStatusText,
+            Content = this.navigationContent,
+        };
+        navigation.MenuItems.Add(CreateNavigationItem("Home", "home", "\uE80F"));
+        navigation.MenuItems.Add(CreateNavigationItem("Sessions", "sessions", "\uE8BD"));
+        navigation.MenuItems.Add(CreateNavigationItem("Approvals", "approvals", "\uE73E"));
+        navigation.MenuItems.Add(CreateNavigationItem("Pairing", "pairing", "\uE71B"));
+        navigation.MenuItems.Add(CreateNavigationItem("Devices", "devices", "\uE722"));
+        navigation.MenuItems.Add(CreateNavigationItem("Logs", "logs", "\uE8A5"));
+        navigation.SelectionChanged += this.OnNavigationSelectionChanged;
+
+        if (navigation.MenuItems.FirstOrDefault() is NavigationViewItem homeItem)
+        {
+            navigation.SelectedItem = homeItem;
+            this.ShowNavigationPage(homeItem);
+        }
+
+        var root = new Grid
+        {
+            RowDefinitions =
+            {
+                new RowDefinition { Height = GridLength.Auto },
+                new RowDefinition { Height = new GridLength(1, GridUnitType.Star) },
+            },
+        };
+        root.Children.Add(this.commandErrorText);
+        Grid.SetRow(navigation, 1);
+        root.Children.Add(navigation);
+
+        _ = this.RefreshAllAsync();
+        return root;
+    }
+
+    private UIElement BuildPage(string title, FrameworkElement content)
+    {
         var root = new Grid
         {
             Padding = new Thickness(24),
@@ -84,7 +140,7 @@ public sealed class MainWindow : Window
         var header = new StackPanel { Spacing = 4 };
         header.Children.Add(new TextBlock
         {
-            Text = "OpenClaw",
+            Text = title,
             FontSize = 28,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
         });
@@ -93,27 +149,63 @@ public sealed class MainWindow : Window
             Text = $"Gateway protocol {this.appState.Summary.GatewayProtocolVersion}",
             Opacity = 0.72,
         });
-        this.commandErrorText.Visibility = Visibility.Collapsed;
-        this.commandErrorText.TextWrapping = TextWrapping.Wrap;
-        this.commandErrorText.Foreground = new SolidColorBrush(Microsoft.UI.Colors.Firebrick);
-        header.Children.Add(this.commandErrorText);
         root.Children.Add(header);
 
-        var tabs = new TabView
-        {
-            IsAddTabButtonVisible = false,
-            Margin = new Thickness(0, 20, 0, 0),
-        };
-        Grid.SetRow(tabs, 1);
-        tabs.TabItems.Add(new TabViewItem { Header = "Status", Content = Scrollable(this.BuildStatusPanel()) });
-        tabs.TabItems.Add(new TabViewItem { Header = "Chat", Content = Scrollable(this.BuildChatPanel()) });
-        tabs.TabItems.Add(new TabViewItem { Header = "Approvals", Content = Scrollable(this.BuildApprovalsPanel()) });
-        tabs.TabItems.Add(new TabViewItem { Header = "Pairing", Content = Scrollable(this.BuildPairingPanel()) });
-        tabs.TabItems.Add(new TabViewItem { Header = "Devices", Content = Scrollable(this.BuildDevicesPanel()) });
-        tabs.TabItems.Add(new TabViewItem { Header = "Settings", Content = Scrollable(this.BuildSettingsPanel()) });
-        root.Children.Add(tabs);
-        _ = this.RefreshAllAsync();
+        Grid.SetRow(content, 1);
+        root.Children.Add(content);
         return root;
+    }
+
+    private static NavigationViewItem CreateNavigationItem(string label, string tag, string glyph)
+    {
+        return new NavigationViewItem
+        {
+            Content = label,
+            Tag = tag,
+            Icon = new FontIcon { Glyph = glyph },
+        };
+    }
+
+    private void OnNavigationSelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
+    {
+        if (args.IsSettingsSelected)
+        {
+            this.navigationContent.Content = this.GetNavigationPage("settings");
+            return;
+        }
+
+        if (args.SelectedItem is NavigationViewItem selectedItem)
+        {
+            this.ShowNavigationPage(selectedItem);
+        }
+    }
+
+    private void ShowNavigationPage(NavigationViewItem selectedItem)
+    {
+        var tag = selectedItem.Tag as string;
+        this.navigationContent.Content = this.GetNavigationPage(tag ?? "home");
+    }
+
+    private UIElement GetNavigationPage(string tag)
+    {
+        if (this.navigationPages.TryGetValue(tag, out var page))
+        {
+            return page;
+        }
+
+        page = tag switch
+        {
+            "home" => this.BuildPage("Home", Scrollable(this.BuildStatusPanel())),
+            "sessions" => this.BuildPage("Sessions", Scrollable(this.BuildChatPanel())),
+            "approvals" => this.BuildPage("Approvals", Scrollable(this.BuildApprovalsPanel())),
+            "pairing" => this.BuildPage("Pairing", Scrollable(this.BuildPairingPanel())),
+            "devices" => this.BuildPage("Devices", Scrollable(this.BuildDevicesPanel())),
+            "logs" => this.BuildPage("Logs", Scrollable(this.BuildLogsPanel())),
+            "settings" => this.BuildPage("Settings", Scrollable(this.BuildSettingsPanel())),
+            _ => this.BuildPage("Home", Scrollable(this.BuildStatusPanel())),
+        };
+        this.navigationPages[tag] = page;
+        return page;
     }
 
     private UIElement BuildStatusPanel()
@@ -324,6 +416,42 @@ public sealed class MainWindow : Window
         return panel;
     }
 
+    private UIElement BuildLogsPanel()
+    {
+        var panel = new StackPanel { Spacing = 12 };
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Logs",
+            FontSize = 20,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+        });
+        this.logsText.Text = "Gateway log path has not been loaded yet.";
+        this.logsText.TextWrapping = TextWrapping.Wrap;
+        panel.Children.Add(this.logsText);
+
+        var buttons = new StackPanel { Orientation = XamlOrientation.Horizontal, Spacing = 8 };
+        buttons.Children.Add(new XamlButton
+        {
+            Content = "Refresh",
+            Command = this.CreateCommand(async () => await this.RefreshAllAsync()),
+        });
+        buttons.Children.Add(new XamlButton
+        {
+            Content = "Open Logs",
+            Command = this.CreateCommand(() =>
+            {
+                if (!string.IsNullOrWhiteSpace(this.logPath))
+                {
+                    WindowsShell.OpenFileInExplorer(this.logPath);
+                }
+
+                return Task.CompletedTask;
+            }),
+        });
+        panel.Children.Add(buttons);
+        return panel;
+    }
+
     private XamlButton ActionButton(string label, GatewayCliAction action)
     {
         return new XamlButton
@@ -374,6 +502,7 @@ public sealed class MainWindow : Window
         _ = this.DispatcherQueue.TryEnqueue(() =>
         {
             this.statusText.Text = $"Gateway: {state}";
+            this.navigationGatewayStatusText.Text = $"Gateway: {state}";
             if (!string.IsNullOrWhiteSpace(reason))
             {
                 this.detailText.Text = reason;
@@ -774,11 +903,17 @@ public sealed class MainWindow : Window
     {
         this.logPath = status.LogPath;
         this.statusText.Text = $"Gateway: {status.State}";
+        this.navigationGatewayStatusText.Text = $"Gateway: {status.State}";
         this.detailText.Text =
             $"Service installed: {status.ServiceInstalled}\n" +
             $"Reachable: {status.Reachable}\n" +
             $"Capability: {status.Capability}\n" +
             $"Dashboard: {status.DashboardUrl ?? "unknown"}\n" +
             $"Logs: {status.LogPath ?? "unknown"}";
+        this.logsText.Text =
+            $"Gateway logs: {status.LogPath ?? "unknown"}\n" +
+            $"Service installed: {status.ServiceInstalled}\n" +
+            $"Reachable: {status.Reachable}\n" +
+            $"Capability: {status.Capability}";
     }
 }
