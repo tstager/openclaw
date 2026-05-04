@@ -21,6 +21,12 @@ public sealed class MainWindow : Window
     private readonly TextBlock statusText = new();
     private readonly TextBlock detailText = new();
     private readonly TextBlock commandErrorText = new();
+    private readonly TextBlock homeGatewayStateText = new();
+    private readonly TextBlock homeGatewayHealthText = new();
+    private readonly TextBlock homeConnectionStateText = new();
+    private readonly StackPanel homeGatewayRows = new() { Spacing = 8 };
+    private readonly StackPanel homeConnectionRows = new() { Spacing = 8 };
+    private readonly TextBlock homeActivityText = new();
     private readonly StackPanel onboardingList = new() { Spacing = 6 };
     private readonly StackPanel chatMessages = new() { Spacing = 8 };
     private readonly StackPanel approvalsList = new() { Spacing = 8 };
@@ -39,6 +45,10 @@ public sealed class MainWindow : Window
     private WindowsTrayHost? trayHost;
     private WindowsGlobalHotkeyService? hotkeyService;
     private Window? overlayWindow;
+    private GatewayStatusSnapshot? latestGatewayStatus;
+    private GatewayRealtimeState latestRealtimeState = GatewayRealtimeState.Disconnected;
+    private string? latestRealtimeReason;
+    private IReadOnlyList<OnboardingCheckResult> latestOnboardingChecks = Array.Empty<OnboardingCheckResult>();
     private string? logPath;
 
     public MainWindow(WindowsCompanionState appState)
@@ -195,28 +205,57 @@ public sealed class MainWindow : Window
 
         page = tag switch
         {
-            "home" => this.BuildPage("Home", Scrollable(this.BuildStatusPanel())),
+            "home" => this.BuildPage("Home", Scrollable(this.BuildHomeDashboardPanel())),
             "sessions" => this.BuildPage("Sessions", Scrollable(this.BuildChatPanel())),
             "approvals" => this.BuildPage("Approvals", Scrollable(this.BuildApprovalsPanel())),
             "pairing" => this.BuildPage("Pairing", Scrollable(this.BuildPairingPanel())),
             "devices" => this.BuildPage("Devices", Scrollable(this.BuildDevicesPanel())),
             "logs" => this.BuildPage("Logs", Scrollable(this.BuildLogsPanel())),
             "settings" => this.BuildPage("Settings", Scrollable(this.BuildSettingsPanel())),
-            _ => this.BuildPage("Home", Scrollable(this.BuildStatusPanel())),
+            _ => this.BuildPage("Home", Scrollable(this.BuildHomeDashboardPanel())),
         };
         this.navigationPages[tag] = page;
         return page;
     }
 
-    private UIElement BuildStatusPanel()
+    private UIElement BuildHomeDashboardPanel()
     {
-        var panel = new StackPanel { Spacing = 14 };
-        this.statusText.Text = "Checking gateway...";
-        this.statusText.FontSize = 20;
-        this.statusText.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
-        panel.Children.Add(this.statusText);
-        panel.Children.Add(this.detailText);
+        var panel = new StackPanel { Spacing = 16 };
+        this.homeGatewayStateText.Text = "Checking";
+        this.homeGatewayHealthText.Text = "Checking";
+        this.homeConnectionStateText.Text = this.latestRealtimeState.ToString();
+        this.homeActivityText.TextWrapping = TextWrapping.Wrap;
+        this.detailText.TextWrapping = TextWrapping.Wrap;
+        this.statusText.Visibility = Visibility.Collapsed;
 
+        var summaryCards = new Grid
+        {
+            ColumnSpacing = 12,
+            RowSpacing = 12,
+            ColumnDefinitions =
+            {
+                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+            },
+        };
+        AddSummaryCard(summaryCards, 0, "Gateway", this.homeGatewayStateText, "Service and RPC status");
+        AddSummaryCard(summaryCards, 1, "Health", this.homeGatewayHealthText, "Onboarding readiness");
+        AddSummaryCard(summaryCards, 2, "Connection", this.homeConnectionStateText, "Realtime channel");
+        panel.Children.Add(summaryCards);
+
+        panel.Children.Add(BuildDashboardCard("Gateway status", this.homeGatewayRows));
+        panel.Children.Add(BuildDashboardCard("Connection state", this.homeConnectionRows));
+        panel.Children.Add(BuildDashboardCard("Quick actions", this.BuildGatewayActions()));
+
+        panel.Children.Add(BuildDashboardCard("Onboarding health", this.onboardingList));
+        panel.Children.Add(BuildDashboardCard("Recent activity", this.homeActivityText));
+        this.RenderHomeDashboard();
+        return panel;
+    }
+
+    private UIElement BuildGatewayActions()
+    {
         var buttons = new StackPanel { Orientation = XamlOrientation.Horizontal, Spacing = 8 };
         buttons.Children.Add(ActionButton("Install", GatewayCliAction.Install));
         buttons.Children.Add(ActionButton("Start", GatewayCliAction.Start));
@@ -239,17 +278,100 @@ public sealed class MainWindow : Window
                 return Task.CompletedTask;
             }),
         });
-        panel.Children.Add(buttons);
+        return buttons;
+    }
 
-        panel.Children.Add(new TextBlock
+    private static void AddSummaryCard(Grid grid, int column, string title, TextBlock value, string caption)
+    {
+        value.FontSize = 22;
+        value.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
+        value.TextWrapping = TextWrapping.Wrap;
+        var content = new StackPanel { Spacing = 4 };
+        content.Children.Add(new TextBlock
         {
-            Text = "Onboarding",
-            FontSize = 18,
+            Text = title,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
-            Margin = new Thickness(0, 18, 0, 0),
+            Foreground = ResourceBrush("TextFillColorSecondaryBrush"),
         });
-        panel.Children.Add(this.onboardingList);
-        return panel;
+        content.Children.Add(value);
+        content.Children.Add(new TextBlock
+        {
+            Text = caption,
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = ResourceBrush("TextFillColorSecondaryBrush"),
+        });
+
+        var card = BuildDashboardCard(null, content);
+        Grid.SetColumn(card, column);
+        grid.Children.Add(card);
+    }
+
+    private static Border BuildDashboardCard(string? title, UIElement content)
+    {
+        var body = new StackPanel { Spacing = 10 };
+        if (!string.IsNullOrWhiteSpace(title))
+        {
+            body.Children.Add(new TextBlock
+            {
+                Text = title,
+                FontSize = 16,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            });
+        }
+        body.Children.Add(content);
+
+        return new Border
+        {
+            Padding = new Thickness(16),
+            Background = ResourceBrush("CardBackgroundFillColorDefaultBrush"),
+            BorderBrush = ResourceBrush("CardStrokeColorDefaultBrush"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = ResourceCornerRadius("OverlayCornerRadius"),
+            Child = body,
+        };
+    }
+
+    private static Brush ResourceBrush(string resourceName)
+    {
+        if (Application.Current?.Resources.TryGetValue(resourceName, out var resource) == true &&
+            resource is Brush brush)
+        {
+            return brush;
+        }
+
+        if (resourceName.Contains("Background", StringComparison.OrdinalIgnoreCase))
+        {
+            return new SolidColorBrush(Microsoft.UI.Colors.White);
+        }
+        if (resourceName.Contains("Stroke", StringComparison.OrdinalIgnoreCase))
+        {
+            return new SolidColorBrush(Microsoft.UI.Colors.LightGray);
+        }
+        if (resourceName.Contains("Success", StringComparison.OrdinalIgnoreCase))
+        {
+            return new SolidColorBrush(Microsoft.UI.Colors.ForestGreen);
+        }
+        if (resourceName.Contains("Caution", StringComparison.OrdinalIgnoreCase))
+        {
+            return new SolidColorBrush(Microsoft.UI.Colors.DarkGoldenrod);
+        }
+        if (resourceName.Contains("Critical", StringComparison.OrdinalIgnoreCase))
+        {
+            return new SolidColorBrush(Microsoft.UI.Colors.Firebrick);
+        }
+
+        return new SolidColorBrush(Microsoft.UI.Colors.Black);
+    }
+
+    private static CornerRadius ResourceCornerRadius(string resourceName)
+    {
+        if (Application.Current?.Resources.TryGetValue(resourceName, out var resource) == true &&
+            resource is CornerRadius radius)
+        {
+            return radius;
+        }
+
+        return new CornerRadius(8);
     }
 
     private UIElement BuildChatPanel()
@@ -501,12 +623,15 @@ public sealed class MainWindow : Window
     {
         _ = this.DispatcherQueue.TryEnqueue(() =>
         {
+            this.latestRealtimeState = state;
+            this.latestRealtimeReason = reason;
             this.statusText.Text = $"Gateway: {state}";
             this.navigationGatewayStatusText.Text = $"Gateway: {state}";
             if (!string.IsNullOrWhiteSpace(reason))
             {
                 this.detailText.Text = reason;
             }
+            this.RenderHomeDashboard();
         });
     }
 
@@ -514,6 +639,7 @@ public sealed class MainWindow : Window
     {
         _ = this.DispatcherQueue.TryEnqueue(() =>
         {
+            this.homeActivityText.Text = $"Latest event: {@event.Name}";
             this.chatMessages.Children.Add(new TextBlock
             {
                 Text = $"event:{@event.Name} {@event.Payload?.ToString() ?? ""}",
@@ -552,19 +678,18 @@ public sealed class MainWindow : Window
             {
                 this.statusText.Text = "Gateway status unavailable";
                 this.detailText.Text = ex.Message;
+                this.latestGatewayStatus = null;
+                this.RenderHomeDashboard();
             }
 
             var checks = await this.appState.OnboardingChecks.RunAsync();
+            this.latestOnboardingChecks = checks;
             this.onboardingList.Children.Clear();
             foreach (var check in checks)
             {
-                this.onboardingList.Children.Add(new TextBlock
-                {
-                    Text = $"{check.Label}: {check.State} - {check.Detail}",
-                    TextWrapping = TextWrapping.Wrap,
-                    Foreground = new SolidColorBrush(check.State == OnboardingCheckState.Failed ? Microsoft.UI.Colors.Firebrick : Microsoft.UI.Colors.Black),
-                });
+                this.onboardingList.Children.Add(BuildOnboardingRow(check));
             }
+            this.RenderHomeDashboard();
 
             var preferences = await this.appState.Preferences.LoadAsync();
             this.gatewayUrlInput.Text = preferences.GatewayUrl;
@@ -572,6 +697,7 @@ public sealed class MainWindow : Window
             this.chatSessionInput.Text = preferences.ChatSessionKey;
             this.voiceControlsToggle.IsChecked = preferences.VoiceControlsEnabled;
             this.globalHotkeyToggle.IsChecked = preferences.GlobalHotkeyEnabled;
+            this.RenderHomeDashboard();
             this.settingsText.Text =
                 $"Open main window on launch: {preferences.OpenMainWindowOnLaunch}\n" +
                 $"Last status: {preferences.LastStatus ?? "unknown"}\n" +
@@ -586,6 +712,7 @@ public sealed class MainWindow : Window
             CrashLog.Write(ex);
             this.statusText.Text = "Startup refresh failed";
             this.detailText.Text = ex.Message;
+            this.homeActivityText.Text = $"Startup refresh failed: {ex.Message}";
         }
     }
 
@@ -889,9 +1016,13 @@ public sealed class MainWindow : Window
 
     private async Task RunGatewayActionAsync(GatewayCliAction action)
     {
+        this.homeActivityText.Text = $"{action} started.";
         this.statusText.Text = $"{action} in progress...";
         var result = await this.appState.Gateway.RunActionAsync(action);
         this.RenderStatus(result.Status);
+        this.homeActivityText.Text = result.Succeeded
+            ? $"{action} completed."
+            : $"{action} failed: {result.Output}";
         if (!result.Succeeded)
         {
             this.detailText.Text = result.Output;
@@ -901,6 +1032,7 @@ public sealed class MainWindow : Window
 
     private void RenderStatus(GatewayStatusSnapshot status)
     {
+        this.latestGatewayStatus = status;
         this.logPath = status.LogPath;
         this.statusText.Text = $"Gateway: {status.State}";
         this.navigationGatewayStatusText.Text = $"Gateway: {status.State}";
@@ -915,5 +1047,112 @@ public sealed class MainWindow : Window
             $"Service installed: {status.ServiceInstalled}\n" +
             $"Reachable: {status.Reachable}\n" +
             $"Capability: {status.Capability}";
+        this.RenderHomeDashboard();
+    }
+
+    private static UIElement BuildOnboardingRow(OnboardingCheckResult check)
+    {
+        var stateText = new TextBlock
+        {
+            Text = check.State.ToString(),
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Foreground = StateBrush(check.State),
+        };
+        var labelText = new TextBlock
+        {
+            Text = check.Label,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+        };
+        var detailText = new TextBlock
+        {
+            Text = check.Detail,
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = ResourceBrush("TextFillColorSecondaryBrush"),
+        };
+
+        var row = new Grid
+        {
+            ColumnSpacing = 12,
+            ColumnDefinitions =
+            {
+                new ColumnDefinition { Width = new GridLength(96) },
+                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+            },
+        };
+        row.Children.Add(stateText);
+        var detail = new StackPanel { Spacing = 2 };
+        detail.Children.Add(labelText);
+        detail.Children.Add(detailText);
+        Grid.SetColumn(detail, 1);
+        row.Children.Add(detail);
+        return row;
+    }
+
+    private void RenderHomeDashboard()
+    {
+        var summary = GatewayDashboardSummary.Create(
+            this.latestGatewayStatus,
+            this.latestRealtimeState,
+            this.latestOnboardingChecks);
+        this.homeGatewayStateText.Text = summary.GatewayState;
+        this.homeGatewayHealthText.Text = summary.HealthState;
+        this.homeConnectionStateText.Text = summary.ConnectionState;
+        this.homeGatewayRows.Children.Clear();
+        this.homeGatewayRows.Children.Add(BuildDashboardRow("Service", summary.ServiceState));
+        this.homeGatewayRows.Children.Add(BuildDashboardRow("RPC", summary.Reachability));
+        this.homeGatewayRows.Children.Add(BuildDashboardRow("Capability", summary.Capability));
+        this.homeGatewayRows.Children.Add(BuildDashboardRow("Onboarding", summary.OnboardingHealth));
+        this.homeGatewayRows.Children.Add(BuildDashboardRow("Dashboard", summary.DashboardUrl));
+        this.homeGatewayRows.Children.Add(BuildDashboardRow("Logs", summary.LogPath));
+
+        this.homeConnectionRows.Children.Clear();
+        this.homeConnectionRows.Children.Add(BuildDashboardRow("Realtime", summary.ConnectionState));
+        this.homeConnectionRows.Children.Add(BuildDashboardRow("Endpoint", this.gatewayUrlInput.Text));
+        this.homeConnectionRows.Children.Add(BuildDashboardRow(
+            "Last detail",
+            this.latestRealtimeReason ?? this.detailText.Text ?? "No connection detail yet."));
+        if (string.IsNullOrWhiteSpace(this.homeActivityText.Text))
+        {
+            this.homeActivityText.Text =
+                "Recent activity will show Gateway lifecycle events, realtime events, approvals, and pairing requests as they arrive.";
+        }
+    }
+
+    private static UIElement BuildDashboardRow(string label, string value)
+    {
+        var row = new Grid
+        {
+            ColumnSpacing = 12,
+            ColumnDefinitions =
+            {
+                new ColumnDefinition { Width = new GridLength(112) },
+                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+            },
+        };
+        row.Children.Add(new TextBlock
+        {
+            Text = label,
+            Foreground = ResourceBrush("TextFillColorSecondaryBrush"),
+        });
+        var valueText = new TextBlock
+        {
+            Text = string.IsNullOrWhiteSpace(value) ? "unknown" : value,
+            TextWrapping = TextWrapping.Wrap,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+        };
+        Grid.SetColumn(valueText, 1);
+        row.Children.Add(valueText);
+        return row;
+    }
+
+    private static Brush StateBrush(OnboardingCheckState state)
+    {
+        return state switch
+        {
+            OnboardingCheckState.Passed => ResourceBrush("SystemFillColorSuccessBrush"),
+            OnboardingCheckState.Warning => ResourceBrush("SystemFillColorCautionBrush"),
+            OnboardingCheckState.Failed => ResourceBrush("SystemFillColorCriticalBrush"),
+            _ => ResourceBrush("TextFillColorPrimaryBrush"),
+        };
     }
 }

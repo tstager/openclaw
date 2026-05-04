@@ -1,8 +1,5 @@
 namespace OpenClaw.Windows;
 
-/// <summary>
-/// Display-ready aggregate of CLI status, realtime state, and onboarding checks for the Home page.
-/// </summary>
 public sealed record GatewayDashboardSummary(
     string GatewayState,
     string ServiceState,
@@ -14,14 +11,10 @@ public sealed record GatewayDashboardSummary(
     string DashboardUrl,
     string LogPath)
 {
-    /// <summary>
-    /// Produces concise dashboard rows while preferring live realtime authorization over stale CLI capability data.
-    /// </summary>
     public static GatewayDashboardSummary Create(
         GatewayStatusSnapshot? status,
         GatewayRealtimeState realtimeState,
-        IReadOnlyList<OnboardingCheckResult> onboardingChecks,
-        GatewayRealtimeAuthorization? realtimeAuthorization = null)
+        IReadOnlyList<OnboardingCheckResult> onboardingChecks)
     {
         var passed = onboardingChecks.Count(check => check.State == OnboardingCheckState.Passed);
         var warnings = onboardingChecks.Count(check => check.State == OnboardingCheckState.Warning);
@@ -32,30 +25,12 @@ public sealed record GatewayDashboardSummary(
             GatewayState: status?.State ?? "unknown",
             ServiceState: status is null ? "Unknown" : status.ServiceInstalled ? "Installed" : "Not installed",
             Reachability: status is null ? "Unknown" : status.Reachable ? "Reachable" : "Unreachable",
-            Capability: ResolveCapability(status, realtimeState, realtimeAuthorization),
+            Capability: status?.Capability ?? "unknown",
             ConnectionState: realtimeState.ToString(),
             OnboardingHealth: FormatOnboardingHealth(passed, warnings, failed),
             HealthState: healthState,
             DashboardUrl: status?.DashboardUrl ?? "unknown",
             LogPath: status?.LogPath ?? "unknown");
-    }
-
-    /// <summary>
-    /// Uses the realtime connection's current authorization when available because it reflects the active socket.
-    /// </summary>
-    private static string ResolveCapability(
-        GatewayStatusSnapshot? status,
-        GatewayRealtimeState realtimeState,
-        GatewayRealtimeAuthorization? realtimeAuthorization)
-    {
-        if (realtimeState == GatewayRealtimeState.Connected &&
-            realtimeAuthorization is not null &&
-            !string.Equals(realtimeAuthorization.Capability, "unknown", StringComparison.Ordinal))
-        {
-            return realtimeAuthorization.Capability;
-        }
-
-        return status?.Capability ?? "unknown";
     }
 
     private static string FormatOnboardingHealth(int passed, int warnings, int failed)

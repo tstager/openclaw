@@ -68,27 +68,4 @@ public sealed class GatewayDashboardSummaryTests
         Assert.AreEqual("Unknown", summary.Reachability);
         Assert.AreEqual("Checking", summary.HealthState);
     }
-
-    [TestMethod]
-    public void UsesRealtimeAuthorizationForCapabilityWhenConnected()
-    {
-        var status = new GatewayStatusSnapshot(
-            State: "running",
-            ServiceInstalled: true,
-            Reachable: true,
-            Capability: "read_only",
-            DashboardUrl: null,
-            LogPath: null,
-            AuthWarning: null,
-            Error: null,
-            RawJson: "{}");
-
-        var summary = GatewayDashboardSummary.Create(
-            status,
-            GatewayRealtimeState.Connected,
-            [],
-            new GatewayRealtimeAuthorization("operator", ["operator.read", "operator.write"]));
-
-        Assert.AreEqual("write_capable", summary.Capability);
-    }
 }
