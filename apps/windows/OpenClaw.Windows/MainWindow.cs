@@ -34,6 +34,7 @@ public sealed class MainWindow : Window
     private readonly StackPanel homeConnectionRows = new() { Spacing = 8 };
     private readonly TextBlock homeActivityText = new();
     private readonly StackPanel onboardingList = new() { Spacing = 6 };
+    private readonly StackPanel homeOperatorRows = new() { Spacing = 8 };
     private readonly StackPanel chatMessages = new() { Spacing = 8 };
     private readonly TextBlock chatStateText = new();
     private readonly TextBlock chatSessionText = new();
@@ -43,7 +44,13 @@ public sealed class MainWindow : Window
     private readonly XamlButton chatRefreshButton = new();
     private readonly XamlButton chatSendButton = new();
     private readonly StackPanel approvalsList = new() { Spacing = 8 };
+    private readonly TextBlock approvalsStatusText = new();
     private readonly StackPanel pairingList = new() { Spacing = 8 };
+    private readonly TextBlock pairingStatusText = new();
+    private IReadOnlyList<PendingApproval> latestApprovals = [];
+    private IReadOnlyList<PairingRequest> latestPairingRequests = [];
+    private bool approvalsLoaded;
+    private bool pairingLoaded;
     private readonly StackPanel deviceStatusList = new() { Spacing = 6 };
     private readonly StackPanel mediaDevicesList = new() { Spacing = 6 };
     private readonly TextBlock nativeActionsText = new();
@@ -264,6 +271,7 @@ public sealed class MainWindow : Window
         panel.Children.Add(BuildDashboardCard("Connection state", this.homeConnectionRows));
         panel.Children.Add(BuildDashboardCard("Quick actions", this.BuildGatewayActions()));
 
+        panel.Children.Add(BuildDashboardCard("Operator workflows", this.homeOperatorRows));
         panel.Children.Add(BuildDashboardCard("Onboarding health", this.onboardingList));
         panel.Children.Add(BuildDashboardCard("Recent activity", this.homeActivityText));
         this.RenderHomeDashboard();
@@ -471,39 +479,83 @@ public sealed class MainWindow : Window
 
     private UIElement BuildApprovalsPanel()
     {
-        var panel = new StackPanel { Spacing = 12 };
-        panel.Children.Add(new TextBlock
+        var panel = new StackPanel { Spacing = 16 };
+        this.approvalsStatusText.TextWrapping = TextWrapping.Wrap;
+        this.approvalsStatusText.Foreground = ResourceBrush("TextFillColorSecondaryBrush");
+
+        var header = new Grid
         {
-            Text = "Approvals",
+            ColumnSpacing = 12,
+            ColumnDefinitions =
+            {
+                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                new ColumnDefinition { Width = GridLength.Auto },
+            },
+        };
+        var headerText = new StackPanel { Spacing = 4 };
+        headerText.Children.Add(new TextBlock
+        {
+            Text = "Command approvals",
             FontSize = 20,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
         });
-        panel.Children.Add(new XamlButton
+        headerText.Children.Add(this.approvalsStatusText);
+        header.Children.Add(headerText);
+
+        var refreshButton = new XamlButton
         {
             Content = "Refresh",
+            AccessKey = "R",
             HorizontalAlignment = XamlHorizontalAlignment.Left,
             Command = this.CreateCommand(async () => await this.RefreshApprovalsAsync()),
-        });
+        };
+        AutomationProperties.SetName(refreshButton, "Refresh approvals");
+        Grid.SetColumn(refreshButton, 1);
+        header.Children.Add(refreshButton);
+        panel.Children.Add(header);
         panel.Children.Add(this.approvalsList);
+        this.RenderApprovals();
         return panel;
     }
 
     private UIElement BuildPairingPanel()
     {
-        var panel = new StackPanel { Spacing = 12 };
-        panel.Children.Add(new TextBlock
+        var panel = new StackPanel { Spacing = 16 };
+        this.pairingStatusText.TextWrapping = TextWrapping.Wrap;
+        this.pairingStatusText.Foreground = ResourceBrush("TextFillColorSecondaryBrush");
+
+        var header = new Grid
         {
-            Text = "Pairing",
+            ColumnSpacing = 12,
+            ColumnDefinitions =
+            {
+                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                new ColumnDefinition { Width = GridLength.Auto },
+            },
+        };
+        var headerText = new StackPanel { Spacing = 4 };
+        headerText.Children.Add(new TextBlock
+        {
+            Text = "Pairing requests",
             FontSize = 20,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
         });
-        panel.Children.Add(new XamlButton
+        headerText.Children.Add(this.pairingStatusText);
+        header.Children.Add(headerText);
+
+        var refreshButton = new XamlButton
         {
             Content = "Refresh",
+            AccessKey = "R",
             HorizontalAlignment = XamlHorizontalAlignment.Left,
             Command = this.CreateCommand(async () => await this.RefreshPairingAsync()),
-        });
+        };
+        AutomationProperties.SetName(refreshButton, "Refresh pairing requests");
+        Grid.SetColumn(refreshButton, 1);
+        header.Children.Add(refreshButton);
+        panel.Children.Add(header);
         panel.Children.Add(this.pairingList);
+        this.RenderPairing();
         return panel;
     }
 
@@ -697,6 +749,8 @@ public sealed class MainWindow : Window
                 this.detailText.Text = reason;
             }
             this.RenderHomeDashboard();
+            this.RenderApprovals();
+            this.RenderPairing();
             this.RenderChatWorkspace();
         });
     }
@@ -906,84 +960,192 @@ public sealed class MainWindow : Window
 
     private async Task RefreshApprovalsAsync()
     {
-        var approvals = await this.appState.Realtime.ListApprovalsAsync();
+        this.latestApprovals = await this.appState.Realtime.ListApprovalsAsync();
+        this.approvalsLoaded = true;
+        this.RenderApprovals();
+        this.RenderHomeDashboard();
+    }
+
+    private void RenderApprovals()
+    {
+        var summary = OperatorWorkflowSummary.Create(
+            this.latestApprovals,
+            this.latestPairingRequests,
+            this.coordinator.RealtimeState);
+        this.approvalsStatusText.Text = this.approvalsLoaded ? summary.ApprovalsStatus : "Approvals not checked yet";
         this.approvalsList.Children.Clear();
-        foreach (var approval in approvals)
+        if (!this.approvalsLoaded)
         {
-            this.approvalsList.Children.Add(this.BuildApprovalRow(approval));
+            this.approvalsList.Children.Add(BuildEmptyWorkflowCard(
+                "Approvals not checked yet",
+                "Refresh approvals after connecting to the Gateway."));
+            return;
+        }
+        if (this.latestApprovals.Count == 0)
+        {
+            this.approvalsList.Children.Add(BuildEmptyWorkflowCard(
+                "No approvals pending",
+                "Command approval requests will appear here when OpenClaw needs operator confirmation."));
+            return;
+        }
+
+        foreach (var approval in this.latestApprovals)
+        {
+            this.approvalsList.Children.Add(this.BuildApprovalCard(approval));
         }
     }
 
-    private UIElement BuildApprovalRow(PendingApproval approval)
+    private UIElement BuildApprovalCard(PendingApproval approval)
     {
-        var row = new StackPanel { Spacing = 6 };
-        row.Children.Add(new TextBlock
+        var body = new StackPanel { Spacing = 10 };
+        body.Children.Add(new TextBlock
         {
-            Text = $"{approval.Id}: {approval.Command}",
+            Text = string.IsNullOrWhiteSpace(approval.Command) ? "Command approval requested" : approval.Command,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
             TextWrapping = TextWrapping.Wrap,
         });
+        body.Children.Add(BuildWorkflowMetadata("Approval", approval.Id));
+        if (!string.IsNullOrWhiteSpace(approval.Cwd))
+        {
+            body.Children.Add(BuildWorkflowMetadata("Working directory", approval.Cwd));
+        }
+        if (!string.IsNullOrWhiteSpace(approval.AgentId))
+        {
+            body.Children.Add(BuildWorkflowMetadata("Agent", approval.AgentId));
+        }
+        if (!string.IsNullOrWhiteSpace(approval.SessionKey))
+        {
+            body.Children.Add(BuildWorkflowMetadata("Session", approval.SessionKey));
+        }
+
         var buttons = new StackPanel { Orientation = XamlOrientation.Horizontal, Spacing = 8 };
-        buttons.Children.Add(new XamlButton
+        var allowButton = new XamlButton
         {
             Content = "Allow once",
+            AccessKey = "A",
             Command = this.CreateCommand(async () =>
             {
                 await this.appState.Realtime.ResolveApprovalAsync(approval.Id, "allow-once");
                 await this.RefreshApprovalsAsync();
             }),
-        });
-        buttons.Children.Add(new XamlButton
+        };
+        AutomationProperties.SetName(allowButton, $"Allow approval {approval.Id} once");
+        buttons.Children.Add(allowButton);
+        var denyButton = new XamlButton
         {
             Content = "Deny",
+            AccessKey = "D",
             Command = this.CreateCommand(async () =>
             {
                 await this.appState.Realtime.ResolveApprovalAsync(approval.Id, "deny");
                 await this.RefreshApprovalsAsync();
             }),
-        });
-        row.Children.Add(buttons);
-        return row;
+        };
+        AutomationProperties.SetName(denyButton, $"Deny approval {approval.Id}");
+        buttons.Children.Add(denyButton);
+        body.Children.Add(buttons);
+        return BuildDashboardCard(null, body);
     }
 
     private async Task RefreshPairingAsync()
     {
-        var requests = await this.appState.Realtime.ListPairingRequestsAsync();
+        this.latestPairingRequests = await this.appState.Realtime.ListPairingRequestsAsync();
+        this.pairingLoaded = true;
+        this.RenderPairing();
+        this.RenderHomeDashboard();
+    }
+
+    private void RenderPairing()
+    {
+        var summary = OperatorWorkflowSummary.Create(
+            this.latestApprovals,
+            this.latestPairingRequests,
+            this.coordinator.RealtimeState);
+        this.pairingStatusText.Text = this.pairingLoaded ? summary.PairingStatus : "Pairing not checked yet";
         this.pairingList.Children.Clear();
-        foreach (var request in requests)
+        if (!this.pairingLoaded)
         {
-            this.pairingList.Children.Add(this.BuildPairingRow(request));
+            this.pairingList.Children.Add(BuildEmptyWorkflowCard(
+                "Pairing not checked yet",
+                summary.PairingReadiness));
+            return;
+        }
+        if (this.latestPairingRequests.Count == 0)
+        {
+            this.pairingList.Children.Add(BuildEmptyWorkflowCard(
+                "No pairing requests pending",
+                summary.PairingReadiness));
+            return;
+        }
+
+        foreach (var request in this.latestPairingRequests)
+        {
+            this.pairingList.Children.Add(this.BuildPairingCard(request));
         }
     }
 
-    private UIElement BuildPairingRow(PairingRequest request)
+    private UIElement BuildPairingCard(PairingRequest request)
     {
-        var row = new StackPanel { Spacing = 6 };
-        row.Children.Add(new TextBlock
+        var body = new StackPanel { Spacing = 10 };
+        body.Children.Add(new TextBlock
         {
-            Text = $"{request.Kind}: {request.DisplayName} ({request.DeviceId})",
+            Text = string.IsNullOrWhiteSpace(request.DisplayName) ? request.DeviceId : request.DisplayName,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
             TextWrapping = TextWrapping.Wrap,
         });
+        body.Children.Add(BuildWorkflowMetadata("Kind", request.Kind));
+        body.Children.Add(BuildWorkflowMetadata("Device", request.DeviceId));
+        body.Children.Add(BuildWorkflowMetadata("Request", request.RequestId));
+
         var buttons = new StackPanel { Orientation = XamlOrientation.Horizontal, Spacing = 8 };
-        buttons.Children.Add(new XamlButton
+        var approveButton = new XamlButton
         {
             Content = "Approve",
+            AccessKey = "A",
             Command = this.CreateCommand(async () =>
             {
                 await this.appState.Realtime.ResolvePairingAsync(request, approve: true);
                 await this.RefreshPairingAsync();
             }),
-        });
-        buttons.Children.Add(new XamlButton
+        };
+        AutomationProperties.SetName(approveButton, $"Approve {request.Kind} pairing request {request.RequestId}");
+        buttons.Children.Add(approveButton);
+        var rejectButton = new XamlButton
         {
             Content = "Reject",
+            AccessKey = "J",
             Command = this.CreateCommand(async () =>
             {
                 await this.appState.Realtime.ResolvePairingAsync(request, approve: false);
                 await this.RefreshPairingAsync();
             }),
+        };
+        AutomationProperties.SetName(rejectButton, $"Reject {request.Kind} pairing request {request.RequestId}");
+        buttons.Children.Add(rejectButton);
+        body.Children.Add(buttons);
+        return BuildDashboardCard(null, body);
+    }
+
+    private static UIElement BuildEmptyWorkflowCard(string title, string detail)
+    {
+        var body = new StackPanel { Spacing = 4 };
+        body.Children.Add(new TextBlock
+        {
+            Text = title,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
         });
-        row.Children.Add(buttons);
-        return row;
+        body.Children.Add(new TextBlock
+        {
+            Text = detail,
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = ResourceBrush("TextFillColorSecondaryBrush"),
+        });
+        return BuildDashboardCard(null, body);
+    }
+
+    private static UIElement BuildWorkflowMetadata(string label, string? value)
+    {
+        return BuildDashboardRow(label, string.IsNullOrWhiteSpace(value) ? "unknown" : value);
     }
 
     private async Task SaveSettingsAsync()
@@ -1259,6 +1421,18 @@ public sealed class MainWindow : Window
         this.homeConnectionRows.Children.Add(BuildDashboardRow(
             "Last detail",
             this.coordinator.RealtimeReason ?? this.detailText.Text ?? "No connection detail yet."));
+        var workflowSummary = OperatorWorkflowSummary.Create(
+            this.latestApprovals,
+            this.latestPairingRequests,
+            this.coordinator.RealtimeState);
+        this.homeOperatorRows.Children.Clear();
+        this.homeOperatorRows.Children.Add(BuildDashboardRow(
+            "Approvals",
+            this.approvalsLoaded ? workflowSummary.ApprovalsStatus : "Not checked"));
+        this.homeOperatorRows.Children.Add(BuildDashboardRow(
+            "Pairing",
+            this.pairingLoaded ? workflowSummary.PairingStatus : "Not checked"));
+        this.homeOperatorRows.Children.Add(BuildDashboardRow("Readiness", workflowSummary.PairingReadiness));
         if (string.IsNullOrWhiteSpace(this.homeActivityText.Text))
         {
             this.homeActivityText.Text =
