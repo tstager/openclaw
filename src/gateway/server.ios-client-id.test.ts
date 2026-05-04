@@ -30,6 +30,25 @@ describe("connect params client id validation", () => {
     },
   );
 
+  test("accepts Windows companion as a valid UI client", () => {
+    const ok = validateConnectParams({
+      ...makeConnectParams(GATEWAY_CLIENT_IDS.WINDOWS_APP),
+      client: {
+        ...makeConnectParams(GATEWAY_CLIENT_IDS.WINDOWS_APP).client,
+        platform: "windows",
+        mode: GATEWAY_CLIENT_MODES.UI,
+      },
+      role: "operator",
+      scopes: ["operator.read"],
+      caps: [],
+      commands: [],
+      permissions: {},
+    });
+
+    expect(ok).toBe(true);
+    expect(validateConnectParams.errors ?? []).toHaveLength(0);
+  });
+
   test("rejects unknown client ids", () => {
     const ok = validateConnectParams(makeConnectParams("openclaw-mobile"));
     expect(ok).toBe(false);

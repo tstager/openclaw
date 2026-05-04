@@ -617,6 +617,7 @@ export function attachGatewayWsMessageHandler(params: GatewayWsMessageHandlerPar
         const isNativeAppUi =
           connectParams.client.mode === GATEWAY_CLIENT_MODES.UI &&
           (connectParams.client.id === GATEWAY_CLIENT_IDS.MACOS_APP ||
+            connectParams.client.id === GATEWAY_CLIENT_IDS.WINDOWS_APP ||
             connectParams.client.id === GATEWAY_CLIENT_IDS.IOS_APP ||
             connectParams.client.id === GATEWAY_CLIENT_IDS.ANDROID_APP);
         if (enforceOriginCheckForAnyClient || isBrowserOperatorUi || isWebchat) {
