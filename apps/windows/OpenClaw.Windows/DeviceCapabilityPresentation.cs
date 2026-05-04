@@ -2,9 +2,6 @@ using OpenClaw.Windows.Native;
 
 namespace OpenClaw.Windows;
 
-/// <summary>
-/// View-model shape for one Windows device capability card.
-/// </summary>
 public sealed record DeviceCapabilityPresentation(
     string Capability,
     string State,
@@ -12,9 +9,6 @@ public sealed record DeviceCapabilityPresentation(
     string RepairGuidance,
     string LastAction)
 {
-    /// <summary>
-    /// Combines the latest native probe result and last user action into display-ready text.
-    /// </summary>
     public static DeviceCapabilityPresentation Create(
         string capability,
         IEnumerable<WindowsDevicePermissionStatus> statuses,
@@ -31,9 +25,6 @@ public sealed record DeviceCapabilityPresentation(
             string.IsNullOrWhiteSpace(lastAction) ? "No action run yet." : lastAction);
     }
 
-    /// <summary>
-    /// Returns operator guidance for capabilities that are missing, disabled, or waiting for consent.
-    /// </summary>
     private static string RepairGuidanceFor(string capability, string state)
     {
         if (state.Equals("Available", StringComparison.OrdinalIgnoreCase))
