@@ -143,6 +143,7 @@ public sealed class GatewayRealtimeClientTests
     public async Task RequestAsyncHandlesConcurrentRequests()
     {
         var methods = new List<string>();
+        var requestIds = new Dictionary<string, string>();
         await using var server = GatewayRealtimeTestServer.Start(async (socket, request) =>
         {
             using var document = JsonDocument.Parse(request);
@@ -161,17 +162,15 @@ public sealed class GatewayRealtimeClientTests
 
             if (method == "chat.history")
             {
-                await SendTextAsync(
-                    socket,
-                    $"{{\"type\":\"res\",\"id\":\"{id}\",\"ok\":true,\"payload\":{{\"messages\":[]}}}}");
+                requestIds[method] = id;
+                await SendConcurrentResponsesIfReadyAsync(socket, requestIds);
                 return;
             }
 
             if (method == "exec.approval.list")
             {
-                await SendTextAsync(
-                    socket,
-                    $"{{\"type\":\"res\",\"id\":\"{id}\",\"ok\":true,\"payload\":{{\"pending\":[]}}}}");
+                requestIds[method] = id;
+                await SendConcurrentResponsesIfReadyAsync(socket, requestIds);
             }
         });
         var client = CreateClient(server.WebSocketUrl, TimeSpan.FromSeconds(5));
@@ -188,6 +187,24 @@ public sealed class GatewayRealtimeClientTests
         CollectionAssert.Contains(methods, "chat.history");
         CollectionAssert.Contains(methods, "exec.approval.list");
         await client.DisposeAsync();
+    }
+
+    private static async Task SendConcurrentResponsesIfReadyAsync(
+        WebSocket socket,
+        IReadOnlyDictionary<string, string> requestIds)
+    {
+        if (!requestIds.TryGetValue("chat.history", out var chatHistoryId)
+            || !requestIds.TryGetValue("exec.approval.list", out var approvalsId))
+        {
+            return;
+        }
+
+        await SendTextAsync(
+            socket,
+            $"{{\"type\":\"res\",\"id\":\"{chatHistoryId}\",\"ok\":true,\"payload\":{{\"messages\":[]}}}}");
+        await SendTextAsync(
+            socket,
+            $"{{\"type\":\"res\",\"id\":\"{approvalsId}\",\"ok\":true,\"payload\":{{\"pending\":[]}}}}");
     }
 
     [TestMethod]
