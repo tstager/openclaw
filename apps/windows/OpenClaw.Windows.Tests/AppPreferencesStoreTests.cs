@@ -18,6 +18,11 @@ public sealed class AppPreferencesStoreTests
             ChatSessionKey = "windows",
             VoiceControlsEnabled = true,
             GlobalHotkeyEnabled = true,
+            NotificationPreferences = new WindowsNotificationPreferences(
+                ApprovalAlerts: false,
+                PairingAlerts: true,
+                GatewayHealthAlerts: false,
+                DevicePermissionAlerts: true),
             LastStatus = "running",
             LastStatusCheckedAt = DateTimeOffset.Parse("2026-04-27T12:00:00Z"),
         };
@@ -32,6 +37,7 @@ public sealed class AppPreferencesStoreTests
         Assert.AreEqual(expected.ChatSessionKey, actual.ChatSessionKey);
         Assert.AreEqual(expected.VoiceControlsEnabled, actual.VoiceControlsEnabled);
         Assert.AreEqual(expected.GlobalHotkeyEnabled, actual.GlobalHotkeyEnabled);
+        Assert.AreEqual(expected.NotificationPreferences, actual.NotificationPreferences);
     }
 
     [TestMethod]

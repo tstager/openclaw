@@ -39,16 +39,18 @@ public sealed partial class App : XamlApplication
             this.window = new MainWindow(appState);
             this.trayHost = new WindowsTrayHost(
                 getGatewayStatus: () => this.window.GatewayStatusText,
+                getLatestActivity: () => this.window.LatestActivityText,
                 onShow: () => this.window.DispatcherQueue.TryEnqueue(this.window.ShowShell),
-                onShowHome: () => this.window.DispatcherQueue.TryEnqueue(() => this.window.ShowDestination("home")),
-                onShowLogs: () => this.window.DispatcherQueue.TryEnqueue(() => this.window.ShowDestination("logs")),
-                onShowSettings: () => this.window.DispatcherQueue.TryEnqueue(() => this.window.ShowDestination("settings")),
+                onShowHome: () => this.window.DispatcherQueue.TryEnqueue(() => this.window.ShowDestination(WindowsNavigationDestination.Home)),
+                onShowLogs: () => this.window.DispatcherQueue.TryEnqueue(() => this.window.ShowDestination(WindowsNavigationDestination.Logs)),
+                onShowSettings: () => this.window.DispatcherQueue.TryEnqueue(() => this.window.ShowDestination(WindowsNavigationDestination.Settings)),
                 onInstallGateway: () => this.window.DispatcherQueue.TryEnqueue(() => this.window.RunGatewayAction(GatewayCliAction.Install)),
                 onStartGateway: () => this.window.DispatcherQueue.TryEnqueue(() => this.window.RunGatewayAction(GatewayCliAction.Start)),
                 onRestartGateway: () => this.window.DispatcherQueue.TryEnqueue(() => this.window.RunGatewayAction(GatewayCliAction.Restart)),
                 onStopGateway: () => this.window.DispatcherQueue.TryEnqueue(() => this.window.RunGatewayAction(GatewayCliAction.Stop)),
                 onConnect: () => this.window.DispatcherQueue.TryEnqueue(this.window.ConnectGateway),
                 onOpenLogs: () => this.window.DispatcherQueue.TryEnqueue(this.window.OpenLogs),
+                onNotificationClicked: () => this.window.DispatcherQueue.TryEnqueue(this.window.ShowLatestNotificationDestination),
                 onExit: () =>
                 {
                     this.window.DispatcherQueue.TryEnqueue(async () =>

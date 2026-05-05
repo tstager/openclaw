@@ -64,7 +64,9 @@ public sealed class WindowsCompanionCoordinatorTests
             Realtime: new GatewayRealtimeClient(store),
             DeviceCapabilities: new WindowsDeviceCapabilityService(),
             OnboardingChecks: new OnboardingCheckService(runner),
-            Preferences: store);
+            Preferences: store,
+            Navigation: new WindowsNavigationService(),
+            Notifications: new WindowsNotificationActivityLog());
         return new WindowsCompanionCoordinator(state);
     }
 }
