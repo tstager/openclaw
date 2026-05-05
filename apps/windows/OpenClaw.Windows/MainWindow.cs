@@ -83,6 +83,8 @@ public sealed class MainWindow : Window
     private WindowsTrayHost? trayHost;
     private WindowsGlobalHotkeyService? hotkeyService;
     private Window? overlayWindow;
+    private NavigationView? navigationView;
+    private bool exitRequested;
 
     public MainWindow(WindowsCompanionState appState)
     {
@@ -99,6 +101,7 @@ public sealed class MainWindow : Window
         this.appState.Realtime.StateChanged += this.OnRealtimeStateChanged;
         this.appState.Realtime.EventReceived += this.OnRealtimeEventReceived;
         this.Closed += this.OnClosed;
+        this.AppWindow.Closing += this.OnAppWindowClosing;
         this.Content = this.BuildContent();
     }
 
@@ -109,7 +112,44 @@ public sealed class MainWindow : Window
 
     public void ShowShell()
     {
+        this.AppWindow.Show();
         this.Activate();
+    }
+
+    public string GatewayStatusText => this.coordinator.GatewayStatus?.State ?? this.statusText.Text.Replace("Gateway: ", "", StringComparison.Ordinal);
+
+    public void ShowDestination(string destination)
+    {
+        this.ShowShell();
+        this.SelectNavigationDestination(destination);
+    }
+
+    public async void ConnectGateway()
+    {
+        try
+        {
+            await this.ConnectRealtimeAsync();
+        }
+        catch (Exception ex)
+        {
+            this.ReportCommandError(ex);
+        }
+    }
+
+    public void OpenLogs()
+    {
+        if (!string.IsNullOrWhiteSpace(this.coordinator.LogPath))
+        {
+            WindowsShell.OpenFileInExplorer(this.coordinator.LogPath);
+            return;
+        }
+        WindowsShell.OpenFileInExplorer(CrashLog.Path);
+    }
+
+    public void ExitApplication()
+    {
+        this.exitRequested = true;
+        this.Close();
     }
 
     public async void RunGatewayAction(GatewayCliAction action)
@@ -153,6 +193,7 @@ public sealed class MainWindow : Window
         navigation.MenuItems.Add(CreateNavigationItem("Devices", "devices", "\uE722"));
         navigation.MenuItems.Add(CreateNavigationItem("Logs", "logs", "\uE8A5"));
         navigation.SelectionChanged += this.OnNavigationSelectionChanged;
+        this.navigationView = navigation;
 
         if (navigation.MenuItems.FirstOrDefault() is NavigationViewItem homeItem)
         {
@@ -235,6 +276,27 @@ public sealed class MainWindow : Window
     {
         var tag = selectedItem.Tag as string;
         this.navigationContent.Content = this.GetNavigationPage(tag ?? "home");
+    }
+
+    private void SelectNavigationDestination(string destination)
+    {
+        if (this.navigationView is null)
+        {
+            this.navigationContent.Content = this.GetNavigationPage(destination);
+            return;
+        }
+
+        foreach (var item in this.navigationView.MenuItems.OfType<NavigationViewItem>())
+        {
+            if (string.Equals(item.Tag as string, destination, StringComparison.Ordinal))
+            {
+                this.navigationView.SelectedItem = item;
+                this.ShowNavigationPage(item);
+                return;
+            }
+        }
+
+        this.navigationContent.Content = this.GetNavigationPage(destination);
     }
 
     private UIElement GetNavigationPage(string tag)
@@ -833,8 +895,20 @@ public sealed class MainWindow : Window
         });
     }
 
+    private void OnAppWindowClosing(AppWindow sender, AppWindowClosingEventArgs args)
+    {
+        if (this.exitRequested || this.trayHost is null)
+        {
+            return;
+        }
+
+        args.Cancel = true;
+        sender.Hide();
+    }
+
     private async void OnClosed(object sender, WindowEventArgs args)
     {
+        this.AppWindow.Closing -= this.OnAppWindowClosing;
         this.appState.Realtime.StateChanged -= this.OnRealtimeStateChanged;
         this.appState.Realtime.EventReceived -= this.OnRealtimeEventReceived;
         this.hotkeyService?.Dispose();

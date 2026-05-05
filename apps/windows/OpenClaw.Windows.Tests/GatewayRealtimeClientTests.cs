@@ -140,6 +140,57 @@ public sealed class GatewayRealtimeClientTests
     }
 
     [TestMethod]
+    public async Task RequestAsyncHandlesConcurrentRequests()
+    {
+        var methods = new List<string>();
+        await using var server = GatewayRealtimeTestServer.Start(async (socket, request) =>
+        {
+            using var document = JsonDocument.Parse(request);
+            var frame = document.RootElement;
+            var id = ReadString(frame, "id") ?? "";
+            var method = ReadString(frame, "method");
+            if (method is not null)
+            {
+                methods.Add(method);
+            }
+            if (method == "connect")
+            {
+                await SendOkResponseAsync(socket, id);
+                return;
+            }
+
+            if (method == "chat.history")
+            {
+                await SendTextAsync(
+                    socket,
+                    $"{{\"type\":\"res\",\"id\":\"{id}\",\"ok\":true,\"payload\":{{\"messages\":[]}}}}");
+                return;
+            }
+
+            if (method == "exec.approval.list")
+            {
+                await SendTextAsync(
+                    socket,
+                    $"{{\"type\":\"res\",\"id\":\"{id}\",\"ok\":true,\"payload\":{{\"pending\":[]}}}}");
+            }
+        });
+        var client = CreateClient(server.WebSocketUrl, TimeSpan.FromSeconds(5));
+
+        await client.ConnectAsync();
+        var historyTask = client.LoadChatHistoryAsync("main");
+        var approvalsTask = client.ListApprovalsAsync();
+
+        await Task.WhenAll(historyTask, approvalsTask);
+
+        Assert.HasCount(0, await historyTask);
+        Assert.HasCount(0, await approvalsTask);
+        CollectionAssert.Contains(methods, "connect");
+        CollectionAssert.Contains(methods, "chat.history");
+        CollectionAssert.Contains(methods, "exec.approval.list");
+        await client.DisposeAsync();
+    }
+
+    [TestMethod]
     public async Task ConnectAsyncSendsStoredDeviceTokenAsDeviceTokenAndSignedDeviceIdentity()
     {
         var connectRequest = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
