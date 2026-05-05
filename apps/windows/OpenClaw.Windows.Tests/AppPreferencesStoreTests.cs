@@ -13,6 +13,11 @@ public sealed class AppPreferencesStoreTests
         var store = new AppPreferencesStore(path);
         var expected = AppPreferences.Default with
         {
+            OpenMainWindowOnLaunch = false,
+            GatewayUrl = "ws://127.0.0.1:18800",
+            ChatSessionKey = "windows",
+            VoiceControlsEnabled = true,
+            GlobalHotkeyEnabled = true,
             LastStatus = "running",
             LastStatusCheckedAt = DateTimeOffset.Parse("2026-04-27T12:00:00Z"),
         };
@@ -22,6 +27,9 @@ public sealed class AppPreferencesStoreTests
 
         Assert.AreEqual(expected.LastStatus, actual.LastStatus);
         Assert.AreEqual(expected.LastStatusCheckedAt, actual.LastStatusCheckedAt);
+        Assert.AreEqual(expected.OpenMainWindowOnLaunch, actual.OpenMainWindowOnLaunch);
+        Assert.AreEqual(expected.GatewayUrl, actual.GatewayUrl);
+        Assert.AreEqual(expected.ChatSessionKey, actual.ChatSessionKey);
         Assert.AreEqual(expected.VoiceControlsEnabled, actual.VoiceControlsEnabled);
         Assert.AreEqual(expected.GlobalHotkeyEnabled, actual.GlobalHotkeyEnabled);
     }
