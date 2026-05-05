@@ -51,13 +51,23 @@ public sealed partial class App : XamlApplication
                 onOpenLogs: () => this.window.DispatcherQueue.TryEnqueue(this.window.OpenLogs),
                 onExit: () =>
                 {
-                    this.window.DispatcherQueue.TryEnqueue(() =>
+                    this.window.DispatcherQueue.TryEnqueue(async () =>
                     {
-                        this.window.ExitApplication();
-                        this.trayHost?.Dispose();
-                        this.trayHost = null;
-                        this.ReleaseSingleInstanceMutex();
-                        Exit();
+                        try
+                        {
+                            await this.window.ExitApplicationAsync();
+                        }
+                        catch (Exception ex)
+                        {
+                            CrashLog.Write(ex);
+                        }
+                        finally
+                        {
+                            this.trayHost?.Dispose();
+                            this.trayHost = null;
+                            this.ReleaseSingleInstanceMutex();
+                            Exit();
+                        }
                     });
                 });
             this.window.AttachTrayHost(this.trayHost);
