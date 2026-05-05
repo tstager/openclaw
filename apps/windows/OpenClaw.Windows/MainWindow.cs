@@ -61,10 +61,15 @@ public sealed class MainWindow : Window
     private readonly TextBlock logsText = new();
     private DateTimeOffset? lastGatewayStatusCheckedAt;
     private readonly TextBlock settingsText = new();
+    private readonly StackPanel settingsStorageRows = new() { Spacing = 10 };
+    private readonly XamlCheckBox openMainWindowOnLaunchInput = new();
+    private readonly XamlCheckBox settingsVoiceControlsInput = new();
+    private readonly XamlCheckBox settingsGlobalHotkeyInput = new();
     private readonly XamlTextBox chatInput = new() { AcceptsReturn = true, Height = 88, TextWrapping = TextWrapping.Wrap };
     private readonly XamlTextBox gatewayUrlInput = new();
     private readonly XamlPasswordBox gatewayTokenInput = new();
     private readonly XamlTextBox chatSessionInput = new();
+    private bool openMainWindowOnLaunch = AppPreferences.Default.OpenMainWindowOnLaunch;
     private bool voiceControlsEnabled;
     private bool globalHotkeyEnabled;
     private IReadOnlyList<WindowsDevicePermissionStatus> latestDevicePermissionStatuses = [];
@@ -599,33 +604,125 @@ public sealed class MainWindow : Window
 
     private UIElement BuildSettingsPanel()
     {
-        var panel = new StackPanel { Spacing = 12 };
+        var panel = new StackPanel { Spacing = 16 };
         panel.Children.Add(new TextBlock
         {
-            Text = "Settings",
+            Text = "Windows settings",
             FontSize = 20,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
         });
-        panel.Children.Add(new TextBlock { Text = "Gateway URL" });
-        panel.Children.Add(this.gatewayUrlInput);
-        panel.Children.Add(new TextBlock { Text = "Gateway token" });
-        panel.Children.Add(this.gatewayTokenInput);
-        panel.Children.Add(new TextBlock { Text = "Chat session" });
-        panel.Children.Add(this.chatSessionInput);
-        panel.Children.Add(this.settingsText);
+
+        this.gatewayUrlInput.PlaceholderText = AppPreferences.Default.GatewayUrl;
+        AutomationProperties.SetName(this.gatewayUrlInput, "Gateway URL");
+        AutomationProperties.SetName(this.gatewayTokenInput, "Gateway token");
+        this.chatSessionInput.PlaceholderText = AppPreferences.Default.ChatSessionKey;
+        AutomationProperties.SetName(this.chatSessionInput, "Chat session");
+        this.settingsText.TextWrapping = TextWrapping.Wrap;
+        this.settingsText.Foreground = ResourceBrush("TextFillColorSecondaryBrush");
+
+        this.ConfigureSettingsToggle(
+            this.openMainWindowOnLaunchInput,
+            "Open main window on launch",
+            value => this.openMainWindowOnLaunch = value);
+        this.ConfigureSettingsToggle(
+            this.settingsVoiceControlsInput,
+            "Enable voice controls",
+            value => this.voiceControlsEnabled = value);
+        this.ConfigureSettingsToggle(
+            this.settingsGlobalHotkeyInput,
+            "Register Ctrl+Shift+Space push-to-talk hotkey",
+            value => this.globalHotkeyEnabled = value);
+
+        panel.Children.Add(BuildDashboardCard("Gateway Connection", this.BuildSettingsSection(
+            BuildSettingsField("Gateway URL", "Realtime Gateway WebSocket endpoint.", this.gatewayUrlInput),
+            BuildSettingsField("Gateway token", "Stored in the Windows credential store when available.", this.gatewayTokenInput))));
+        panel.Children.Add(BuildDashboardCard("Identity", this.BuildSettingsSection(
+            BuildSettingsField("Chat session", "Default OpenClaw session key used by the native chat workspace.", this.chatSessionInput))));
+        panel.Children.Add(BuildDashboardCard("Startup", this.BuildSettingsSection(
+            this.openMainWindowOnLaunchInput,
+            BuildReservedSettingsRow("Autostart", "Reserved", "Future tray startup preference."))));
+        panel.Children.Add(BuildDashboardCard("Notifications", this.BuildSettingsSection(
+            BuildReservedSettingsRow("Approval alerts", "Reserved", "Future notification preference for approval requests."),
+            BuildReservedSettingsRow("Pairing alerts", "Reserved", "Future notification preference for pairing requests."),
+            BuildReservedSettingsRow("Gateway health alerts", "Reserved", "Future notification preference for Gateway health changes."))));
+        panel.Children.Add(BuildDashboardCard("Devices", this.BuildSettingsSection(
+            this.settingsVoiceControlsInput,
+            this.settingsGlobalHotkeyInput)));
+        panel.Children.Add(BuildDashboardCard("Storage and Logs", this.settingsStorageRows));
+        panel.Children.Add(BuildDashboardCard("About", this.BuildSettingsSection(
+            BuildDashboardRow("Product", "OpenClaw Windows companion"),
+            BuildDashboardRow("Gateway protocol", this.appState.Summary.GatewayProtocolVersion.ToString()),
+            this.settingsText)));
+        this.RenderSettingsStorage();
+
         var buttons = new StackPanel { Orientation = XamlOrientation.Horizontal, Spacing = 8 };
-        buttons.Children.Add(new XamlButton
+        var saveButton = new XamlButton
         {
             Content = "Save",
+            AccessKey = "S",
             Command = this.CreateCommand(async () => await this.SaveSettingsAsync()),
-        });
-        buttons.Children.Add(new XamlButton
+        };
+        AutomationProperties.SetName(saveButton, "Save Windows settings");
+        buttons.Children.Add(saveButton);
+        var refreshButton = new XamlButton
         {
             Content = "Refresh",
+            AccessKey = "R",
             Command = this.CreateCommand(async () => await this.RefreshAllAsync()),
-        });
+        };
+        AutomationProperties.SetName(refreshButton, "Refresh Windows settings");
+        buttons.Children.Add(refreshButton);
         panel.Children.Add(buttons);
         return panel;
+    }
+
+    private StackPanel BuildSettingsSection(params UIElement[] rows)
+    {
+        var section = new StackPanel { Spacing = 10 };
+        foreach (var row in rows)
+        {
+            section.Children.Add(row);
+        }
+        return section;
+    }
+
+    private static UIElement BuildSettingsField(string label, string detail, Control input)
+    {
+        var field = new StackPanel { Spacing = 4 };
+        field.Children.Add(new TextBlock
+        {
+            Text = label,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+        });
+        field.Children.Add(new TextBlock
+        {
+            Text = detail,
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = ResourceBrush("TextFillColorSecondaryBrush"),
+        });
+        field.Children.Add(input);
+        return field;
+    }
+
+    private static UIElement BuildReservedSettingsRow(string label, string state, string detail)
+    {
+        var row = new StackPanel { Spacing = 2 };
+        row.Children.Add(BuildDashboardRow(label, state));
+        row.Children.Add(new TextBlock
+        {
+            Text = detail,
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = ResourceBrush("TextFillColorSecondaryBrush"),
+        });
+        return row;
+    }
+
+    private void ConfigureSettingsToggle(XamlCheckBox toggle, string label, Action<bool> update)
+    {
+        toggle.Content = label;
+        toggle.Checked += (_, _) => update(true);
+        toggle.Unchecked += (_, _) => update(false);
+        AutomationProperties.SetName(toggle, label);
     }
 
     private UIElement BuildLogsPanel()
@@ -783,16 +880,15 @@ public sealed class MainWindow : Window
             this.gatewayUrlInput.Text = preferences.GatewayUrl;
             this.gatewayTokenInput.Password = preferences.GatewayToken ?? "";
             this.chatSessionInput.Text = preferences.ChatSessionKey;
+            this.openMainWindowOnLaunch = preferences.OpenMainWindowOnLaunch;
             this.voiceControlsEnabled = preferences.VoiceControlsEnabled;
             this.globalHotkeyEnabled = preferences.GlobalHotkeyEnabled;
+            this.openMainWindowOnLaunchInput.IsChecked = preferences.OpenMainWindowOnLaunch;
+            this.settingsVoiceControlsInput.IsChecked = preferences.VoiceControlsEnabled;
+            this.settingsGlobalHotkeyInput.IsChecked = preferences.GlobalHotkeyEnabled;
             this.RenderHomeDashboard();
-            this.settingsText.Text =
-                $"Open main window on launch: {preferences.OpenMainWindowOnLaunch}\n" +
-                $"Last status: {preferences.LastStatus ?? "unknown"}\n" +
-                $"Last checked: {preferences.LastStatusCheckedAt?.ToLocalTime().ToString("g") ?? "never"}\n" +
-                $"Device token cached: {!string.IsNullOrWhiteSpace(preferences.DeviceToken)}\n" +
-                $"Voice controls: {preferences.VoiceControlsEnabled}\n" +
-                $"Global hotkey: {preferences.GlobalHotkeyEnabled}";
+            this.RenderSettingsSummary(preferences);
+            this.RenderSettingsStorage();
             this.RenderLogsDiagnostics();
             await this.RefreshDeviceCapabilitiesAsync();
         }
@@ -1290,10 +1386,38 @@ public sealed class MainWindow : Window
         return BuildDashboardRow(label, string.IsNullOrWhiteSpace(value) ? "unknown" : value);
     }
 
+    private void RenderSettingsSummary(AppPreferences preferences)
+    {
+        this.settingsText.Text =
+            $"Open main window on launch: {preferences.OpenMainWindowOnLaunch}\n" +
+            $"Last status: {preferences.LastStatus ?? "unknown"}\n" +
+            $"Last checked: {preferences.LastStatusCheckedAt?.ToLocalTime().ToString("g") ?? "never"}\n" +
+            $"Device token cached: {!string.IsNullOrWhiteSpace(preferences.DeviceToken)}\n" +
+            $"Voice controls: {preferences.VoiceControlsEnabled}\n" +
+            $"Global hotkey: {preferences.GlobalHotkeyEnabled}";
+    }
+
+    private void RenderSettingsStorage()
+    {
+        this.settingsStorageRows.Children.Clear();
+        this.settingsStorageRows.Children.Add(BuildDashboardRow("Preferences", this.appState.Preferences.Path));
+        this.settingsStorageRows.Children.Add(BuildDashboardRow("App crash log", CrashLog.Path));
+        this.settingsStorageRows.Children.Add(BuildDashboardRow("Gateway log", this.coordinator.LogPath ?? "unknown"));
+        this.settingsStorageRows.Children.Add(BuildReservedSettingsRow(
+            "Minimize to tray",
+            "Reserved",
+            "Future app-local tray window behavior."));
+        this.settingsStorageRows.Children.Add(BuildReservedSettingsRow(
+            "Tray quick actions",
+            "Reserved",
+            "Future app-local tray action selection."));
+    }
+
     private async Task SaveSettingsAsync()
     {
         await this.appState.Preferences.UpdateAsync(current => current with
         {
+            OpenMainWindowOnLaunch = this.openMainWindowOnLaunch,
             GatewayUrl = string.IsNullOrWhiteSpace(this.gatewayUrlInput.Text)
                 ? AppPreferences.Default.GatewayUrl
                 : this.gatewayUrlInput.Text.Trim(),
@@ -1312,6 +1436,8 @@ public sealed class MainWindow : Window
         var preferences = await this.appState.Preferences.LoadAsync();
         this.voiceControlsEnabled = preferences.VoiceControlsEnabled;
         this.globalHotkeyEnabled = preferences.GlobalHotkeyEnabled;
+        this.settingsVoiceControlsInput.IsChecked = preferences.VoiceControlsEnabled;
+        this.settingsGlobalHotkeyInput.IsChecked = preferences.GlobalHotkeyEnabled;
         this.SyncHotkeyRegistration(preferences.GlobalHotkeyEnabled);
         this.latestDevicePermissionStatuses = this.appState.DeviceCapabilities.GetPermissionStatus();
 
@@ -1634,6 +1760,7 @@ public sealed class MainWindow : Window
             $"Reachable: {status.Reachable}\n" +
             $"Capability: {status.Capability}";
         this.RenderLogsDiagnostics();
+        this.RenderSettingsStorage();
         this.RenderHomeDashboard();
     }
 
