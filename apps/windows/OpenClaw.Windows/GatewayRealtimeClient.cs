@@ -48,6 +48,7 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
     private readonly TimeSpan requestTimeout;
     private readonly AppPreferencesStore preferences;
     private readonly DeviceIdentityStore? deviceIdentityStore;
+    private readonly SemaphoreSlim sendGate = new(1, 1);
     private readonly ConcurrentDictionary<string, TaskCompletionSource<JsonElement>> pending = new();
     private readonly JsonSerializerOptions jsonOptions = GatewayProtocolJson.SerializerOptions;
     private ClientWebSocket? socket;
@@ -155,6 +156,7 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         await this.DisconnectAsync();
+        this.sendGate.Dispose();
     }
 
     public async Task<IReadOnlyList<ChatMessage>> LoadChatHistoryAsync(
@@ -492,7 +494,15 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
         CancellationToken cancellationToken)
     {
         var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(payload, this.jsonOptions));
-        await socketSnapshot.SendAsync(bytes, WebSocketMessageType.Text, true, cancellationToken);
+        await this.sendGate.WaitAsync(cancellationToken);
+        try
+        {
+            await socketSnapshot.SendAsync(bytes, WebSocketMessageType.Text, true, cancellationToken);
+        }
+        finally
+        {
+            this.sendGate.Release();
+        }
     }
 
     private static async Task<string?> ReceiveTextAsync(
