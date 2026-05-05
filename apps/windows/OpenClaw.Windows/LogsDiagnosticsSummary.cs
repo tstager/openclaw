@@ -1,10 +1,5 @@
-using System.Globalization;
-
 namespace OpenClaw.Windows;
 
-/// <summary>
-/// Display-ready diagnostics and filesystem action state for the Logs page.
-/// </summary>
 public sealed record LogsDiagnosticsSummary(
     string AppLogPath,
     string GatewayLogPath,
@@ -16,9 +11,6 @@ public sealed record LogsDiagnosticsSummary(
     string LastError,
     string LastRefresh)
 {
-    /// <summary>
-    /// Normalizes known and unknown app/gateway log locations into UI rows and action enablement flags.
-    /// </summary>
     public static LogsDiagnosticsSummary Create(
         string appLogPath,
         GatewayStatusSnapshot? gatewayStatus,
@@ -34,7 +26,7 @@ public sealed record LogsDiagnosticsSummary(
             CanUseGatewayLogActions: HasKnownPath(gatewayStatus?.LogPath),
             GatewayStatus: gatewayStatus?.State ?? "unknown",
             LastError: string.IsNullOrWhiteSpace(lastError) ? "none" : lastError,
-            LastRefresh: lastRefresh?.ToLocalTime().ToString("g", CultureInfo.CurrentCulture) ?? "never");
+            LastRefresh: lastRefresh?.ToLocalTime().ToString("g") ?? "never");
     }
 
     private static bool HasKnownPath(string? path)

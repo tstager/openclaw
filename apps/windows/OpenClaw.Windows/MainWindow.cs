@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using OpenClaw.Windows.Native;
+using Windows.ApplicationModel.DataTransfer;
 using Windows.System;
 using XamlButton = Microsoft.UI.Xaml.Controls.Button;
 using XamlCheckBox = Microsoft.UI.Xaml.Controls.CheckBox;
@@ -54,7 +55,11 @@ public sealed class MainWindow : Window
     private readonly StackPanel deviceCapabilityCards = new() { Spacing = 12 };
     private readonly StackPanel mediaDevicesList = new() { Spacing = 6 };
     private readonly TextBlock nativeActionsText = new();
+    private readonly StackPanel logsDiagnosticsRows = new() { Spacing = 8 };
+    private readonly StackPanel logsLocationCards = new() { Spacing = 12 };
+    private readonly XamlTextBox rawLogsText = new();
     private readonly TextBlock logsText = new();
+    private DateTimeOffset? lastGatewayStatusCheckedAt;
     private readonly TextBlock settingsText = new();
     private readonly XamlTextBox chatInput = new() { AcceptsReturn = true, Height = 88, TextWrapping = TextWrapping.Wrap };
     private readonly XamlTextBox gatewayUrlInput = new();
@@ -625,37 +630,36 @@ public sealed class MainWindow : Window
 
     private UIElement BuildLogsPanel()
     {
-        var panel = new StackPanel { Spacing = 12 };
+        var panel = new StackPanel { Spacing = 16 };
         panel.Children.Add(new TextBlock
         {
-            Text = "Logs",
+            Text = "Logs and diagnostics",
             FontSize = 20,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
         });
-        this.logsText.Text = "Gateway log path has not been loaded yet.";
-        this.logsText.TextWrapping = TextWrapping.Wrap;
-        panel.Children.Add(this.logsText);
+        this.rawLogsText.TextWrapping = TextWrapping.Wrap;
+        this.rawLogsText.FontFamily = new FontFamily("Consolas");
+        this.rawLogsText.Foreground = ResourceBrush("TextFillColorPrimaryBrush");
+        this.rawLogsText.Background = ResourceBrush("LayerFillColorDefaultBrush");
+        this.rawLogsText.IsReadOnly = true;
+        this.rawLogsText.AcceptsReturn = true;
+        this.rawLogsText.MinHeight = 320;
+        AutomationProperties.SetName(this.rawLogsText, "Raw log preview");
 
         var buttons = new StackPanel { Orientation = XamlOrientation.Horizontal, Spacing = 8 };
-        buttons.Children.Add(new XamlButton
+        var refreshButton = new XamlButton
         {
             Content = "Refresh",
+            AccessKey = "R",
             Command = this.CreateCommand(async () => await this.RefreshAllAsync()),
-        });
-        buttons.Children.Add(new XamlButton
-        {
-            Content = "Open Logs",
-            Command = this.CreateCommand(() =>
-            {
-                if (!string.IsNullOrWhiteSpace(this.coordinator.LogPath))
-                {
-                    WindowsShell.OpenFileInExplorer(this.coordinator.LogPath);
-                }
-
-                return Task.CompletedTask;
-            }),
-        });
+        };
+        AutomationProperties.SetName(refreshButton, "Refresh logs and diagnostics");
+        buttons.Children.Add(refreshButton);
         panel.Children.Add(buttons);
+        panel.Children.Add(BuildDashboardCard("Diagnostics", this.logsDiagnosticsRows));
+        panel.Children.Add(BuildDashboardCard("Locations", this.logsLocationCards));
+        panel.Children.Add(BuildDashboardCard("Raw log preview", this.rawLogsText));
+        this.RenderLogsDiagnostics();
         return panel;
     }
 
@@ -697,6 +701,7 @@ public sealed class MainWindow : Window
             this.commandErrorText.Text = ex.Message;
             this.commandErrorText.Visibility = Visibility.Visible;
             this.detailText.Text = ex.Message;
+            this.RenderLogsDiagnostics();
         });
     }
 
@@ -715,6 +720,7 @@ public sealed class MainWindow : Window
             this.RenderHomeDashboard();
             this.RenderApprovals();
             this.RenderPairing();
+            this.RenderLogsDiagnostics();
             this.RenderChatWorkspace();
         });
     }
@@ -761,6 +767,7 @@ public sealed class MainWindow : Window
                 this.detailText.Text = ex.Message;
                 this.coordinator.ClearGatewayStatus(ex);
                 this.RenderHomeDashboard();
+                this.RenderLogsDiagnostics();
             }
 
             var checks = await this.coordinator.RefreshOnboardingAsync();
@@ -772,6 +779,7 @@ public sealed class MainWindow : Window
             this.RenderHomeDashboard();
 
             var preferences = await this.appState.Preferences.LoadAsync();
+            this.lastGatewayStatusCheckedAt = preferences.LastStatusCheckedAt;
             this.gatewayUrlInput.Text = preferences.GatewayUrl;
             this.gatewayTokenInput.Password = preferences.GatewayToken ?? "";
             this.chatSessionInput.Text = preferences.ChatSessionKey;
@@ -785,6 +793,7 @@ public sealed class MainWindow : Window
                 $"Device token cached: {!string.IsNullOrWhiteSpace(preferences.DeviceToken)}\n" +
                 $"Voice controls: {preferences.VoiceControlsEnabled}\n" +
                 $"Global hotkey: {preferences.GlobalHotkeyEnabled}";
+            this.RenderLogsDiagnostics();
             await this.RefreshDeviceCapabilitiesAsync();
         }
         catch (Exception ex)
@@ -794,6 +803,7 @@ public sealed class MainWindow : Window
             this.statusText.Text = "Startup refresh failed";
             this.detailText.Text = ex.Message;
             this.homeActivityText.Text = this.coordinator.LastActivity ?? "";
+            this.RenderLogsDiagnostics();
         }
     }
 
@@ -845,6 +855,174 @@ public sealed class MainWindow : Window
             this.chatState.ApplyFailure(ex);
             this.RenderChatWorkspace();
             throw;
+        }
+    }
+
+    private void RenderLogsDiagnostics()
+    {
+        var summary = LogsDiagnosticsSummary.Create(
+            CrashLog.Path,
+            this.coordinator.GatewayStatus,
+            this.coordinator.LastError,
+            this.lastGatewayStatusCheckedAt);
+        this.logsDiagnosticsRows.Children.Clear();
+        this.logsDiagnosticsRows.Children.Add(BuildDashboardRow("Gateway", summary.GatewayStatus));
+        this.logsDiagnosticsRows.Children.Add(BuildDashboardRow("Last error", summary.LastError));
+        this.logsDiagnosticsRows.Children.Add(BuildDashboardRow("Last refresh", summary.LastRefresh));
+
+        this.logsLocationCards.Children.Clear();
+        this.logsLocationCards.Children.Add(this.BuildLogLocationCard(
+            "App crash log",
+            summary.AppLogPath,
+            summary.AppLogFolderPath,
+            "Unhandled Windows companion exceptions are appended here.",
+            summary.CanUseAppLogActions));
+        this.logsLocationCards.Children.Add(this.BuildLogLocationCard(
+            "Gateway log",
+            summary.GatewayLogPath,
+            summary.GatewayLogFolderPath,
+            "Gateway lifecycle and service logs reported by the CLI.",
+            summary.CanUseGatewayLogActions));
+
+        this.rawLogsText.Text = BuildRawLogPreview(summary);
+        this.logsText.Text =
+            $"App logs: {summary.AppLogPath}\n" +
+            $"Gateway logs: {summary.GatewayLogPath}\n" +
+            $"Gateway status: {summary.GatewayStatus}\n" +
+            $"Last error: {summary.LastError}\n" +
+            $"Last refresh: {summary.LastRefresh}";
+    }
+
+    private UIElement BuildLogLocationCard(
+        string title,
+        string path,
+        string folderPath,
+        string detail,
+        bool canUseActions)
+    {
+        var body = new StackPanel { Spacing = 8 };
+        body.Children.Add(new TextBlock
+        {
+            Text = title,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+        });
+        body.Children.Add(new TextBlock
+        {
+            Text = detail,
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = ResourceBrush("TextFillColorSecondaryBrush"),
+        });
+        body.Children.Add(BuildDashboardRow("Path", path));
+
+        var buttons = new StackPanel { Orientation = XamlOrientation.Horizontal, Spacing = 8 };
+        buttons.Children.Add(this.LogActionButton("Copy path", $"Copy {title} path", canUseActions, () =>
+        {
+            CopyTextToClipboard(path);
+            this.rawLogsText.Text = $"{title} path copied.\n\n{BuildRawLogPreview(CurrentLogsSummary())}";
+        }));
+        buttons.Children.Add(this.LogActionButton("Reveal file", $"Reveal {title} file", canUseActions, () => RevealLogFile(path)));
+        buttons.Children.Add(this.LogActionButton("Open folder", $"Open {title} folder", canUseActions, () => OpenLogFolder(folderPath)));
+        body.Children.Add(buttons);
+        return BuildDashboardCard(null, body);
+    }
+
+    private XamlButton LogActionButton(string label, string automationName, bool isEnabled, Action execute)
+    {
+        var button = new XamlButton
+        {
+            Content = label,
+            IsEnabled = isEnabled,
+            Command = this.CreateCommand(() =>
+            {
+                execute();
+                return Task.CompletedTask;
+            }),
+        };
+        AutomationProperties.SetName(button, automationName);
+        return button;
+    }
+
+    private LogsDiagnosticsSummary CurrentLogsSummary()
+    {
+        return LogsDiagnosticsSummary.Create(
+            CrashLog.Path,
+            this.coordinator.GatewayStatus,
+            this.coordinator.LastError,
+            this.lastGatewayStatusCheckedAt);
+    }
+
+    private static void CopyTextToClipboard(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text) || text == "unknown")
+        {
+            return;
+        }
+        var package = new DataPackage();
+        package.SetText(text);
+        Clipboard.SetContent(package);
+    }
+
+    private static void RevealLogFile(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || path == "unknown")
+        {
+            return;
+        }
+        WindowsShell.OpenFileInExplorer(path);
+    }
+
+    private static void OpenLogFolder(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || path == "unknown")
+        {
+            return;
+        }
+        WindowsShell.OpenFileInExplorer(path);
+    }
+
+    private static string BuildRawLogPreview(LogsDiagnosticsSummary summary)
+    {
+        var lines = new List<string>
+        {
+            $"app_log={summary.AppLogPath}",
+            $"gateway_log={summary.GatewayLogPath}",
+            $"gateway_status={summary.GatewayStatus}",
+            $"last_error={summary.LastError}",
+            $"last_refresh={summary.LastRefresh}",
+            "",
+            "[app crash log]",
+            ReadLogPreview(summary.AppLogPath),
+            "",
+            "[gateway log]",
+            ReadLogPreview(summary.GatewayLogPath),
+        };
+        return string.Join(Environment.NewLine, lines);
+    }
+
+    private static string ReadLogPreview(string path)
+    {
+        const int maxPreviewLength = 6000;
+        if (string.IsNullOrWhiteSpace(path) || path == "unknown")
+        {
+            return "No log path is available.";
+        }
+        if (!File.Exists(path))
+        {
+            return "Log file does not exist yet.";
+        }
+
+        try
+        {
+            var text = File.ReadAllText(path);
+            if (text.Length <= maxPreviewLength)
+            {
+                return text.Length == 0 ? "Log file is empty." : text;
+            }
+            return text[^maxPreviewLength..];
+        }
+        catch (Exception ex)
+        {
+            return $"Unable to read log file: {ex.Message}";
         }
     }
 
@@ -1455,6 +1633,7 @@ public sealed class MainWindow : Window
             $"Service installed: {status.ServiceInstalled}\n" +
             $"Reachable: {status.Reachable}\n" +
             $"Capability: {status.Capability}";
+        this.RenderLogsDiagnostics();
         this.RenderHomeDashboard();
     }
 

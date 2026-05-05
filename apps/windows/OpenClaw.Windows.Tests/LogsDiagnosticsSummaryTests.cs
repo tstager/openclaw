@@ -1,4 +1,3 @@
-using System.Globalization;
 using OpenClaw.Windows;
 
 namespace OpenClaw.Windows.Tests;
@@ -24,7 +23,7 @@ public sealed class LogsDiagnosticsSummaryTests
             @"C:\openclaw\crash.log",
             status,
             null,
-            DateTimeOffset.Parse("2026-05-04T20:30:00Z", CultureInfo.InvariantCulture));
+            DateTimeOffset.Parse("2026-05-04T20:30:00Z"));
 
         Assert.AreEqual(@"C:\openclaw\crash.log", summary.AppLogPath);
         Assert.AreEqual(@"C:\openclaw\gateway.log", summary.GatewayLogPath);
