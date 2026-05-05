@@ -14,7 +14,9 @@ public sealed record WindowsCompanionState(
     GatewayRealtimeClient Realtime,
     WindowsDeviceCapabilityService DeviceCapabilities,
     OnboardingCheckService OnboardingChecks,
-    AppPreferencesStore Preferences);
+    AppPreferencesStore Preferences,
+    WindowsNavigationService Navigation,
+    WindowsNotificationActivityLog Notifications);
 
 public static class AppBootstrap
 {
@@ -38,6 +40,8 @@ public static class AppBootstrap
             Realtime: new GatewayRealtimeClient(preferences, new DeviceIdentityStore(credentials)),
             DeviceCapabilities: new WindowsDeviceCapabilityService(),
             OnboardingChecks: new OnboardingCheckService(commandRunner),
-            Preferences: preferences);
+            Preferences: preferences,
+            Navigation: new WindowsNavigationService(),
+            Notifications: new WindowsNotificationActivityLog());
     }
 }

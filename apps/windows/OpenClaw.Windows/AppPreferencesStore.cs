@@ -11,7 +11,8 @@ public sealed record AppPreferences(
     bool VoiceControlsEnabled,
     bool GlobalHotkeyEnabled,
     string? LastStatus,
-    DateTimeOffset? LastStatusCheckedAt)
+    DateTimeOffset? LastStatusCheckedAt,
+    WindowsNotificationPreferences NotificationPreferences)
 {
     public static AppPreferences Default { get; } = new(
         OpenMainWindowOnLaunch: true,
@@ -22,7 +23,8 @@ public sealed record AppPreferences(
         VoiceControlsEnabled: false,
         GlobalHotkeyEnabled: false,
         LastStatus: null,
-        LastStatusCheckedAt: null);
+        LastStatusCheckedAt: null,
+        NotificationPreferences: WindowsNotificationPreferences.Default);
 }
 
 public sealed class AppPreferencesStore
@@ -166,7 +168,8 @@ public sealed class AppPreferencesStore
         bool VoiceControlsEnabled,
         bool GlobalHotkeyEnabled,
         string? LastStatus,
-        DateTimeOffset? LastStatusCheckedAt)
+        DateTimeOffset? LastStatusCheckedAt,
+        WindowsNotificationPreferences? NotificationPreferences)
     {
         public static PersistedAppPreferences From(AppPreferences preferences)
         {
@@ -177,7 +180,8 @@ public sealed class AppPreferencesStore
                 preferences.VoiceControlsEnabled,
                 preferences.GlobalHotkeyEnabled,
                 preferences.LastStatus,
-                preferences.LastStatusCheckedAt);
+                preferences.LastStatusCheckedAt,
+                preferences.NotificationPreferences);
         }
 
         public AppPreferences ToAppPreferences()
@@ -191,7 +195,8 @@ public sealed class AppPreferencesStore
                 this.VoiceControlsEnabled,
                 this.GlobalHotkeyEnabled,
                 this.LastStatus,
-                this.LastStatusCheckedAt);
+                this.LastStatusCheckedAt,
+                this.NotificationPreferences ?? WindowsNotificationPreferences.Default);
         }
     }
 }
