@@ -85,6 +85,7 @@ public sealed class MainWindow : Window
     private Window? overlayWindow;
     private NavigationView? navigationView;
     private bool exitRequested;
+    private bool shutdownStarted;
 
     public MainWindow(WindowsCompanionState appState)
     {
@@ -146,9 +147,10 @@ public sealed class MainWindow : Window
         WindowsShell.OpenFileInExplorer(CrashLog.Path);
     }
 
-    public void ExitApplication()
+    public async Task ExitApplicationAsync()
     {
         this.exitRequested = true;
+        await this.ShutdownAsync();
         this.Close();
     }
 
@@ -283,6 +285,13 @@ public sealed class MainWindow : Window
         if (this.navigationView is null)
         {
             this.navigationContent.Content = this.GetNavigationPage(destination);
+            return;
+        }
+
+        if (string.Equals(destination, "settings", StringComparison.Ordinal))
+        {
+            this.navigationView.SelectedItem = this.navigationView.SettingsItem;
+            this.navigationContent.Content = this.GetNavigationPage("settings");
             return;
         }
 
@@ -908,7 +917,18 @@ public sealed class MainWindow : Window
 
     private async void OnClosed(object sender, WindowEventArgs args)
     {
+        await this.ShutdownAsync();
+    }
+
+    private async Task ShutdownAsync()
+    {
         this.AppWindow.Closing -= this.OnAppWindowClosing;
+        if (this.shutdownStarted)
+        {
+            return;
+        }
+
+        this.shutdownStarted = true;
         this.appState.Realtime.StateChanged -= this.OnRealtimeStateChanged;
         this.appState.Realtime.EventReceived -= this.OnRealtimeEventReceived;
         this.hotkeyService?.Dispose();
