@@ -34,6 +34,7 @@ public sealed class MainWindow : Window
     private readonly StackPanel homeGatewayRows = new() { Spacing = 8 };
     private readonly StackPanel homeConnectionRows = new() { Spacing = 8 };
     private readonly TextBlock homeActivityText = new();
+    private readonly StackPanel homeNotificationRows = new() { Spacing = 8 };
     private readonly StackPanel onboardingList = new() { Spacing = 6 };
     private readonly StackPanel homeOperatorRows = new() { Spacing = 8 };
     private readonly StackPanel chatMessages = new() { Spacing = 8 };
@@ -52,6 +53,10 @@ public sealed class MainWindow : Window
     private IReadOnlyList<PairingRequest> latestPairingRequests = [];
     private bool approvalsLoaded;
     private bool pairingLoaded;
+    private int lastNotifiedApprovalCount;
+    private int lastNotifiedPairingCount;
+    private string? lastNotifiedGatewayHealth;
+    private string? lastNotifiedDevicePermissionFailures;
     private readonly StackPanel deviceCapabilityCards = new() { Spacing = 12 };
     private readonly StackPanel mediaDevicesList = new() { Spacing = 6 };
     private readonly TextBlock nativeActionsText = new();
@@ -63,6 +68,10 @@ public sealed class MainWindow : Window
     private readonly TextBlock settingsText = new();
     private readonly StackPanel settingsStorageRows = new() { Spacing = 10 };
     private readonly XamlCheckBox openMainWindowOnLaunchInput = new();
+    private readonly XamlCheckBox approvalAlertsInput = new();
+    private readonly XamlCheckBox pairingAlertsInput = new();
+    private readonly XamlCheckBox gatewayHealthAlertsInput = new();
+    private readonly XamlCheckBox devicePermissionAlertsInput = new();
     private readonly XamlCheckBox settingsVoiceControlsInput = new();
     private readonly XamlCheckBox settingsGlobalHotkeyInput = new();
     private readonly XamlTextBox chatInput = new() { AcceptsReturn = true, Height = 88, TextWrapping = TextWrapping.Wrap };
@@ -70,6 +79,7 @@ public sealed class MainWindow : Window
     private readonly XamlPasswordBox gatewayTokenInput = new();
     private readonly XamlTextBox chatSessionInput = new();
     private bool openMainWindowOnLaunch = AppPreferences.Default.OpenMainWindowOnLaunch;
+    private WindowsNotificationPreferences notificationPreferences = WindowsNotificationPreferences.Default;
     private bool voiceControlsEnabled;
     private bool globalHotkeyEnabled;
     private IReadOnlyList<WindowsDevicePermissionStatus> latestDevicePermissionStatuses = [];
@@ -119,10 +129,19 @@ public sealed class MainWindow : Window
 
     public string GatewayStatusText => this.coordinator.GatewayStatus?.State ?? this.statusText.Text.Replace("Gateway: ", "", StringComparison.Ordinal);
 
+    public string LatestActivityText => this.appState.Notifications.Latest is { } latest
+        ? $"{latest.Title}: {latest.Message}"
+        : this.coordinator.LastActivity ?? "None";
+
     public void ShowDestination(string destination)
     {
         this.ShowShell();
         this.SelectNavigationDestination(destination);
+    }
+
+    public void ShowLatestNotificationDestination()
+    {
+        this.ShowDestination(this.appState.Notifications.Latest?.Destination ?? WindowsNavigationDestination.Home);
     }
 
     public async void ConnectGateway()
@@ -188,12 +207,10 @@ public sealed class MainWindow : Window
             PaneFooter = this.navigationGatewayStatusText,
             Content = this.navigationContent,
         };
-        navigation.MenuItems.Add(CreateNavigationItem("Home", "home", "\uE80F"));
-        navigation.MenuItems.Add(CreateNavigationItem("Sessions", "sessions", "\uE8BD"));
-        navigation.MenuItems.Add(CreateNavigationItem("Approvals", "approvals", "\uE73E"));
-        navigation.MenuItems.Add(CreateNavigationItem("Pairing", "pairing", "\uE71B"));
-        navigation.MenuItems.Add(CreateNavigationItem("Devices", "devices", "\uE722"));
-        navigation.MenuItems.Add(CreateNavigationItem("Logs", "logs", "\uE8A5"));
+        foreach (var item in this.appState.Navigation.PrimaryItems)
+        {
+            navigation.MenuItems.Add(CreateNavigationItem(item.Label, item.Destination, item.Glyph));
+        }
         navigation.SelectionChanged += this.OnNavigationSelectionChanged;
         this.navigationView = navigation;
 
@@ -264,7 +281,7 @@ public sealed class MainWindow : Window
     {
         if (args.IsSettingsSelected)
         {
-            this.navigationContent.Content = this.GetNavigationPage("settings");
+            this.navigationContent.Content = this.GetNavigationPage(WindowsNavigationDestination.Settings);
             return;
         }
 
@@ -277,21 +294,22 @@ public sealed class MainWindow : Window
     private void ShowNavigationPage(NavigationViewItem selectedItem)
     {
         var tag = selectedItem.Tag as string;
-        this.navigationContent.Content = this.GetNavigationPage(tag ?? "home");
+        this.navigationContent.Content = this.GetNavigationPage(this.appState.Navigation.Normalize(tag));
     }
 
     private void SelectNavigationDestination(string destination)
     {
+        destination = this.appState.Navigation.Normalize(destination);
         if (this.navigationView is null)
         {
             this.navigationContent.Content = this.GetNavigationPage(destination);
             return;
         }
 
-        if (string.Equals(destination, "settings", StringComparison.Ordinal))
+        if (string.Equals(destination, WindowsNavigationDestination.Settings, StringComparison.Ordinal))
         {
             this.navigationView.SelectedItem = this.navigationView.SettingsItem;
-            this.navigationContent.Content = this.GetNavigationPage("settings");
+            this.navigationContent.Content = this.GetNavigationPage(WindowsNavigationDestination.Settings);
             return;
         }
 
@@ -317,13 +335,13 @@ public sealed class MainWindow : Window
 
         page = tag switch
         {
-            "home" => this.BuildPage("Home", Scrollable(this.BuildHomeDashboardPanel())),
-            "sessions" => this.BuildPage("Sessions", Scrollable(this.BuildChatPanel())),
-            "approvals" => this.BuildPage("Approvals", Scrollable(this.BuildApprovalsPanel())),
-            "pairing" => this.BuildPage("Pairing", Scrollable(this.BuildPairingPanel())),
-            "devices" => this.BuildPage("Devices", Scrollable(this.BuildDevicesPanel())),
-            "logs" => this.BuildPage("Logs", Scrollable(this.BuildLogsPanel())),
-            "settings" => this.BuildPage("Settings", Scrollable(this.BuildSettingsPanel())),
+            WindowsNavigationDestination.Home => this.BuildPage(this.appState.Navigation.PageTitle(tag), Scrollable(this.BuildHomeDashboardPanel())),
+            WindowsNavigationDestination.Sessions => this.BuildPage(this.appState.Navigation.PageTitle(tag), Scrollable(this.BuildChatPanel())),
+            WindowsNavigationDestination.Approvals => this.BuildPage(this.appState.Navigation.PageTitle(tag), Scrollable(this.BuildApprovalsPanel())),
+            WindowsNavigationDestination.Pairing => this.BuildPage(this.appState.Navigation.PageTitle(tag), Scrollable(this.BuildPairingPanel())),
+            WindowsNavigationDestination.Devices => this.BuildPage(this.appState.Navigation.PageTitle(tag), Scrollable(this.BuildDevicesPanel())),
+            WindowsNavigationDestination.Logs => this.BuildPage(this.appState.Navigation.PageTitle(tag), Scrollable(this.BuildLogsPanel())),
+            WindowsNavigationDestination.Settings => this.BuildPage(this.appState.Navigation.PageTitle(tag), Scrollable(this.BuildSettingsPanel())),
             _ => this.BuildPage("Home", Scrollable(this.BuildHomeDashboardPanel())),
         };
         this.navigationPages[tag] = page;
@@ -363,6 +381,7 @@ public sealed class MainWindow : Window
         panel.Children.Add(BuildDashboardCard("Operator workflows", this.homeOperatorRows));
         panel.Children.Add(BuildDashboardCard("Onboarding health", this.onboardingList));
         panel.Children.Add(BuildDashboardCard("Recent activity", this.homeActivityText));
+        panel.Children.Add(BuildDashboardCard("Notification activity", this.homeNotificationRows));
         this.RenderHomeDashboard();
         return panel;
     }
@@ -696,6 +715,22 @@ public sealed class MainWindow : Window
             "Open main window on launch",
             value => this.openMainWindowOnLaunch = value);
         this.ConfigureSettingsToggle(
+            this.approvalAlertsInput,
+            "Approval alerts",
+            value => this.notificationPreferences = this.notificationPreferences with { ApprovalAlerts = value });
+        this.ConfigureSettingsToggle(
+            this.pairingAlertsInput,
+            "Pairing alerts",
+            value => this.notificationPreferences = this.notificationPreferences with { PairingAlerts = value });
+        this.ConfigureSettingsToggle(
+            this.gatewayHealthAlertsInput,
+            "Gateway health alerts",
+            value => this.notificationPreferences = this.notificationPreferences with { GatewayHealthAlerts = value });
+        this.ConfigureSettingsToggle(
+            this.devicePermissionAlertsInput,
+            "Device permission alerts",
+            value => this.notificationPreferences = this.notificationPreferences with { DevicePermissionAlerts = value });
+        this.ConfigureSettingsToggle(
             this.settingsVoiceControlsInput,
             "Enable voice controls",
             value => this.voiceControlsEnabled = value);
@@ -713,9 +748,10 @@ public sealed class MainWindow : Window
             this.openMainWindowOnLaunchInput,
             BuildReservedSettingsRow("Autostart", "Reserved", "Future tray startup preference."))));
         panel.Children.Add(BuildDashboardCard("Notifications", this.BuildSettingsSection(
-            BuildReservedSettingsRow("Approval alerts", "Reserved", "Future notification preference for approval requests."),
-            BuildReservedSettingsRow("Pairing alerts", "Reserved", "Future notification preference for pairing requests."),
-            BuildReservedSettingsRow("Gateway health alerts", "Reserved", "Future notification preference for Gateway health changes."))));
+            this.approvalAlertsInput,
+            this.pairingAlertsInput,
+            this.gatewayHealthAlertsInput,
+            this.devicePermissionAlertsInput)));
         panel.Children.Add(BuildDashboardCard("Devices", this.BuildSettingsSection(
             this.settingsVoiceControlsInput,
             this.settingsGlobalHotkeyInput)));
@@ -975,9 +1011,14 @@ public sealed class MainWindow : Window
             this.gatewayTokenInput.Password = preferences.GatewayToken ?? "";
             this.chatSessionInput.Text = preferences.ChatSessionKey;
             this.openMainWindowOnLaunch = preferences.OpenMainWindowOnLaunch;
+            this.notificationPreferences = preferences.NotificationPreferences;
             this.voiceControlsEnabled = preferences.VoiceControlsEnabled;
             this.globalHotkeyEnabled = preferences.GlobalHotkeyEnabled;
             this.openMainWindowOnLaunchInput.IsChecked = preferences.OpenMainWindowOnLaunch;
+            this.approvalAlertsInput.IsChecked = preferences.NotificationPreferences.ApprovalAlerts;
+            this.pairingAlertsInput.IsChecked = preferences.NotificationPreferences.PairingAlerts;
+            this.gatewayHealthAlertsInput.IsChecked = preferences.NotificationPreferences.GatewayHealthAlerts;
+            this.devicePermissionAlertsInput.IsChecked = preferences.NotificationPreferences.DevicePermissionAlerts;
             this.settingsVoiceControlsInput.IsChecked = preferences.VoiceControlsEnabled;
             this.settingsGlobalHotkeyInput.IsChecked = preferences.GlobalHotkeyEnabled;
             this.RenderHomeDashboard();
@@ -1294,6 +1335,16 @@ public sealed class MainWindow : Window
     {
         this.latestApprovals = await this.appState.Realtime.ListApprovalsAsync();
         this.approvalsLoaded = true;
+        if (this.notificationPreferences.ApprovalAlerts &&
+            this.latestApprovals.Count > 0 &&
+            this.latestApprovals.Count != this.lastNotifiedApprovalCount)
+        {
+            this.ShowNotification(
+                WindowsNavigationDestination.Approvals,
+                "OpenClaw approval",
+                $"{this.latestApprovals.Count} approval request{Plural(this.latestApprovals.Count)} pending.");
+        }
+        this.lastNotifiedApprovalCount = this.latestApprovals.Count;
         this.RenderApprovals();
         this.RenderHomeDashboard();
     }
@@ -1383,6 +1434,16 @@ public sealed class MainWindow : Window
     {
         this.latestPairingRequests = await this.appState.Realtime.ListPairingRequestsAsync();
         this.pairingLoaded = true;
+        if (this.notificationPreferences.PairingAlerts &&
+            this.latestPairingRequests.Count > 0 &&
+            this.latestPairingRequests.Count != this.lastNotifiedPairingCount)
+        {
+            this.ShowNotification(
+                WindowsNavigationDestination.Pairing,
+                "OpenClaw pairing",
+                $"{this.latestPairingRequests.Count} pairing request{Plural(this.latestPairingRequests.Count)} pending.");
+        }
+        this.lastNotifiedPairingCount = this.latestPairingRequests.Count;
         this.RenderPairing();
         this.RenderHomeDashboard();
     }
@@ -1488,7 +1549,11 @@ public sealed class MainWindow : Window
             $"Last checked: {preferences.LastStatusCheckedAt?.ToLocalTime().ToString("g") ?? "never"}\n" +
             $"Device token cached: {!string.IsNullOrWhiteSpace(preferences.DeviceToken)}\n" +
             $"Voice controls: {preferences.VoiceControlsEnabled}\n" +
-            $"Global hotkey: {preferences.GlobalHotkeyEnabled}";
+            $"Global hotkey: {preferences.GlobalHotkeyEnabled}\n" +
+            $"Approval alerts: {preferences.NotificationPreferences.ApprovalAlerts}\n" +
+            $"Pairing alerts: {preferences.NotificationPreferences.PairingAlerts}\n" +
+            $"Gateway health alerts: {preferences.NotificationPreferences.GatewayHealthAlerts}\n" +
+            $"Device permission alerts: {preferences.NotificationPreferences.DevicePermissionAlerts}";
     }
 
     private void RenderSettingsStorage()
@@ -1519,6 +1584,7 @@ public sealed class MainWindow : Window
             ChatSessionKey = string.IsNullOrWhiteSpace(this.chatSessionInput.Text)
                 ? AppPreferences.Default.ChatSessionKey
                 : this.chatSessionInput.Text.Trim(),
+            NotificationPreferences = this.notificationPreferences,
             VoiceControlsEnabled = this.voiceControlsEnabled,
             GlobalHotkeyEnabled = this.globalHotkeyEnabled,
         });
@@ -1528,12 +1594,32 @@ public sealed class MainWindow : Window
     private async Task RefreshDeviceCapabilitiesAsync()
     {
         var preferences = await this.appState.Preferences.LoadAsync();
+        this.notificationPreferences = preferences.NotificationPreferences;
         this.voiceControlsEnabled = preferences.VoiceControlsEnabled;
         this.globalHotkeyEnabled = preferences.GlobalHotkeyEnabled;
+        this.approvalAlertsInput.IsChecked = preferences.NotificationPreferences.ApprovalAlerts;
+        this.pairingAlertsInput.IsChecked = preferences.NotificationPreferences.PairingAlerts;
+        this.gatewayHealthAlertsInput.IsChecked = preferences.NotificationPreferences.GatewayHealthAlerts;
+        this.devicePermissionAlertsInput.IsChecked = preferences.NotificationPreferences.DevicePermissionAlerts;
         this.settingsVoiceControlsInput.IsChecked = preferences.VoiceControlsEnabled;
         this.settingsGlobalHotkeyInput.IsChecked = preferences.GlobalHotkeyEnabled;
         this.SyncHotkeyRegistration(preferences.GlobalHotkeyEnabled);
         this.latestDevicePermissionStatuses = this.appState.DeviceCapabilities.GetPermissionStatus();
+        var unavailableCapabilities = this.latestDevicePermissionStatuses
+            .Where(status => string.Equals(status.State, "Unavailable", StringComparison.OrdinalIgnoreCase))
+            .Select(status => status.Capability)
+            .ToArray();
+        var deviceFailureSignature = string.Join("|", unavailableCapabilities);
+        if (this.notificationPreferences.DevicePermissionAlerts &&
+            unavailableCapabilities.Length > 0 &&
+            !string.Equals(this.lastNotifiedDevicePermissionFailures, deviceFailureSignature, StringComparison.Ordinal))
+        {
+            this.ShowNotification(
+                WindowsNavigationDestination.Devices,
+                "OpenClaw device permissions",
+                $"Unavailable: {string.Join(", ", unavailableCapabilities)}.");
+        }
+        this.lastNotifiedDevicePermissionFailures = deviceFailureSignature;
 
         this.mediaDevicesList.Children.Clear();
         try
@@ -1600,7 +1686,10 @@ public sealed class MainWindow : Window
             DeviceCapabilityPresentation.Create("Notifications", this.latestDevicePermissionStatuses, this.notificationActionResult),
             [this.DeviceActionButton("Notify", "Send test notification", () =>
             {
-                this.ShowNotification("OpenClaw", "Windows companion notifications are available.");
+                this.ShowNotification(
+                    WindowsNavigationDestination.Devices,
+                    "OpenClaw",
+                    "Windows companion notifications are available.");
                 return Task.CompletedTask;
             })]));
         this.deviceCapabilityCards.Children.Add(this.BuildDeviceCapabilityCard(
@@ -1734,8 +1823,10 @@ public sealed class MainWindow : Window
         }
     }
 
-    private void ShowNotification(string title, string message)
+    private void ShowNotification(string destination, string title, string message)
     {
+        this.appState.Notifications.Add(this.appState.Navigation.Normalize(destination), title, message);
+        this.RenderNotificationActivity();
         if (this.trayHost is null)
         {
             this.notificationActionResult = "Tray host is not ready for notifications.";
@@ -1856,6 +1947,17 @@ public sealed class MainWindow : Window
         this.RenderLogsDiagnostics();
         this.RenderSettingsStorage();
         this.RenderHomeDashboard();
+        var health = status.Reachable ? "reachable" : "unreachable";
+        if (this.notificationPreferences.GatewayHealthAlerts &&
+            this.lastNotifiedGatewayHealth is not null &&
+            !string.Equals(this.lastNotifiedGatewayHealth, health, StringComparison.Ordinal))
+        {
+            this.ShowNotification(
+                WindowsNavigationDestination.Home,
+                "OpenClaw Gateway health",
+                $"Gateway is {health}.");
+        }
+        this.lastNotifiedGatewayHealth = health;
     }
 
     private static UIElement BuildOnboardingRow(OnboardingCheckResult check)
@@ -1936,6 +2038,25 @@ public sealed class MainWindow : Window
             this.homeActivityText.Text =
                 "Recent activity will show Gateway lifecycle events, realtime events, approvals, and pairing requests as they arrive.";
         }
+        this.RenderNotificationActivity();
+    }
+
+    private void RenderNotificationActivity()
+    {
+        this.homeNotificationRows.Children.Clear();
+        var entries = this.appState.Notifications.Entries;
+        if (entries.Count == 0)
+        {
+            this.homeNotificationRows.Children.Add(BuildDashboardRow("Latest", "No notifications sent yet."));
+            return;
+        }
+
+        foreach (var entry in entries.Take(5))
+        {
+            this.homeNotificationRows.Children.Add(BuildDashboardRow(
+                entry.CreatedAt.ToLocalTime().ToString("g"),
+                $"{entry.Title}: {entry.Message}"));
+        }
     }
 
     private static UIElement BuildDashboardRow(string label, string value)
@@ -1963,6 +2084,11 @@ public sealed class MainWindow : Window
         Grid.SetColumn(valueText, 1);
         row.Children.Add(valueText);
         return row;
+    }
+
+    private static string Plural(int count)
+    {
+        return count == 1 ? "" : "s";
     }
 
     private static Brush StateBrush(OnboardingCheckState state)

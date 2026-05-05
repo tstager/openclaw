@@ -8,7 +8,9 @@ public sealed class WindowsNavigationTests
     [TestMethod]
     public void Normalize_KnownDiagnosticsRoute_MapsToLogs()
     {
-        var destination = WindowsNavigationService.Normalize(WindowsNavigationDestination.Diagnostics);
+        var navigation = new WindowsNavigationService();
+
+        var destination = navigation.Normalize(WindowsNavigationDestination.Diagnostics);
 
         Assert.AreEqual(WindowsNavigationDestination.Logs, destination);
     }
@@ -23,8 +25,6 @@ public sealed class WindowsNavigationTests
             new[]
             {
                 WindowsNavigationDestination.Home,
-                WindowsNavigationDestination.Chat,
-                WindowsNavigationDestination.Canvas,
                 WindowsNavigationDestination.Sessions,
                 WindowsNavigationDestination.Approvals,
                 WindowsNavigationDestination.Pairing,
