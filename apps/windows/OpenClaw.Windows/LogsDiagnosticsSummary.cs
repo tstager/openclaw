@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace OpenClaw.Windows;
 
 public sealed record LogsDiagnosticsSummary(
@@ -26,7 +28,7 @@ public sealed record LogsDiagnosticsSummary(
             CanUseGatewayLogActions: HasKnownPath(gatewayStatus?.LogPath),
             GatewayStatus: gatewayStatus?.State ?? "unknown",
             LastError: string.IsNullOrWhiteSpace(lastError) ? "none" : lastError,
-            LastRefresh: lastRefresh?.ToLocalTime().ToString("g") ?? "never");
+            LastRefresh: lastRefresh?.ToLocalTime().ToString("g", CultureInfo.CurrentCulture) ?? "never");
     }
 
     private static bool HasKnownPath(string? path)

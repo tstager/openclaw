@@ -26,7 +26,7 @@ public sealed class WindowsNavigationService
         new("Logs", WindowsNavigationDestination.Logs, "\uE8A5"),
     ];
 
-    public string Normalize(string? destination)
+    public static string Normalize(string? destination)
     {
         return destination switch
         {
@@ -42,9 +42,9 @@ public sealed class WindowsNavigationService
         };
     }
 
-    public string PageTitle(string destination)
+    public static string PageTitle(string destination)
     {
-        return this.Normalize(destination) switch
+        return Normalize(destination) switch
         {
             WindowsNavigationDestination.Sessions => "Sessions",
             WindowsNavigationDestination.Approvals => "Approvals",

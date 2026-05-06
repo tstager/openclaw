@@ -27,7 +27,7 @@ public sealed record AppPreferences(
         NotificationPreferences: WindowsNotificationPreferences.Default);
 }
 
-public sealed class AppPreferencesStore
+public sealed class AppPreferencesStore : IDisposable
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
@@ -93,6 +93,11 @@ public sealed class AppPreferencesStore
         {
             this.gate.Release();
         }
+    }
+
+    public void Dispose()
+    {
+        this.gate.Dispose();
     }
 
     private async Task<AppPreferences> LoadUnlockedAsync(CancellationToken cancellationToken)

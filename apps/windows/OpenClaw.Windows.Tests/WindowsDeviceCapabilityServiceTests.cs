@@ -1,3 +1,4 @@
+using System.Globalization;
 using OpenClaw.Windows.Native;
 
 namespace OpenClaw.Windows.Tests;
@@ -12,7 +13,7 @@ public sealed class WindowsDeviceCapabilityServiceTests
             "captures",
             "camera",
             "jpg",
-            DateTimeOffset.Parse("2026-04-27T15:16:17.123Z"));
+            DateTimeOffset.Parse("2026-04-27T15:16:17.123Z", CultureInfo.InvariantCulture));
 
         Assert.AreEqual(Path.Combine("captures", "camera-20260427-151617-123.jpg"), path);
     }
@@ -20,8 +21,7 @@ public sealed class WindowsDeviceCapabilityServiceTests
     [TestMethod]
     public void PermissionStatusIncludesStepFourCapabilities()
     {
-        var service = new WindowsDeviceCapabilityService("captures");
-        var statuses = service.GetPermissionStatus();
+        var statuses = WindowsDeviceCapabilityService.GetPermissionStatus();
 
         CollectionAssert.IsSubsetOf(
             new[] { "Screen", "Camera", "Microphone", "Notifications", "Hotkeys", "Overlays" },

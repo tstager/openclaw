@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using OpenClaw.Windows;
 
@@ -24,7 +25,7 @@ public sealed class AppPreferencesStoreTests
                 GatewayHealthAlerts: false,
                 DevicePermissionAlerts: true),
             LastStatus = "running",
-            LastStatusCheckedAt = DateTimeOffset.Parse("2026-04-27T12:00:00Z"),
+            LastStatusCheckedAt = DateTimeOffset.Parse("2026-04-27T12:00:00Z", CultureInfo.InvariantCulture),
         };
 
         await store.SaveAsync(expected);
@@ -73,8 +74,8 @@ public sealed class AppPreferencesStoreTests
 
         var updates = Enumerable.Range(0, 20).Select(_ => store.UpdateAsync(current =>
         {
-            var currentValue = int.Parse(current.LastStatus ?? "0");
-            return current with { LastStatus = (currentValue + 1).ToString() };
+            var currentValue = int.Parse(current.LastStatus ?? "0", CultureInfo.InvariantCulture);
+            return current with { LastStatus = (currentValue + 1).ToString(CultureInfo.InvariantCulture) };
         }));
 
         await Task.WhenAll(updates);

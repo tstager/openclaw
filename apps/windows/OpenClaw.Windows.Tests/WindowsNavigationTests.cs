@@ -8,9 +8,7 @@ public sealed class WindowsNavigationTests
     [TestMethod]
     public void Normalize_KnownDiagnosticsRoute_MapsToLogs()
     {
-        var navigation = new WindowsNavigationService();
-
-        var destination = navigation.Normalize(WindowsNavigationDestination.Diagnostics);
+        var destination = WindowsNavigationService.Normalize(WindowsNavigationDestination.Diagnostics);
 
         Assert.AreEqual(WindowsNavigationDestination.Logs, destination);
     }
