@@ -23,7 +23,7 @@ public sealed class WindowsDeviceCapabilityService
 
     public string CaptureRoot { get; }
 
-    public IReadOnlyList<WindowsDevicePermissionStatus> GetPermissionStatus()
+    public static IReadOnlyList<WindowsDevicePermissionStatus> GetPermissionStatus()
     {
         var capabilities = WindowsHostCapabilityProbe.Current;
         return
@@ -37,12 +37,12 @@ public sealed class WindowsDeviceCapabilityService
         ];
     }
 
-    public async Task<IReadOnlyList<WindowsMediaDevice>> ListCameraDevicesAsync()
+    public static async Task<IReadOnlyList<WindowsMediaDevice>> ListCameraDevicesAsync()
     {
         return await ListDevicesAsync(DeviceClass.VideoCapture);
     }
 
-    public async Task<IReadOnlyList<WindowsMediaDevice>> ListMicrophoneDevicesAsync()
+    public static async Task<IReadOnlyList<WindowsMediaDevice>> ListMicrophoneDevicesAsync()
     {
         return await ListDevicesAsync(DeviceClass.AudioCapture);
     }
@@ -50,7 +50,7 @@ public sealed class WindowsDeviceCapabilityService
     public async Task<WindowsCaptureResult> CaptureCameraPhotoAsync()
     {
         var cameras = await ListCameraDevicesAsync();
-        var camera = cameras.FirstOrDefault(device => device.IsEnabled) ?? cameras.FirstOrDefault();
+        var camera = cameras.FirstOrDefault(device => device.IsEnabled) ?? (cameras.Count > 0 ? cameras[0] : null);
         if (camera is null)
         {
             return new WindowsCaptureResult(false, null, "No camera is available.");
