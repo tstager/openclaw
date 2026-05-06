@@ -4,7 +4,7 @@ using XamlLaunchActivatedEventArgs = Microsoft.UI.Xaml.LaunchActivatedEventArgs;
 
 namespace OpenClaw.Windows;
 
-public sealed partial class App : XamlApplication
+public sealed partial class App : XamlApplication, IDisposable
 {
     private const string SingleInstanceMutexName = "OpenClaw.Windows.Companion";
 
@@ -90,6 +90,13 @@ public sealed partial class App : XamlApplication
             this.ReleaseSingleInstanceMutex();
             throw;
         }
+    }
+
+    public void Dispose()
+    {
+        this.trayHost?.Dispose();
+        this.trayHost = null;
+        this.ReleaseSingleInstanceMutex();
     }
 
     private void ReleaseSingleInstanceMutex()

@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Globalization;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
@@ -266,7 +267,7 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
             throw new InvalidOperationException("Gateway WebSocket is not connected.");
         }
 
-        var id = Interlocked.Increment(ref this.nextRequestId).ToString();
+        var id = Interlocked.Increment(ref this.nextRequestId).ToString(CultureInfo.InvariantCulture);
         var completion = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
         this.pending[id] = completion;
         using var timeoutCts = new CancellationTokenSource(this.requestTimeout);
@@ -591,7 +592,7 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
             ReadString(element, "sessionKey") ?? ReadString(element, "systemRunPlan", "sessionKey"));
     }
 
-    private static IEnumerable<PairingRequest> ParsePairingList(string kind, JsonElement payload)
+    private static PairingRequest[] ParsePairingList(string kind, JsonElement payload)
     {
         if (!payload.TryGetProperty("pending", out var pendingRequests) ||
             pendingRequests.ValueKind != JsonValueKind.Array)

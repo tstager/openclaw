@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Globalization;
 
 namespace OpenClaw.Windows;
 
@@ -62,7 +63,7 @@ public sealed class DeviceIdentityStore(IAppCredentialStore credentials)
             clientMode,
             role,
             string.Join(",", scopes),
-            signedAtMs.ToString(),
+            signedAtMs.ToString(CultureInfo.InvariantCulture),
             token ?? "",
             nonce,
             NormalizeDeviceMetadata(platform),

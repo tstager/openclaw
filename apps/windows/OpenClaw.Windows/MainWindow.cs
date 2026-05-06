@@ -1,3 +1,4 @@
+using System.Globalization;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
@@ -294,12 +295,12 @@ public sealed class MainWindow : Window
     private void ShowNavigationPage(NavigationViewItem selectedItem)
     {
         var tag = selectedItem.Tag as string;
-        this.navigationContent.Content = this.GetNavigationPage(this.appState.Navigation.Normalize(tag));
+        this.navigationContent.Content = this.GetNavigationPage(WindowsNavigationService.Normalize(tag));
     }
 
     private void SelectNavigationDestination(string destination)
     {
-        destination = this.appState.Navigation.Normalize(destination);
+        destination = WindowsNavigationService.Normalize(destination);
         if (this.navigationView is null)
         {
             this.navigationContent.Content = this.GetNavigationPage(destination);
@@ -335,13 +336,13 @@ public sealed class MainWindow : Window
 
         page = tag switch
         {
-            WindowsNavigationDestination.Home => this.BuildPage(this.appState.Navigation.PageTitle(tag), Scrollable(this.BuildHomeDashboardPanel())),
-            WindowsNavigationDestination.Sessions => this.BuildPage(this.appState.Navigation.PageTitle(tag), Scrollable(this.BuildChatPanel())),
-            WindowsNavigationDestination.Approvals => this.BuildPage(this.appState.Navigation.PageTitle(tag), Scrollable(this.BuildApprovalsPanel())),
-            WindowsNavigationDestination.Pairing => this.BuildPage(this.appState.Navigation.PageTitle(tag), Scrollable(this.BuildPairingPanel())),
-            WindowsNavigationDestination.Devices => this.BuildPage(this.appState.Navigation.PageTitle(tag), Scrollable(this.BuildDevicesPanel())),
-            WindowsNavigationDestination.Logs => this.BuildPage(this.appState.Navigation.PageTitle(tag), Scrollable(this.BuildLogsPanel())),
-            WindowsNavigationDestination.Settings => this.BuildPage(this.appState.Navigation.PageTitle(tag), Scrollable(this.BuildSettingsPanel())),
+            WindowsNavigationDestination.Home => this.BuildPage(WindowsNavigationService.PageTitle(tag), Scrollable(this.BuildHomeDashboardPanel())),
+            WindowsNavigationDestination.Sessions => this.BuildPage(WindowsNavigationService.PageTitle(tag), Scrollable(this.BuildChatPanel())),
+            WindowsNavigationDestination.Approvals => this.BuildPage(WindowsNavigationService.PageTitle(tag), Scrollable(this.BuildApprovalsPanel())),
+            WindowsNavigationDestination.Pairing => this.BuildPage(WindowsNavigationService.PageTitle(tag), Scrollable(this.BuildPairingPanel())),
+            WindowsNavigationDestination.Devices => this.BuildPage(WindowsNavigationService.PageTitle(tag), Scrollable(this.BuildDevicesPanel())),
+            WindowsNavigationDestination.Logs => this.BuildPage(WindowsNavigationService.PageTitle(tag), Scrollable(this.BuildLogsPanel())),
+            WindowsNavigationDestination.Settings => this.BuildPage(WindowsNavigationService.PageTitle(tag), Scrollable(this.BuildSettingsPanel())),
             _ => this.BuildPage("Home", Scrollable(this.BuildHomeDashboardPanel())),
         };
         this.navigationPages[tag] = page;
@@ -710,55 +711,55 @@ public sealed class MainWindow : Window
         this.settingsText.TextWrapping = TextWrapping.Wrap;
         this.settingsText.Foreground = ResourceBrush("TextFillColorSecondaryBrush");
 
-        this.ConfigureSettingsToggle(
+        ConfigureSettingsToggle(
             this.openMainWindowOnLaunchInput,
             "Open main window on launch",
             value => this.openMainWindowOnLaunch = value);
-        this.ConfigureSettingsToggle(
+        ConfigureSettingsToggle(
             this.approvalAlertsInput,
             "Approval alerts",
             value => this.notificationPreferences = this.notificationPreferences with { ApprovalAlerts = value });
-        this.ConfigureSettingsToggle(
+        ConfigureSettingsToggle(
             this.pairingAlertsInput,
             "Pairing alerts",
             value => this.notificationPreferences = this.notificationPreferences with { PairingAlerts = value });
-        this.ConfigureSettingsToggle(
+        ConfigureSettingsToggle(
             this.gatewayHealthAlertsInput,
             "Gateway health alerts",
             value => this.notificationPreferences = this.notificationPreferences with { GatewayHealthAlerts = value });
-        this.ConfigureSettingsToggle(
+        ConfigureSettingsToggle(
             this.devicePermissionAlertsInput,
             "Device permission alerts",
             value => this.notificationPreferences = this.notificationPreferences with { DevicePermissionAlerts = value });
-        this.ConfigureSettingsToggle(
+        ConfigureSettingsToggle(
             this.settingsVoiceControlsInput,
             "Enable voice controls",
             value => this.voiceControlsEnabled = value);
-        this.ConfigureSettingsToggle(
+        ConfigureSettingsToggle(
             this.settingsGlobalHotkeyInput,
             "Register Ctrl+Shift+Space push-to-talk hotkey",
             value => this.globalHotkeyEnabled = value);
 
-        panel.Children.Add(BuildDashboardCard("Gateway Connection", this.BuildSettingsSection(
+        panel.Children.Add(BuildDashboardCard("Gateway Connection", BuildSettingsSection(
             BuildSettingsField("Gateway URL", "Realtime Gateway WebSocket endpoint.", this.gatewayUrlInput),
             BuildSettingsField("Gateway token", "Stored in the Windows credential store when available.", this.gatewayTokenInput))));
-        panel.Children.Add(BuildDashboardCard("Identity", this.BuildSettingsSection(
+        panel.Children.Add(BuildDashboardCard("Identity", BuildSettingsSection(
             BuildSettingsField("Chat session", "Default OpenClaw session key used by the native chat workspace.", this.chatSessionInput))));
-        panel.Children.Add(BuildDashboardCard("Startup", this.BuildSettingsSection(
+        panel.Children.Add(BuildDashboardCard("Startup", BuildSettingsSection(
             this.openMainWindowOnLaunchInput,
             BuildReservedSettingsRow("Autostart", "Reserved", "Future tray startup preference."))));
-        panel.Children.Add(BuildDashboardCard("Notifications", this.BuildSettingsSection(
+        panel.Children.Add(BuildDashboardCard("Notifications", BuildSettingsSection(
             this.approvalAlertsInput,
             this.pairingAlertsInput,
             this.gatewayHealthAlertsInput,
             this.devicePermissionAlertsInput)));
-        panel.Children.Add(BuildDashboardCard("Devices", this.BuildSettingsSection(
+        panel.Children.Add(BuildDashboardCard("Devices", BuildSettingsSection(
             this.settingsVoiceControlsInput,
             this.settingsGlobalHotkeyInput)));
         panel.Children.Add(BuildDashboardCard("Storage and Logs", this.settingsStorageRows));
-        panel.Children.Add(BuildDashboardCard("About", this.BuildSettingsSection(
+        panel.Children.Add(BuildDashboardCard("About", BuildSettingsSection(
             BuildDashboardRow("Product", "OpenClaw Windows companion"),
-            BuildDashboardRow("Gateway protocol", this.appState.Summary.GatewayProtocolVersion.ToString()),
+            BuildDashboardRow("Gateway protocol", this.appState.Summary.GatewayProtocolVersion.ToString(CultureInfo.InvariantCulture)),
             this.settingsText)));
         this.RenderSettingsStorage();
 
@@ -783,7 +784,7 @@ public sealed class MainWindow : Window
         return panel;
     }
 
-    private StackPanel BuildSettingsSection(params UIElement[] rows)
+    private static StackPanel BuildSettingsSection(params UIElement[] rows)
     {
         var section = new StackPanel { Spacing = 10 };
         foreach (var row in rows)
@@ -824,7 +825,7 @@ public sealed class MainWindow : Window
         return row;
     }
 
-    private void ConfigureSettingsToggle(XamlCheckBox toggle, string label, Action<bool> update)
+    private static void ConfigureSettingsToggle(XamlCheckBox toggle, string label, Action<bool> update)
     {
         toggle.Content = label;
         toggle.Checked += (_, _) => update(true);
@@ -1546,7 +1547,7 @@ public sealed class MainWindow : Window
         this.settingsText.Text =
             $"Open main window on launch: {preferences.OpenMainWindowOnLaunch}\n" +
             $"Last status: {preferences.LastStatus ?? "unknown"}\n" +
-            $"Last checked: {preferences.LastStatusCheckedAt?.ToLocalTime().ToString("g") ?? "never"}\n" +
+            $"Last checked: {preferences.LastStatusCheckedAt?.ToLocalTime().ToString("g", CultureInfo.CurrentCulture) ?? "never"}\n" +
             $"Device token cached: {!string.IsNullOrWhiteSpace(preferences.DeviceToken)}\n" +
             $"Voice controls: {preferences.VoiceControlsEnabled}\n" +
             $"Global hotkey: {preferences.GlobalHotkeyEnabled}\n" +
@@ -1604,7 +1605,7 @@ public sealed class MainWindow : Window
         this.settingsVoiceControlsInput.IsChecked = preferences.VoiceControlsEnabled;
         this.settingsGlobalHotkeyInput.IsChecked = preferences.GlobalHotkeyEnabled;
         this.SyncHotkeyRegistration(preferences.GlobalHotkeyEnabled);
-        this.latestDevicePermissionStatuses = this.appState.DeviceCapabilities.GetPermissionStatus();
+        this.latestDevicePermissionStatuses = WindowsDeviceCapabilityService.GetPermissionStatus();
         var unavailableCapabilities = this.latestDevicePermissionStatuses
             .Where(status => string.Equals(status.State, "Unavailable", StringComparison.OrdinalIgnoreCase))
             .Select(status => status.Capability)
@@ -1626,11 +1627,11 @@ public sealed class MainWindow : Window
         {
             var cameras = new List<WindowsMediaDevice>();
             var microphones = new List<WindowsMediaDevice>();
-            foreach (var camera in await this.appState.DeviceCapabilities.ListCameraDevicesAsync())
+            foreach (var camera in await WindowsDeviceCapabilityService.ListCameraDevicesAsync())
             {
                 cameras.Add(camera);
             }
-            foreach (var microphone in await this.appState.DeviceCapabilities.ListMicrophoneDevicesAsync())
+            foreach (var microphone in await WindowsDeviceCapabilityService.ListMicrophoneDevicesAsync())
             {
                 microphones.Add(microphone);
             }
@@ -1673,13 +1674,13 @@ public sealed class MainWindow : Window
         this.deviceCapabilityCards.Children.Add(this.BuildDeviceCapabilityCard(
             DeviceCapabilityPresentation.Create("Microphone", this.latestDevicePermissionStatuses, this.microphoneActionResult),
             [
-                this.DeviceToggle("Enable voice controls", this.voiceControlsEnabled, value => this.voiceControlsEnabled = value),
+                DeviceToggle("Enable voice controls", this.voiceControlsEnabled, value => this.voiceControlsEnabled = value),
                 this.DeviceActionButton("Save voice", "Save voice controls preference", async () => await this.SaveDevicePreferencesAsync()),
             ]));
         this.deviceCapabilityCards.Children.Add(this.BuildDeviceCapabilityCard(
             DeviceCapabilityPresentation.Create("Hotkeys", this.latestDevicePermissionStatuses, this.hotkeyActionResult),
             [
-                this.DeviceToggle("Register Ctrl+Shift+Space push-to-talk hotkey", this.globalHotkeyEnabled, value => this.globalHotkeyEnabled = value),
+                DeviceToggle("Register Ctrl+Shift+Space push-to-talk hotkey", this.globalHotkeyEnabled, value => this.globalHotkeyEnabled = value),
                 this.DeviceActionButton("Save hotkey", "Save global hotkey preference", async () => await this.SaveDevicePreferencesAsync()),
             ]));
         this.deviceCapabilityCards.Children.Add(this.BuildDeviceCapabilityCard(
@@ -1741,7 +1742,7 @@ public sealed class MainWindow : Window
         return button;
     }
 
-    private XamlCheckBox DeviceToggle(string label, bool isChecked, Action<bool> update)
+    private static XamlCheckBox DeviceToggle(string label, bool isChecked, Action<bool> update)
     {
         var toggle = new XamlCheckBox
         {
@@ -1825,7 +1826,7 @@ public sealed class MainWindow : Window
 
     private void ShowNotification(string destination, string title, string message)
     {
-        this.appState.Notifications.Add(this.appState.Navigation.Normalize(destination), title, message);
+        this.appState.Notifications.Add(WindowsNavigationService.Normalize(destination), title, message);
         this.RenderNotificationActivity();
         if (this.trayHost is null)
         {
@@ -2054,7 +2055,7 @@ public sealed class MainWindow : Window
         foreach (var entry in entries.Take(5))
         {
             this.homeNotificationRows.Children.Add(BuildDashboardRow(
-                entry.CreatedAt.ToLocalTime().ToString("g"),
+                entry.CreatedAt.ToLocalTime().ToString("g", CultureInfo.CurrentCulture),
                 $"{entry.Title}: {entry.Message}"));
         }
     }
