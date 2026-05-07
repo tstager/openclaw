@@ -98,6 +98,16 @@ The Windows companion app lives in `apps/windows` and is built with WinUI 3,
 Windows App SDK, and C#. It uses the same Gateway protocol as the other native
 apps and does not own Gateway configuration.
 
+Development prerequisites:
+
+- .NET SDK `10.0.203` or newer compatible .NET 10 feature band. The repo pins
+  this in `global.json`; verify with `dotnet --version` from the repo root.
+- Windows App SDK runtime matching the app package architecture on clean
+  Windows VMs. Install it with Microsoft's `WindowsAppRuntimeInstall.exe`, or
+  install the matching Windows App SDK MSIX runtime packages before launching
+  the app from an unsigned local package.
+- Node and pnpm from the normal OpenClaw source checkout setup.
+
 Install the source dependencies once:
 
 ```powershell
@@ -135,6 +145,12 @@ CI uploads the same directory as the `openclaw-windows-app` artifact from the
 Windows app check. The default package command creates unsigned sideload
 artifacts for build verification; release builds must sign the MSIX with a
 trusted certificate before installing on a clean Windows machine.
+
+For Windows 11 VM smoke tests, install the Windows App SDK runtime before
+sideloading the unsigned MSIX. The app currently uses
+`Microsoft.WindowsAppSDK` `1.8.260416003`; when that package version changes,
+refresh the runtime on the VM before retesting launch, tray, Gateway connect,
+settings save, logs, notifications, and shutdown.
 
 After launch, the app connects to the local Gateway URL, usually
 `ws://127.0.0.1:18789`. Use the Gateway tab to install, start, stop, restart,
