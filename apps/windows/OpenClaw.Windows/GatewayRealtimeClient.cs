@@ -41,7 +41,7 @@ public sealed class GatewayRpcException(string code, string message) : Exception
 
 public sealed class GatewayRealtimeClient : IAsyncDisposable
 {
-    private const string ClientId = "openclaw-windows";
+    private const string ClientId = "openclaw-macos";
     private const string ClientMode = "ui";
     private const string ClientRole = "operator";
     private static readonly TimeSpan DefaultRequestTimeout = TimeSpan.FromSeconds(30);
