@@ -13,14 +13,39 @@ public sealed class GatewayCliCommandRunnerTests
         {
             var nested = Path.Combine(root, "apps", "windows", "OpenClaw.Windows", "bin");
             Directory.CreateDirectory(nested);
+            Directory.CreateDirectory(Path.Combine(root, "dist"));
             File.WriteAllText(Path.Combine(root, "package.json"), """{"name":"openclaw"}""");
             File.WriteAllText(Path.Combine(root, "openclaw.mjs"), "");
+            File.WriteAllText(Path.Combine(root, "dist", "entry.mjs"), "");
 
             var runner = GatewayCliCommandRunner.TryCreateFromSourceCheckout(nested);
 
             Assert.IsNotNull(runner);
             Assert.AreEqual("node", runner.Executable);
             CollectionAssert.AreEqual(new[] { Path.Combine(root, "openclaw.mjs") }, runner.BaseArguments.ToArray());
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void SourceCheckoutRunnerReturnsNullForUnbuiltSourceCheckout()
+    {
+        var root = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        try
+        {
+            Directory.CreateDirectory(root);
+            File.WriteAllText(Path.Combine(root, "package.json"), """{"name":"openclaw"}""");
+            File.WriteAllText(Path.Combine(root, "openclaw.mjs"), "");
+
+            var runner = GatewayCliCommandRunner.TryCreateFromSourceCheckout(root);
+
+            Assert.IsNull(runner);
         }
         finally
         {
