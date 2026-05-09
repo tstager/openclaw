@@ -145,7 +145,8 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
         {
             if (
                 File.Exists(Path.Combine(current.FullName, "openclaw.mjs")) &&
-                File.Exists(Path.Combine(current.FullName, "package.json")))
+                File.Exists(Path.Combine(current.FullName, "package.json")) &&
+                File.Exists(Path.Combine(current.FullName, "dist", "entry.mjs")))
             {
                 return current.FullName;
             }
