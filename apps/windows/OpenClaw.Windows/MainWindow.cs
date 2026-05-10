@@ -2015,7 +2015,8 @@ public sealed class MainWindow : Window
         var summary = GatewayDashboardSummary.Create(
             this.coordinator.GatewayStatus,
             this.coordinator.RealtimeState,
-            this.coordinator.OnboardingChecks);
+            this.coordinator.OnboardingChecks,
+            this.appState.Realtime.Authorization);
         this.homeGatewayStateText.Text = summary.GatewayState;
         this.homeGatewayHealthText.Text = summary.HealthState;
         this.homeConnectionStateText.Text = summary.ConnectionState;

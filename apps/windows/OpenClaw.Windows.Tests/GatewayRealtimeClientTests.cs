@@ -249,6 +249,77 @@ public sealed class GatewayRealtimeClientTests
         Assert.AreEqual("nonce-1", device.GetProperty("nonce").GetString());
         Assert.IsGreaterThan(0, device.GetProperty("signedAt").GetInt64());
         Assert.AreEqual("issued-device-token", await credentials.LoadDeviceTokenAsync());
+        Assert.IsNotNull(client.Authorization);
+        Assert.AreEqual("operator", client.Authorization.Role);
+        await client.DisposeAsync();
+    }
+
+    [TestMethod]
+    public async Task ConnectAsyncRepairsNarrowStoredDeviceIdentityWhenSharedTokenIsAvailable()
+    {
+        var connectRequests = new List<JsonElement>();
+        await using var server = GatewayRealtimeTestServer.Start(
+            async (socket, request) =>
+            {
+                using var document = JsonDocument.Parse(request);
+                var frame = document.RootElement;
+                if (ReadString(frame, "method") != "connect")
+                {
+                    return;
+                }
+
+                connectRequests.Add(frame.Clone());
+                var id = ReadString(frame, "id") ?? "";
+                if (connectRequests.Count == 1)
+                {
+                    await SendOkResponseAsync(socket, id, scopes: ["operator.read", "operator.pairing"]);
+                    return;
+                }
+
+                await SendOkResponseAsync(
+                    socket,
+                    id,
+                    deviceToken: "wide-device-token",
+                    scopes:
+                    [
+                        "operator.read",
+                        "operator.write",
+                        "operator.approvals",
+                        "operator.pairing",
+                    ]);
+            },
+            challengeNonce: "nonce-1");
+        var credentials = new InMemoryAppCredentialStore();
+        await credentials.SaveGatewayTokenAsync("shared-token");
+        await credentials.SaveDeviceTokenAsync("narrow-device-token");
+        var client = CreateClient(
+            server.WebSocketUrl,
+            TimeSpan.FromSeconds(5),
+            credentials,
+            new DeviceIdentityStore(credentials));
+
+        await client.ConnectAsync();
+
+        Assert.HasCount(2, connectRequests);
+        var firstParams = connectRequests[0].GetProperty("params");
+        var secondParams = connectRequests[1].GetProperty("params");
+        Assert.AreNotEqual(
+            firstParams.GetProperty("device").GetProperty("id").GetString(),
+            secondParams.GetProperty("device").GetProperty("id").GetString());
+        Assert.AreEqual("shared-token", secondParams.GetProperty("auth").GetProperty("token").GetString());
+        Assert.IsFalse(secondParams.GetProperty("auth").TryGetProperty("deviceToken", out _));
+        Assert.AreEqual("wide-device-token", await credentials.LoadDeviceTokenAsync());
+        Assert.IsNotNull(client.Authorization);
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                "operator.read",
+                "operator.write",
+                "operator.approvals",
+                "operator.pairing",
+            },
+            client.Authorization.Scopes.ToArray());
+        Assert.AreEqual("write_capable", client.Authorization.Capability);
         await client.DisposeAsync();
     }
 
@@ -302,12 +373,17 @@ public sealed class GatewayRealtimeClientTests
             : null;
     }
 
-    private static Task SendOkResponseAsync(WebSocket socket, string id, string? deviceToken = null)
+    private static Task SendOkResponseAsync(
+        WebSocket socket,
+        string id,
+        string? deviceToken = null,
+        IReadOnlyList<string>? scopes = null)
     {
         var deviceTokenJson = deviceToken is null ? "" : $",\"deviceToken\":\"{deviceToken}\"";
+        var scopesJson = string.Join(",", (scopes ?? []).Select(scope => $"\"{scope}\""));
         return SendTextAsync(
             socket,
-            $"{{\"type\":\"res\",\"id\":\"{id}\",\"ok\":true,\"payload\":{{\"auth\":{{\"role\":\"operator\",\"scopes\":[]{deviceTokenJson}}}}}}}");
+            $"{{\"type\":\"res\",\"id\":\"{id}\",\"ok\":true,\"payload\":{{\"auth\":{{\"role\":\"operator\",\"scopes\":[{scopesJson}]{deviceTokenJson}}}}}}}");
     }
 
     private static async Task SendTextAsync(WebSocket socket, string text)
@@ -362,30 +438,39 @@ public sealed class GatewayRealtimeClientTests
         {
             try
             {
-                var context = await this.listener.GetContextAsync();
-                if (!context.Request.IsWebSocketRequest)
+                while (this.listener.IsListening)
                 {
-                    context.Response.StatusCode = (int)HttpStatusCode.BadRequest;
-                    context.Response.Close();
-                    return;
-                }
-
-                var webSocketContext = await context.AcceptWebSocketAsync(null);
-                using var socket = webSocketContext.WebSocket;
-                if (!string.IsNullOrWhiteSpace(this.challengeNonce))
-                {
-                    await SendTextAsync(
-                        socket,
-                        $"{{\"type\":\"event\",\"event\":\"connect.challenge\",\"payload\":{{\"nonce\":\"{this.challengeNonce}\",\"ts\":1}}}}");
-                }
-                while (socket.State is WebSocketState.Open or WebSocketState.CloseReceived)
-                {
-                    var request = await ReceiveTextAsync(socket);
-                    if (request is null)
+                    var context = await this.listener.GetContextAsync();
+                    if (!context.Request.IsWebSocketRequest)
                     {
-                        return;
+                        context.Response.StatusCode = (int)HttpStatusCode.BadRequest;
+                        context.Response.Close();
+                        continue;
                     }
-                    await this.handleRequest(socket, request);
+
+                    try
+                    {
+                        var webSocketContext = await context.AcceptWebSocketAsync(null);
+                        using var socket = webSocketContext.WebSocket;
+                        if (!string.IsNullOrWhiteSpace(this.challengeNonce))
+                        {
+                            await SendTextAsync(
+                                socket,
+                                $"{{\"type\":\"event\",\"event\":\"connect.challenge\",\"payload\":{{\"nonce\":\"{this.challengeNonce}\",\"ts\":1}}}}");
+                        }
+                        while (socket.State is WebSocketState.Open or WebSocketState.CloseReceived)
+                        {
+                            var request = await ReceiveTextAsync(socket);
+                            if (request is null)
+                            {
+                                break;
+                            }
+                            await this.handleRequest(socket, request);
+                        }
+                    }
+                    catch (WebSocketException)
+                    {
+                    }
                 }
             }
             catch (HttpListenerException)

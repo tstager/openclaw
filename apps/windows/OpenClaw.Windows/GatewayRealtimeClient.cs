@@ -19,6 +19,29 @@ public enum GatewayRealtimeState
 
 public sealed record GatewayRealtimeEvent(string Name, JsonElement? Payload);
 
+public sealed record GatewayRealtimeAuthorization(string? Role, IReadOnlyList<string> Scopes)
+{
+    public string Capability
+    {
+        get
+        {
+            if (this.Scopes.Contains("operator.admin", StringComparer.Ordinal))
+            {
+                return "admin_capable";
+            }
+            if (this.Scopes.Contains("operator.write", StringComparer.Ordinal))
+            {
+                return "write_capable";
+            }
+            if (this.Scopes.Contains("operator.read", StringComparer.Ordinal))
+            {
+                return "read_only";
+            }
+            return "unknown";
+        }
+    }
+}
+
 public sealed record ChatMessage(string Role, string Text);
 
 public sealed record PendingApproval(
@@ -44,6 +67,13 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
     private const string ClientId = "openclaw-macos";
     private const string ClientMode = "ui";
     private const string ClientRole = "operator";
+    private static readonly string[] RequestedScopes =
+    [
+        "operator.read",
+        "operator.write",
+        "operator.approvals",
+        "operator.pairing",
+    ];
     private static readonly TimeSpan DefaultRequestTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan DisconnectCloseTimeout = TimeSpan.FromSeconds(2);
     private readonly TimeSpan requestTimeout;
@@ -75,6 +105,8 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
 
     public GatewayRealtimeState State { get; private set; } = GatewayRealtimeState.Disconnected;
 
+    public GatewayRealtimeAuthorization? Authorization { get; private set; }
+
     public event Action<GatewayRealtimeEvent>? EventReceived;
 
     public event Action<GatewayRealtimeState, string?>? StateChanged;
@@ -87,6 +119,14 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
 
     public async Task ConnectAsync(AppPreferences prefs, CancellationToken cancellationToken = default)
     {
+        await this.ConnectAsync(prefs, repairNarrowDeviceIdentity: true, cancellationToken);
+    }
+
+    private async Task ConnectAsync(
+        AppPreferences prefs,
+        bool repairNarrowDeviceIdentity,
+        CancellationToken cancellationToken)
+    {
         await this.DisconnectAsync();
         this.SetState(GatewayRealtimeState.Connecting, null);
         var connectingSocket = new ClientWebSocket();
@@ -98,6 +138,14 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
             this.connectChallenge = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
             this.receiveTask = this.ReceiveLoopAsync(connectingSocket, this.receiveCts.Token);
             await this.SendConnectAsync(prefs, cancellationToken);
+            if (repairNarrowDeviceIdentity &&
+                await this.TryRepairNarrowDeviceIdentityAsync(prefs, cancellationToken))
+            {
+                await this.DisconnectAsync();
+                var refreshedPrefs = await this.preferences.LoadAsync(cancellationToken);
+                await this.ConnectAsync(refreshedPrefs, repairNarrowDeviceIdentity: false, cancellationToken);
+                return;
+            }
             this.connectChallenge = null;
             this.SetState(GatewayRealtimeState.Connected, null);
         }
@@ -123,6 +171,7 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
         this.receiveTask = null;
         this.connectChallenge?.TrySetCanceled();
         this.connectChallenge = null;
+        this.Authorization = null;
         this.socket = null;
 
         if (socketToClose is { State: WebSocketState.Open or WebSocketState.CloseReceived })
@@ -311,13 +360,7 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
 
     private async Task SendConnectAsync(AppPreferences prefs, CancellationToken cancellationToken)
     {
-        var scopes = new[]
-        {
-            "operator.read",
-            "operator.write",
-            "operator.approvals",
-            "operator.pairing",
-        };
+        var scopes = RequestedScopes;
         var sharedToken = NormalizeToken(prefs.GatewayToken);
         var deviceToken = NormalizeToken(prefs.DeviceToken);
         var auth = new Dictionary<string, string>();
@@ -383,16 +426,59 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
             connectParams,
             cancellationToken);
 
-        if (responsePayload.TryGetProperty("auth", out var authPayload) &&
-            authPayload.TryGetProperty("deviceToken", out var issuedDeviceToken) &&
-            issuedDeviceToken.ValueKind == JsonValueKind.String &&
-            !string.IsNullOrWhiteSpace(issuedDeviceToken.GetString()))
+        if (responsePayload.TryGetProperty("auth", out var authPayload))
         {
-            await this.preferences.UpdateAsync(current => current with
+            this.Authorization = ParseAuthorization(authPayload);
+            if (authPayload.TryGetProperty("deviceToken", out var issuedDeviceToken) &&
+                issuedDeviceToken.ValueKind == JsonValueKind.String &&
+                !string.IsNullOrWhiteSpace(issuedDeviceToken.GetString()))
             {
-                DeviceToken = issuedDeviceToken.GetString(),
-            }, cancellationToken);
+                await this.preferences.UpdateAsync(current => current with
+                {
+                    DeviceToken = issuedDeviceToken.GetString(),
+                }, cancellationToken);
+            }
         }
+    }
+
+    private async Task<bool> TryRepairNarrowDeviceIdentityAsync(
+        AppPreferences prefs,
+        CancellationToken cancellationToken)
+    {
+        if (this.deviceIdentityStore is null ||
+            string.IsNullOrWhiteSpace(prefs.GatewayToken) ||
+            this.Authorization is not { } authorization ||
+            authorization.Scopes.Count == 0 ||
+            HasRequestedScopes(authorization.Scopes))
+        {
+            return false;
+        }
+
+        await this.deviceIdentityStore.ResetAsync(cancellationToken);
+        return true;
+    }
+
+    private static bool HasRequestedScopes(IReadOnlyList<string> scopes)
+    {
+        if (scopes.Contains("operator.admin", StringComparer.Ordinal))
+        {
+            return true;
+        }
+        return RequestedScopes.All(scope => scopes.Contains(scope, StringComparer.Ordinal));
+    }
+
+    private static GatewayRealtimeAuthorization ParseAuthorization(JsonElement authPayload)
+    {
+        var scopes = authPayload.TryGetProperty("scopes", out var scopesPayload) &&
+            scopesPayload.ValueKind == JsonValueKind.Array
+                ? scopesPayload.EnumerateArray()
+                    .Where(static scope => scope.ValueKind == JsonValueKind.String)
+                    .Select(static scope => scope.GetString())
+                    .Where(static scope => !string.IsNullOrWhiteSpace(scope))
+                    .Cast<string>()
+                    .ToArray()
+                : [];
+        return new GatewayRealtimeAuthorization(ReadString(authPayload, "role"), scopes);
     }
 
     private async Task ReceiveLoopAsync(ClientWebSocket socketSnapshot, CancellationToken cancellationToken)
