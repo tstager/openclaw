@@ -284,15 +284,16 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
             yield break;
         }
 
-        yield return commandName;
         var pathExt = pathExtVariable ?? Environment.GetEnvironmentVariable("PATHEXT");
-        foreach (var extension in (pathExt ?? ".COM;.EXE;.BAT;.CMD").Split(
+        var candidateExtensions = (pathExt ?? ".COM;.EXE;.BAT;.CMD").Split(
             Path.PathSeparator,
-            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        foreach (var extension in candidateExtensions)
         {
             yield return commandName + extension.ToLowerInvariant();
         }
         yield return commandName + ".ps1";
+        yield return commandName;
     }
 
     private static IEnumerable<string> GetExecutableSearchDirectories(
