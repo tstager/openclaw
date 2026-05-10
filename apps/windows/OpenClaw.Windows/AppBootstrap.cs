@@ -39,7 +39,7 @@ public static class AppBootstrap
             Gateway: gateway,
             Realtime: new GatewayRealtimeClient(preferences, new DeviceIdentityStore(credentials)),
             DeviceCapabilities: new WindowsDeviceCapabilityService(),
-            OnboardingChecks: new OnboardingCheckService(commandRunner),
+            OnboardingChecks: new OnboardingCheckService(commandRunner, preferences),
             Preferences: preferences,
             Navigation: new WindowsNavigationService(),
             Notifications: new WindowsNotificationActivityLog());
