@@ -190,6 +190,44 @@ public sealed class GatewayCliCommandRunnerTests
     }
 
     [TestMethod]
+    public void CreateGlobalOpenClawRunnerFallsBackToPowerShellFileForPowerShellShim()
+    {
+        var shellRoot = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        var shimRoot = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        var originalPath = Environment.GetEnvironmentVariable("PATH");
+        try
+        {
+            Directory.CreateDirectory(shellRoot);
+            Directory.CreateDirectory(shimRoot);
+            var powerShell = Path.Combine(shellRoot, "pwsh.exe");
+            var shim = Path.Combine(shimRoot, "openclaw.ps1");
+            File.WriteAllText(powerShell, "");
+            File.WriteAllText(shim, "");
+            Environment.SetEnvironmentVariable("PATH", $"{shimRoot}{Path.PathSeparator}{shellRoot}");
+
+            var runner = GatewayCliCommandRunner.CreateGlobalOpenClawRunner();
+
+            Assert.AreEqual(powerShell, runner.Executable);
+            CollectionAssert.AreEqual(
+                new[] { "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", shim },
+                runner.BaseArguments.ToArray());
+            Assert.AreEqual("openclaw", runner.CommandName);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PATH", originalPath);
+            if (Directory.Exists(shellRoot))
+            {
+                Directory.Delete(shellRoot, recursive: true);
+            }
+            if (Directory.Exists(shimRoot))
+            {
+                Directory.Delete(shimRoot, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void ResolveExecutablePathUsesPowerShellGetCommandFallback()
     {
         var shellRoot = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
