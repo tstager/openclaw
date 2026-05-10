@@ -33,8 +33,12 @@ public sealed record GatewayCliResolutionDiagnostics(
     string? NodeExecutable,
     string? NpmExecutable,
     string? NpmPrefix,
-    string? ExpectedNpmShim,
-    bool ExpectedNpmShimExists)
+    string? ExpectedNpmCmdShim,
+    bool ExpectedNpmCmdShimExists,
+    string? ExpectedNpmPowerShellShim,
+    bool ExpectedNpmPowerShellShimExists,
+    string? ExpectedPackageEntry,
+    bool ExpectedPackageEntryExists)
 {
     public string FormatMissingCliMessage()
     {
@@ -57,8 +61,12 @@ public sealed record GatewayCliResolutionDiagnostics(
         builder.AppendLine($"- node: {this.NodeExecutable ?? "not found"}");
         builder.AppendLine($"- npm: {this.NpmExecutable ?? "not found"}");
         builder.AppendLine($"- npm prefix: {this.NpmPrefix ?? "not found"}");
-        builder.AppendLine($"- expected shim: {this.ExpectedNpmShim ?? "not available"}");
-        builder.AppendLine($"- expected shim exists: {this.ExpectedNpmShimExists}");
+        builder.AppendLine($"- expected cmd shim: {this.ExpectedNpmCmdShim ?? "not available"}");
+        builder.AppendLine($"- expected cmd shim exists: {this.ExpectedNpmCmdShimExists}");
+        builder.AppendLine($"- expected PowerShell shim: {this.ExpectedNpmPowerShellShim ?? "not available"}");
+        builder.AppendLine($"- expected PowerShell shim exists: {this.ExpectedNpmPowerShellShimExists}");
+        builder.AppendLine($"- expected package entry: {this.ExpectedPackageEntry ?? "not available"}");
+        builder.AppendLine($"- expected package entry exists: {this.ExpectedPackageEntryExists}");
         builder.AppendLine();
         builder.AppendLine("Fix:");
         builder.AppendLine("Run `npm install -g openclaw`, then restart OpenClaw.");
@@ -171,9 +179,15 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
         var nodeExecutable = ResolveExecutablePath("node", null, null, includeNpmPrefix: false);
         var npmExecutable = ResolveExecutablePath("npm", null, null, includeNpmPrefix: false);
         var npmPrefix = ResolveNpmPrefix(pathVariable: null);
-        var expectedShim = string.IsNullOrWhiteSpace(npmPrefix)
+        var expectedCmdShim = string.IsNullOrWhiteSpace(npmPrefix)
             ? null
             : Path.Combine(npmPrefix, "openclaw.cmd");
+        var expectedPowerShellShim = string.IsNullOrWhiteSpace(npmPrefix)
+            ? null
+            : Path.Combine(npmPrefix, "openclaw.ps1");
+        var expectedPackageEntry = string.IsNullOrWhiteSpace(npmPrefix)
+            ? null
+            : Path.Combine(npmPrefix, "node_modules", "openclaw", "openclaw.mjs");
         return new GatewayCliResolutionDiagnostics(
             commandName,
             candidateNames,
@@ -181,8 +195,12 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
             nodeExecutable,
             npmExecutable,
             npmPrefix,
-            expectedShim,
-            expectedShim is not null && File.Exists(expectedShim));
+            expectedCmdShim,
+            expectedCmdShim is not null && File.Exists(expectedCmdShim),
+            expectedPowerShellShim,
+            expectedPowerShellShim is not null && File.Exists(expectedPowerShellShim),
+            expectedPackageEntry,
+            expectedPackageEntry is not null && File.Exists(expectedPackageEntry));
     }
 
     public async Task<GatewayCliResult> RunAsync(
@@ -263,6 +281,7 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
         {
             yield return commandName + extension.ToLowerInvariant();
         }
+        yield return commandName + ".ps1";
     }
 
     private static IEnumerable<string> GetExecutableSearchDirectories(
@@ -438,7 +457,41 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
             return new GatewayCliCommandRunner(shell, ["/d", "/c", executable], commandName);
         }
 
+        if (extension.Equals(".ps1", StringComparison.OrdinalIgnoreCase) &&
+            TryCreateNodeRunnerFromNpmPowerShellShim(executable, commandName) is { } nodeRunner)
+        {
+            return nodeRunner;
+        }
+
         return new GatewayCliCommandRunner(executable, [], commandName);
+    }
+
+    private static GatewayCliCommandRunner? TryCreateNodeRunnerFromNpmPowerShellShim(
+        string shimPath,
+        string commandName)
+    {
+        if (!string.Equals(commandName, "openclaw", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        var shimDirectory = Path.GetDirectoryName(shimPath);
+        if (string.IsNullOrWhiteSpace(shimDirectory))
+        {
+            return null;
+        }
+
+        var packageEntry = Path.Combine(shimDirectory, "node_modules", "openclaw", "openclaw.mjs");
+        if (!File.Exists(packageEntry))
+        {
+            return null;
+        }
+
+        var localNode = Path.Combine(shimDirectory, "node.exe");
+        var nodeExecutable = File.Exists(localNode)
+            ? localNode
+            : ResolveExecutablePath("node", null, null, includeNpmPrefix: false) ?? "node";
+        return new GatewayCliCommandRunner(nodeExecutable, [packageEntry], commandName);
     }
 
     private static ProcessStartInfo CreateProcessStartInfo(
