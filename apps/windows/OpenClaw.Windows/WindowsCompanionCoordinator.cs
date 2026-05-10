@@ -19,7 +19,11 @@ public sealed class WindowsCompanionCoordinator(WindowsCompanionState appState)
     public string? LastActivity { get; private set; }
 
     public GatewayDashboardSummary DashboardSummary =>
-        GatewayDashboardSummary.Create(this.GatewayStatus, this.RealtimeState, this.OnboardingChecks);
+        GatewayDashboardSummary.Create(
+            this.GatewayStatus,
+            this.RealtimeState,
+            this.OnboardingChecks,
+            this.appState.Realtime.Authorization);
 
     public async Task<GatewayStatusSnapshot> RefreshGatewayStatusAsync(CancellationToken cancellationToken = default)
     {

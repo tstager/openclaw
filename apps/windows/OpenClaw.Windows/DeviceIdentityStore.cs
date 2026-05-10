@@ -43,6 +43,12 @@ public sealed class DeviceIdentityStore(IAppCredentialStore credentials)
         return created;
     }
 
+    public async Task ResetAsync(CancellationToken cancellationToken = default)
+    {
+        await this.credentials.SaveDeviceTokenAsync(null, cancellationToken);
+        await this.credentials.SaveDevicePrivateKeyAsync(null, cancellationToken);
+    }
+
     public static string BuildDeviceAuthPayloadV3(
         string deviceId,
         string clientId,
