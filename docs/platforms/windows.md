@@ -162,9 +162,11 @@ When the app is launched from a built source checkout, it looks for
 `openclaw.mjs`, `package.json`, and `dist/entry.mjs` in the current repo and
 runs the repo CLI through `node`. If that built output is missing, or the app is
 launched outside a source checkout, it uses the global `openclaw` executable on
-`PATH`. The app also checks the normal npm global shim location under
-`%APPDATA%\npm`, so a package installed with `npm install -g openclaw` can be
-found even when the packaged app has not picked up a refreshed user `PATH`.
+`PATH`. The app reads the process, user, and machine `PATH` values and checks
+the normal npm global shim locations under `%APPDATA%\npm` and
+`%USERPROFILE%\AppData\Roaming\npm`, so a package installed with
+`npm install -g openclaw` can be found even when the packaged app has not picked
+up a refreshed user `PATH`.
 
 Uninstall through **Settings > Apps > Installed apps > OpenClaw**, or from
 PowerShell:
