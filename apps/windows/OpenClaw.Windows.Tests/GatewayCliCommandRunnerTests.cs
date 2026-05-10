@@ -78,6 +78,59 @@ public sealed class GatewayCliCommandRunnerTests
     }
 
     [TestMethod]
+    public void ResolveExecutablePathUsesPathExtCommandShim()
+    {
+        var root = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        try
+        {
+            Directory.CreateDirectory(root);
+            var shim = Path.Combine(root, "openclaw.cmd");
+            File.WriteAllText(shim, "");
+
+            var executable = GatewayCliCommandRunner.ResolveExecutablePath(
+                "openclaw",
+                root,
+                ".COM;.EXE;.BAT;.CMD");
+
+            Assert.AreEqual(shim, executable);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void ConstructorResolvesCommandShimButKeepsDisplayName()
+    {
+        var root = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        var originalPath = Environment.GetEnvironmentVariable("PATH");
+        try
+        {
+            Directory.CreateDirectory(root);
+            var shim = Path.Combine(root, "openclaw.cmd");
+            File.WriteAllText(shim, "");
+            Environment.SetEnvironmentVariable("PATH", root);
+
+            var runner = new GatewayCliCommandRunner("openclaw");
+
+            Assert.AreEqual(shim, runner.Executable);
+            Assert.AreEqual("openclaw", runner.CommandName);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PATH", originalPath);
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public async Task MissingExecutableReturnsFailedResult()
     {
         var runner = new GatewayCliCommandRunner($"openclaw-missing-for-test-{Guid.NewGuid():N}");

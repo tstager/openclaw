@@ -30,7 +30,7 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
     private readonly IReadOnlyList<string> baseArguments;
 
     public GatewayCliCommandRunner(string commandName)
-        : this(commandName, [], commandName)
+        : this(ResolveExecutablePath(commandName) ?? commandName, [], commandName)
     {
     }
 
@@ -53,7 +53,13 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
     public static GatewayCliCommandRunner CreateDefault()
     {
         return TryCreateFromSourceCheckout(Directory.GetCurrentDirectory(), AppContext.BaseDirectory) ??
-            new GatewayCliCommandRunner("openclaw");
+            CreateGlobalOpenClawRunner();
+    }
+
+    public static GatewayCliCommandRunner CreateGlobalOpenClawRunner()
+    {
+        var executable = ResolveExecutablePath("openclaw") ?? "openclaw";
+        return new GatewayCliCommandRunner(executable, [], "openclaw");
     }
 
     public static GatewayCliCommandRunner? TryCreateFromSourceCheckout(params string[] startDirectories)
@@ -71,6 +77,38 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
                 "node",
                 [cliPath],
                 $"node {cliPath}");
+        }
+
+        return null;
+    }
+
+    public static string? ResolveExecutablePath(
+        string commandName,
+        string? pathVariable = null,
+        string? pathExtVariable = null)
+    {
+        if (string.IsNullOrWhiteSpace(commandName))
+        {
+            return null;
+        }
+
+        if (Path.IsPathFullyQualified(commandName) || commandName.Contains(Path.DirectorySeparatorChar) ||
+            commandName.Contains(Path.AltDirectorySeparatorChar))
+        {
+            return File.Exists(commandName) ? commandName : null;
+        }
+
+        var candidateNames = GetExecutableCandidateNames(commandName, pathExtVariable).ToArray();
+        foreach (var directory in GetExecutableSearchDirectories(pathVariable))
+        {
+            foreach (var candidateName in candidateNames)
+            {
+                var candidate = Path.Combine(directory, candidateName);
+                if (File.Exists(candidate))
+                {
+                    return candidate;
+                }
+            }
         }
 
         return null;
@@ -155,6 +193,68 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
         }
 
         return null;
+    }
+
+    private static IEnumerable<string> GetExecutableCandidateNames(string commandName, string? pathExtVariable)
+    {
+        if (Path.HasExtension(commandName))
+        {
+            yield return commandName;
+            yield break;
+        }
+
+        yield return commandName;
+        var pathExt = pathExtVariable ?? Environment.GetEnvironmentVariable("PATHEXT");
+        foreach (var extension in (pathExt ?? ".COM;.EXE;.BAT;.CMD").Split(
+            Path.PathSeparator,
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            yield return commandName + extension.ToLowerInvariant();
+        }
+    }
+
+    private static IEnumerable<string> GetExecutableSearchDirectories(string? pathVariable)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var path = pathVariable ?? Environment.GetEnvironmentVariable("PATH");
+        foreach (var directory in (path ?? "").Split(
+            Path.PathSeparator,
+            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (seen.Add(directory))
+            {
+                yield return directory;
+            }
+        }
+
+        foreach (var directory in GetDefaultNodeInstallDirectories())
+        {
+            if (seen.Add(directory))
+            {
+                yield return directory;
+            }
+        }
+    }
+
+    private static IEnumerable<string> GetDefaultNodeInstallDirectories()
+    {
+        var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+        if (!string.IsNullOrWhiteSpace(appData))
+        {
+            yield return Path.Combine(appData, "npm");
+        }
+
+        var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
+        if (!string.IsNullOrWhiteSpace(programFiles))
+        {
+            yield return Path.Combine(programFiles, "nodejs");
+        }
+
+        var programFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
+        if (!string.IsNullOrWhiteSpace(programFilesX86))
+        {
+            yield return Path.Combine(programFilesX86, "nodejs");
+        }
     }
 
     private static GatewayCliResult MissingCommandResult(string commandName)
