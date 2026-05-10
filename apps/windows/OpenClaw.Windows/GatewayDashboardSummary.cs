@@ -14,7 +14,8 @@ public sealed record GatewayDashboardSummary(
     public static GatewayDashboardSummary Create(
         GatewayStatusSnapshot? status,
         GatewayRealtimeState realtimeState,
-        IReadOnlyList<OnboardingCheckResult> onboardingChecks)
+        IReadOnlyList<OnboardingCheckResult> onboardingChecks,
+        GatewayRealtimeAuthorization? realtimeAuthorization = null)
     {
         var passed = onboardingChecks.Count(check => check.State == OnboardingCheckState.Passed);
         var warnings = onboardingChecks.Count(check => check.State == OnboardingCheckState.Warning);
@@ -25,12 +26,27 @@ public sealed record GatewayDashboardSummary(
             GatewayState: status?.State ?? "unknown",
             ServiceState: status is null ? "Unknown" : status.ServiceInstalled ? "Installed" : "Not installed",
             Reachability: status is null ? "Unknown" : status.Reachable ? "Reachable" : "Unreachable",
-            Capability: status?.Capability ?? "unknown",
+            Capability: ResolveCapability(status, realtimeState, realtimeAuthorization),
             ConnectionState: realtimeState.ToString(),
             OnboardingHealth: FormatOnboardingHealth(passed, warnings, failed),
             HealthState: healthState,
             DashboardUrl: status?.DashboardUrl ?? "unknown",
             LogPath: status?.LogPath ?? "unknown");
+    }
+
+    private static string ResolveCapability(
+        GatewayStatusSnapshot? status,
+        GatewayRealtimeState realtimeState,
+        GatewayRealtimeAuthorization? realtimeAuthorization)
+    {
+        if (realtimeState == GatewayRealtimeState.Connected &&
+            realtimeAuthorization is not null &&
+            !string.Equals(realtimeAuthorization.Capability, "unknown", StringComparison.Ordinal))
+        {
+            return realtimeAuthorization.Capability;
+        }
+
+        return status?.Capability ?? "unknown";
     }
 
     private static string FormatOnboardingHealth(int passed, int warnings, int failed)
