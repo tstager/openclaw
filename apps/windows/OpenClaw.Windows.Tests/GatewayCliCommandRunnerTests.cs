@@ -161,6 +161,36 @@ public sealed class GatewayCliCommandRunnerTests
     }
 
     [TestMethod]
+    public void ResolveExecutablePathUsesNpmConfigPrefixEnvironmentVariable()
+    {
+        var root = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        var originalPrefix = Environment.GetEnvironmentVariable("NPM_CONFIG_PREFIX");
+        try
+        {
+            Directory.CreateDirectory(root);
+            var commandName = $"openclaw-prefix-test-{Guid.NewGuid():N}";
+            var shim = Path.Combine(root, $"{commandName}.cmd");
+            File.WriteAllText(shim, "");
+            Environment.SetEnvironmentVariable("NPM_CONFIG_PREFIX", root);
+
+            var executable = GatewayCliCommandRunner.ResolveExecutablePath(
+                commandName,
+                pathVariable: "",
+                pathExtVariable: ".COM;.EXE;.BAT;.CMD");
+
+            Assert.AreEqual(shim, executable);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("NPM_CONFIG_PREFIX", originalPrefix);
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public async Task MissingExecutableReturnsFailedResult()
     {
         var runner = new GatewayCliCommandRunner($"openclaw-missing-for-test-{Guid.NewGuid():N}");
@@ -169,5 +199,6 @@ public sealed class GatewayCliCommandRunnerTests
 
         Assert.IsFalse(result.Succeeded);
         StringAssert.Contains(result.CombinedOutput, "OpenClaw CLI was not found");
+        StringAssert.Contains(result.CombinedOutput, "Searched:");
     }
 }
