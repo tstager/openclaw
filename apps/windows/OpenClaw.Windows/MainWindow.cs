@@ -1433,7 +1433,18 @@ public sealed class MainWindow : Window
 
     private async Task RefreshPairingAsync()
     {
-        this.latestPairingRequests = await this.appState.Realtime.ListPairingRequestsAsync();
+        try
+        {
+            this.latestPairingRequests = await this.appState.Realtime.ListPairingRequestsAsync();
+        }
+        catch (InvalidOperationException ex) when (ex.Message.Contains("WebSocket is not connected", StringComparison.OrdinalIgnoreCase))
+        {
+            this.latestPairingRequests = [];
+            this.pairingLoaded = true;
+            this.RenderPairing();
+            this.RenderHomeDashboard();
+            return;
+        }
         this.pairingLoaded = true;
         if (this.notificationPreferences.PairingAlerts &&
             this.latestPairingRequests.Count > 0 &&

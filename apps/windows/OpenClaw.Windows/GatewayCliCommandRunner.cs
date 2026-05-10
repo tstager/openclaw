@@ -26,6 +26,46 @@ public sealed record GatewayCliResult(
         new[] { this.StandardOutput.Trim(), this.StandardError.Trim() }.Where(static line => line.Length > 0));
 }
 
+public sealed record GatewayCliResolutionDiagnostics(
+    string CommandName,
+    IReadOnlyList<string> CandidateNames,
+    IReadOnlyList<string> SearchDirectories,
+    string? NodeExecutable,
+    string? NpmExecutable,
+    string? NpmPrefix,
+    string? ExpectedNpmShim,
+    bool ExpectedNpmShimExists)
+{
+    public string FormatMissingCliMessage()
+    {
+        var builder = new StringBuilder();
+        builder.AppendLine("OpenClaw CLI was not found.");
+        builder.AppendLine();
+        builder.AppendLine("The Windows app looked for:");
+        foreach (var candidate in this.CandidateNames)
+        {
+            builder.AppendLine($"- {candidate}");
+        }
+        builder.AppendLine();
+        builder.AppendLine("Searched locations:");
+        foreach (var directory in this.SearchDirectories)
+        {
+            builder.AppendLine($"- {directory}");
+        }
+        builder.AppendLine();
+        builder.AppendLine("Detected:");
+        builder.AppendLine($"- node: {this.NodeExecutable ?? "not found"}");
+        builder.AppendLine($"- npm: {this.NpmExecutable ?? "not found"}");
+        builder.AppendLine($"- npm prefix: {this.NpmPrefix ?? "not found"}");
+        builder.AppendLine($"- expected shim: {this.ExpectedNpmShim ?? "not available"}");
+        builder.AppendLine($"- expected shim exists: {this.ExpectedNpmShimExists}");
+        builder.AppendLine();
+        builder.AppendLine("Fix:");
+        builder.AppendLine("Run `npm install -g openclaw`, then restart OpenClaw.");
+        return builder.ToString().TrimEnd();
+    }
+}
+
 public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
 {
     private readonly IReadOnlyList<string> baseArguments;
@@ -122,6 +162,27 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
         }
 
         return null;
+    }
+
+    public static GatewayCliResolutionDiagnostics CreateResolutionDiagnostics(string commandName)
+    {
+        var candidateNames = GetExecutableCandidateNames(commandName, null).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var searchDirectories = GetExecutableSearchDirectories(pathVariable: null).Take(48).ToArray();
+        var nodeExecutable = ResolveExecutablePath("node", null, null, includeNpmPrefix: false);
+        var npmExecutable = ResolveExecutablePath("npm", null, null, includeNpmPrefix: false);
+        var npmPrefix = ResolveNpmPrefix(pathVariable: null);
+        var expectedShim = string.IsNullOrWhiteSpace(npmPrefix)
+            ? null
+            : Path.Combine(npmPrefix, "openclaw.cmd");
+        return new GatewayCliResolutionDiagnostics(
+            commandName,
+            candidateNames,
+            searchDirectories,
+            nodeExecutable,
+            npmExecutable,
+            npmPrefix,
+            expectedShim,
+            expectedShim is not null && File.Exists(expectedShim));
     }
 
     public async Task<GatewayCliResult> RunAsync(
@@ -245,18 +306,27 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
 
     private static IEnumerable<string> GetNpmPrefixInstallDirectories(string? pathVariable)
     {
-        var prefix = Environment.GetEnvironmentVariable("NPM_CONFIG_PREFIX") ??
-            Environment.GetEnvironmentVariable("npm_config_prefix");
+        var prefix = ResolveNpmPrefix(pathVariable);
         if (!string.IsNullOrWhiteSpace(prefix))
         {
             yield return Environment.ExpandEnvironmentVariables(prefix);
         }
+    }
 
+    private static string? ResolveNpmPrefix(string? pathVariable)
+    {
+        var prefix = Environment.GetEnvironmentVariable("NPM_CONFIG_PREFIX") ??
+            Environment.GetEnvironmentVariable("npm_config_prefix");
+        if (!string.IsNullOrWhiteSpace(prefix))
+        {
+            return Environment.ExpandEnvironmentVariables(prefix);
+        }
         var npmPrefix = QueryNpmGlobalPrefix(pathVariable);
         if (!string.IsNullOrWhiteSpace(npmPrefix))
         {
-            yield return Environment.ExpandEnvironmentVariables(npmPrefix);
+            return Environment.ExpandEnvironmentVariables(npmPrefix);
         }
+        return null;
     }
 
     private static string? QueryNpmGlobalPrefix(string? pathVariable)
@@ -402,10 +472,7 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
         var message = string.Equals(commandName, "node", StringComparison.OrdinalIgnoreCase) ||
             commandName.StartsWith("node ", StringComparison.OrdinalIgnoreCase)
             ? "Node runtime was not found on PATH. Install Node.js 22 or newer, then restart the app."
-            : "OpenClaw CLI was not found. Install OpenClaw for Windows or add openclaw to PATH, then restart the app." +
-                Environment.NewLine +
-                "Searched: " +
-                string.Join("; ", GetExecutableSearchDirectories(pathVariable: null).Take(24));
+            : CreateResolutionDiagnostics(commandName).FormatMissingCliMessage();
         return new GatewayCliResult(1, "", message);
     }
 }

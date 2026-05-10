@@ -3,6 +3,7 @@ using OpenClaw.Windows;
 namespace OpenClaw.Windows.Tests;
 
 [TestClass]
+[DoNotParallelize]
 public sealed class GatewayCliCommandRunnerTests
 {
     [TestMethod]
@@ -165,6 +166,7 @@ public sealed class GatewayCliCommandRunnerTests
     {
         var root = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
         var originalPrefix = Environment.GetEnvironmentVariable("NPM_CONFIG_PREFIX");
+        var originalLowerPrefix = Environment.GetEnvironmentVariable("npm_config_prefix");
         try
         {
             Directory.CreateDirectory(root);
@@ -172,6 +174,7 @@ public sealed class GatewayCliCommandRunnerTests
             var shim = Path.Combine(root, $"{commandName}.cmd");
             File.WriteAllText(shim, "");
             Environment.SetEnvironmentVariable("NPM_CONFIG_PREFIX", root);
+            Environment.SetEnvironmentVariable("npm_config_prefix", root);
 
             var executable = GatewayCliCommandRunner.ResolveExecutablePath(
                 commandName,
@@ -183,6 +186,7 @@ public sealed class GatewayCliCommandRunnerTests
         finally
         {
             Environment.SetEnvironmentVariable("NPM_CONFIG_PREFIX", originalPrefix);
+            Environment.SetEnvironmentVariable("npm_config_prefix", originalLowerPrefix);
             if (Directory.Exists(root))
             {
                 Directory.Delete(root, recursive: true);
@@ -199,6 +203,42 @@ public sealed class GatewayCliCommandRunnerTests
 
         Assert.IsFalse(result.Succeeded);
         StringAssert.Contains(result.CombinedOutput, "OpenClaw CLI was not found");
-        StringAssert.Contains(result.CombinedOutput, "Searched:");
+        StringAssert.Contains(result.CombinedOutput, "The Windows app looked for:");
+        StringAssert.Contains(result.CombinedOutput, "Searched locations:");
+        StringAssert.Contains(result.CombinedOutput, "Detected:");
+        StringAssert.Contains(result.CombinedOutput, "expected shim exists:");
+        StringAssert.Contains(result.CombinedOutput, "npm install -g openclaw");
+    }
+
+    [TestMethod]
+    public void ResolutionDiagnosticsReportsExpectedNpmShim()
+    {
+        var root = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        var originalPrefix = Environment.GetEnvironmentVariable("NPM_CONFIG_PREFIX");
+        var originalLowerPrefix = Environment.GetEnvironmentVariable("npm_config_prefix");
+        try
+        {
+            Directory.CreateDirectory(root);
+            var shim = Path.Combine(root, "openclaw.cmd");
+            File.WriteAllText(shim, "");
+            Environment.SetEnvironmentVariable("NPM_CONFIG_PREFIX", root);
+            Environment.SetEnvironmentVariable("npm_config_prefix", root);
+
+            var diagnostics = GatewayCliCommandRunner.CreateResolutionDiagnostics("openclaw");
+
+            Assert.IsTrue(string.Equals(root, diagnostics.NpmPrefix, StringComparison.Ordinal));
+            Assert.IsTrue(string.Equals(shim, diagnostics.ExpectedNpmShim, StringComparison.Ordinal));
+            Assert.IsTrue(diagnostics.ExpectedNpmShimExists);
+            CollectionAssert.Contains(diagnostics.CandidateNames.ToArray(), "openclaw.cmd");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("NPM_CONFIG_PREFIX", originalPrefix);
+            Environment.SetEnvironmentVariable("npm_config_prefix", originalLowerPrefix);
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
     }
 }
