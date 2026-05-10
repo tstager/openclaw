@@ -133,6 +133,63 @@ public sealed class GatewayCliCommandRunnerTests
     }
 
     [TestMethod]
+    public void ResolveExecutablePathUsesPowerShellShim()
+    {
+        var root = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        try
+        {
+            Directory.CreateDirectory(root);
+            var commandName = $"openclaw-ps1-test-{Guid.NewGuid():N}";
+            var shim = Path.Combine(root, $"{commandName}.ps1");
+            File.WriteAllText(shim, "");
+
+            var executable = GatewayCliCommandRunner.ResolveExecutablePath(
+                commandName,
+                root,
+                ".COM;.EXE;.BAT;.CMD");
+
+            Assert.AreEqual(shim, executable);
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void CreateGlobalOpenClawRunnerRunsPowerShellShimThroughNodeEntry()
+    {
+        var root = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        var originalPath = Environment.GetEnvironmentVariable("PATH");
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(root, "node_modules", "openclaw"));
+            var shim = Path.Combine(root, "openclaw.ps1");
+            var entry = Path.Combine(root, "node_modules", "openclaw", "openclaw.mjs");
+            File.WriteAllText(shim, "");
+            File.WriteAllText(entry, "");
+            Environment.SetEnvironmentVariable("PATH", root);
+
+            var runner = GatewayCliCommandRunner.CreateGlobalOpenClawRunner();
+
+            StringAssert.Contains(Path.GetFileName(runner.Executable), "node");
+            CollectionAssert.AreEqual(new[] { entry }, runner.BaseArguments.ToArray());
+            Assert.AreEqual("openclaw", runner.CommandName);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("PATH", originalPath);
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void ResolveExecutablePathExpandsEnvironmentVariablesFromPath()
     {
         var root = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
@@ -206,7 +263,9 @@ public sealed class GatewayCliCommandRunnerTests
         StringAssert.Contains(result.CombinedOutput, "The Windows app looked for:");
         StringAssert.Contains(result.CombinedOutput, "Searched locations:");
         StringAssert.Contains(result.CombinedOutput, "Detected:");
-        StringAssert.Contains(result.CombinedOutput, "expected shim exists:");
+        StringAssert.Contains(result.CombinedOutput, "expected cmd shim exists:");
+        StringAssert.Contains(result.CombinedOutput, "expected PowerShell shim exists:");
+        StringAssert.Contains(result.CombinedOutput, "expected package entry exists:");
         StringAssert.Contains(result.CombinedOutput, "npm install -g openclaw");
     }
 
@@ -218,18 +277,27 @@ public sealed class GatewayCliCommandRunnerTests
         var originalLowerPrefix = Environment.GetEnvironmentVariable("npm_config_prefix");
         try
         {
-            Directory.CreateDirectory(root);
+            Directory.CreateDirectory(Path.Combine(root, "node_modules", "openclaw"));
             var shim = Path.Combine(root, "openclaw.cmd");
+            var powerShellShim = Path.Combine(root, "openclaw.ps1");
+            var entry = Path.Combine(root, "node_modules", "openclaw", "openclaw.mjs");
             File.WriteAllText(shim, "");
+            File.WriteAllText(powerShellShim, "");
+            File.WriteAllText(entry, "");
             Environment.SetEnvironmentVariable("NPM_CONFIG_PREFIX", root);
             Environment.SetEnvironmentVariable("npm_config_prefix", root);
 
             var diagnostics = GatewayCliCommandRunner.CreateResolutionDiagnostics("openclaw");
 
             Assert.IsTrue(string.Equals(root, diagnostics.NpmPrefix, StringComparison.Ordinal));
-            Assert.IsTrue(string.Equals(shim, diagnostics.ExpectedNpmShim, StringComparison.Ordinal));
-            Assert.IsTrue(diagnostics.ExpectedNpmShimExists);
+            Assert.IsTrue(string.Equals(shim, diagnostics.ExpectedNpmCmdShim, StringComparison.Ordinal));
+            Assert.IsTrue(diagnostics.ExpectedNpmCmdShimExists);
+            Assert.IsTrue(string.Equals(powerShellShim, diagnostics.ExpectedNpmPowerShellShim, StringComparison.Ordinal));
+            Assert.IsTrue(diagnostics.ExpectedNpmPowerShellShimExists);
+            Assert.IsTrue(string.Equals(entry, diagnostics.ExpectedPackageEntry, StringComparison.Ordinal));
+            Assert.IsTrue(diagnostics.ExpectedPackageEntryExists);
             CollectionAssert.Contains(diagnostics.CandidateNames.ToArray(), "openclaw.cmd");
+            CollectionAssert.Contains(diagnostics.CandidateNames.ToArray(), "openclaw.ps1");
         }
         finally
         {
