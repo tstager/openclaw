@@ -530,6 +530,12 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
             return nodeRunner;
         }
 
+        if (extension.Equals(".ps1", StringComparison.OrdinalIgnoreCase) &&
+            TryCreatePowerShellShimRunner(executable, commandName) is { } powerShellRunner)
+        {
+            return powerShellRunner;
+        }
+
         return new GatewayCliCommandRunner(executable, [], commandName);
     }
 
@@ -559,6 +565,28 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
             ? localNode
             : ResolveExecutablePath("node", null, null, includeNpmPrefix: false) ?? "node";
         return new GatewayCliCommandRunner(nodeExecutable, [packageEntry], commandName);
+    }
+
+    private static GatewayCliCommandRunner? TryCreatePowerShellShimRunner(
+        string shimPath,
+        string commandName)
+    {
+        if (!File.Exists(shimPath))
+        {
+            return null;
+        }
+
+        var powerShell = ResolveExecutablePath("pwsh", null, null, includeNpmPrefix: false) ??
+            ResolveExecutablePath("powershell", null, null, includeNpmPrefix: false);
+        if (string.IsNullOrWhiteSpace(powerShell))
+        {
+            return null;
+        }
+
+        return new GatewayCliCommandRunner(
+            powerShell,
+            ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", shimPath],
+            commandName);
     }
 
     private static ProcessStartInfo CreateProcessStartInfo(
