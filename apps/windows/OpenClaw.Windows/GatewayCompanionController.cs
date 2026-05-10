@@ -19,7 +19,10 @@ public sealed class GatewayCompanionController(
 
     public async Task<GatewayStatusSnapshot> RefreshStatusAsync(CancellationToken cancellationToken = default)
     {
-        var result = await this.commandRunner.RunAsync(["gateway", "status", "--json"], cancellationToken);
+        var currentPreferences = await this.preferences.LoadAsync(cancellationToken);
+        var result = await this.commandRunner.RunAsync(
+            BuildGatewayStatusArgs(currentPreferences),
+            cancellationToken);
         var snapshot = GatewayStatusSnapshot.FromCliResult(result);
         await this.preferences.UpdateAsync(current => current with
         {
@@ -33,9 +36,10 @@ public sealed class GatewayCompanionController(
         GatewayCliAction action,
         CancellationToken cancellationToken = default)
     {
+        var currentPreferences = await this.preferences.LoadAsync(cancellationToken);
         var args = action switch
         {
-            GatewayCliAction.Install => new[] { "gateway", "install", "--json" },
+            GatewayCliAction.Install => BuildGatewayInstallArgs(currentPreferences),
             GatewayCliAction.Start => new[] { "gateway", "start", "--json" },
             GatewayCliAction.Stop => new[] { "gateway", "stop", "--json" },
             GatewayCliAction.Restart => new[] { "gateway", "restart", "--json" },
@@ -55,6 +59,45 @@ public sealed class GatewayCompanionController(
 
         var status = await this.RefreshStatusAsync(cancellationToken);
         return new GatewayActionResult(action, result.Succeeded, result.CombinedOutput, status);
+    }
+
+    public static IReadOnlyList<string> BuildGatewayStatusArgs(AppPreferences preferences)
+    {
+        var args = new List<string> { "gateway", "status", "--json" };
+        AppendGatewayProbeAuthArgs(args, preferences);
+        return args;
+    }
+
+    private static IReadOnlyList<string> BuildGatewayInstallArgs(AppPreferences preferences)
+    {
+        var args = new List<string> { "gateway", "install", "--json" };
+        AppendGatewayTokenArg(args, preferences);
+        return args;
+    }
+
+    private static void AppendGatewayProbeAuthArgs(List<string> args, AppPreferences preferences)
+    {
+        if (string.IsNullOrWhiteSpace(preferences.GatewayToken))
+        {
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(preferences.GatewayUrl))
+        {
+            args.Add("--url");
+            args.Add(preferences.GatewayUrl.Trim());
+        }
+
+        AppendGatewayTokenArg(args, preferences);
+    }
+
+    private static void AppendGatewayTokenArg(List<string> args, AppPreferences preferences)
+    {
+        if (!string.IsNullOrWhiteSpace(preferences.GatewayToken))
+        {
+            args.Add("--token");
+            args.Add(preferences.GatewayToken.Trim());
+        }
     }
 }
 
