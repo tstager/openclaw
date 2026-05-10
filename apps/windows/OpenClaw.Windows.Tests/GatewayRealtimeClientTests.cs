@@ -236,7 +236,7 @@ public sealed class GatewayRealtimeClientTests
         var connect = await connectRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
         var parameters = connect.GetProperty("params");
         var clientPayload = parameters.GetProperty("client");
-        Assert.AreEqual("openclaw-macos", clientPayload.GetProperty("id").GetString());
+        Assert.AreEqual("openclaw-windows", clientPayload.GetProperty("id").GetString());
         Assert.AreEqual("ui", clientPayload.GetProperty("mode").GetString());
         Assert.AreEqual("operator", parameters.GetProperty("role").GetString());
         var auth = parameters.GetProperty("auth");
