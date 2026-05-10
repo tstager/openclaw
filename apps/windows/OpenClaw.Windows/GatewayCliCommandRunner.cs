@@ -88,6 +88,15 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
         string? pathVariable = null,
         string? pathExtVariable = null)
     {
+        return ResolveExecutablePath(commandName, pathVariable, pathExtVariable, includeNpmPrefix: true);
+    }
+
+    private static string? ResolveExecutablePath(
+        string commandName,
+        string? pathVariable,
+        string? pathExtVariable,
+        bool includeNpmPrefix)
+    {
         if (string.IsNullOrWhiteSpace(commandName))
         {
             return null;
@@ -100,7 +109,7 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
         }
 
         var candidateNames = GetExecutableCandidateNames(commandName, pathExtVariable).ToArray();
-        foreach (var directory in GetExecutableSearchDirectories(pathVariable))
+        foreach (var directory in GetExecutableSearchDirectories(pathVariable, includeNpmPrefix))
         {
             foreach (var candidateName in candidateNames)
             {
@@ -119,26 +128,7 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
         IReadOnlyList<string> arguments,
         CancellationToken cancellationToken = default)
     {
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = this.Executable,
-            UseShellExecute = false,
-            RedirectStandardError = true,
-            RedirectStandardOutput = true,
-            CreateNoWindow = true,
-        };
-
-        foreach (var argument in this.baseArguments)
-        {
-            startInfo.ArgumentList.Add(argument);
-        }
-
-        foreach (var argument in arguments)
-        {
-            startInfo.ArgumentList.Add(argument);
-        }
-
-        using var process = new Process { StartInfo = startInfo };
+        using var process = new Process { StartInfo = CreateProcessStartInfo(this, arguments) };
         var stdout = new StringBuilder();
         var stderr = new StringBuilder();
         process.OutputDataReceived += (_, args) =>
@@ -214,7 +204,9 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
         }
     }
 
-    private static IEnumerable<string> GetExecutableSearchDirectories(string? pathVariable)
+    private static IEnumerable<string> GetExecutableSearchDirectories(
+        string? pathVariable,
+        bool includeNpmPrefix = true)
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var path in GetPathVariables(pathVariable))
@@ -231,6 +223,17 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
             }
         }
 
+        if (includeNpmPrefix)
+        {
+            foreach (var directory in GetNpmPrefixInstallDirectories(pathVariable))
+            {
+                if (seen.Add(directory))
+                {
+                    yield return directory;
+                }
+            }
+        }
+
         foreach (var directory in GetDefaultNodeInstallDirectories())
         {
             if (seen.Add(directory))
@@ -238,6 +241,58 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
                 yield return directory;
             }
         }
+    }
+
+    private static IEnumerable<string> GetNpmPrefixInstallDirectories(string? pathVariable)
+    {
+        var prefix = Environment.GetEnvironmentVariable("NPM_CONFIG_PREFIX") ??
+            Environment.GetEnvironmentVariable("npm_config_prefix");
+        if (!string.IsNullOrWhiteSpace(prefix))
+        {
+            yield return Environment.ExpandEnvironmentVariables(prefix);
+        }
+
+        var npmPrefix = QueryNpmGlobalPrefix(pathVariable);
+        if (!string.IsNullOrWhiteSpace(npmPrefix))
+        {
+            yield return Environment.ExpandEnvironmentVariables(npmPrefix);
+        }
+    }
+
+    private static string? QueryNpmGlobalPrefix(string? pathVariable)
+    {
+        var npm = ResolveExecutablePath("npm", pathVariable, null, includeNpmPrefix: false);
+        if (string.IsNullOrWhiteSpace(npm))
+        {
+            return null;
+        }
+
+        using var process = new Process
+        {
+            StartInfo = CreateProcessStartInfo(CreateExecutableRunner(npm, "npm"), ["config", "get", "prefix"]),
+        };
+        try
+        {
+            process.Start();
+            if (!process.WaitForExit(3000) || process.ExitCode != 0)
+            {
+                try
+                {
+                    process.Kill(entireProcessTree: true);
+                }
+                catch (Exception ex) when (ex is InvalidOperationException or Win32Exception)
+                {
+                }
+                return null;
+            }
+        }
+        catch (Exception ex) when (ex is Win32Exception or FileNotFoundException or InvalidOperationException)
+        {
+            return null;
+        }
+
+        var output = process.StandardOutput.ReadToEnd().Trim();
+        return string.IsNullOrWhiteSpace(output) ? null : output;
     }
 
     private static IEnumerable<string> GetPathVariables(string? pathVariable)
@@ -316,12 +371,41 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
         return new GatewayCliCommandRunner(executable, [], commandName);
     }
 
+    private static ProcessStartInfo CreateProcessStartInfo(
+        GatewayCliCommandRunner runner,
+        IReadOnlyList<string> arguments)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = runner.Executable,
+            UseShellExecute = false,
+            RedirectStandardError = true,
+            RedirectStandardOutput = true,
+            CreateNoWindow = true,
+        };
+
+        foreach (var argument in runner.BaseArguments)
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+
+        foreach (var argument in arguments)
+        {
+            startInfo.ArgumentList.Add(argument);
+        }
+
+        return startInfo;
+    }
+
     private static GatewayCliResult MissingCommandResult(string commandName)
     {
         var message = string.Equals(commandName, "node", StringComparison.OrdinalIgnoreCase) ||
             commandName.StartsWith("node ", StringComparison.OrdinalIgnoreCase)
             ? "Node runtime was not found on PATH. Install Node.js 22 or newer, then restart the app."
-            : "OpenClaw CLI was not found. Install OpenClaw for Windows or add openclaw to PATH, then restart the app.";
+            : "OpenClaw CLI was not found. Install OpenClaw for Windows or add openclaw to PATH, then restart the app." +
+                Environment.NewLine +
+                "Searched: " +
+                string.Join("; ", GetExecutableSearchDirectories(pathVariable: null).Take(24));
         return new GatewayCliResult(1, "", message);
     }
 }
