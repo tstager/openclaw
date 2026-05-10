@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Text;
+using Microsoft.Win32;
 
 namespace OpenClaw.Windows;
 
@@ -59,7 +60,7 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
     public static GatewayCliCommandRunner CreateGlobalOpenClawRunner()
     {
         var executable = ResolveExecutablePath("openclaw") ?? "openclaw";
-        return new GatewayCliCommandRunner(executable, [], "openclaw");
+        return CreateExecutableRunner(executable, "openclaw");
     }
 
     public static GatewayCliCommandRunner? TryCreateFromSourceCheckout(params string[] startDirectories)
@@ -216,14 +217,17 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
     private static IEnumerable<string> GetExecutableSearchDirectories(string? pathVariable)
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var path = pathVariable ?? Environment.GetEnvironmentVariable("PATH");
-        foreach (var directory in (path ?? "").Split(
-            Path.PathSeparator,
-            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        foreach (var path in GetPathVariables(pathVariable))
         {
-            if (seen.Add(directory))
+            foreach (var directory in path.Split(
+                Path.PathSeparator,
+                StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             {
-                yield return directory;
+                var expanded = Environment.ExpandEnvironmentVariables(directory);
+                if (seen.Add(expanded))
+                {
+                    yield return expanded;
+                }
             }
         }
 
@@ -236,12 +240,50 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
         }
     }
 
+    private static IEnumerable<string> GetPathVariables(string? pathVariable)
+    {
+        if (!string.IsNullOrWhiteSpace(pathVariable))
+        {
+            yield return pathVariable;
+        }
+
+        var processPath = Environment.GetEnvironmentVariable("PATH");
+        if (!string.IsNullOrWhiteSpace(processPath))
+        {
+            yield return processPath;
+        }
+
+        var userPath = Registry.GetValue(
+            @"HKEY_CURRENT_USER\Environment",
+            "Path",
+            null) as string;
+        if (!string.IsNullOrWhiteSpace(userPath))
+        {
+            yield return userPath;
+        }
+
+        var machinePath = Registry.GetValue(
+            @"HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Control\Session Manager\Environment",
+            "Path",
+            null) as string;
+        if (!string.IsNullOrWhiteSpace(machinePath))
+        {
+            yield return machinePath;
+        }
+    }
+
     private static IEnumerable<string> GetDefaultNodeInstallDirectories()
     {
         var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
         if (!string.IsNullOrWhiteSpace(appData))
         {
             yield return Path.Combine(appData, "npm");
+        }
+
+        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (!string.IsNullOrWhiteSpace(userProfile))
+        {
+            yield return Path.Combine(userProfile, "AppData", "Roaming", "npm");
         }
 
         var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
@@ -255,6 +297,23 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
         {
             yield return Path.Combine(programFilesX86, "nodejs");
         }
+    }
+
+    private static GatewayCliCommandRunner CreateExecutableRunner(string executable, string commandName)
+    {
+        var extension = Path.GetExtension(executable);
+        if (extension.Equals(".cmd", StringComparison.OrdinalIgnoreCase) ||
+            extension.Equals(".bat", StringComparison.OrdinalIgnoreCase))
+        {
+            var shell = Environment.GetEnvironmentVariable("ComSpec");
+            if (string.IsNullOrWhiteSpace(shell))
+            {
+                shell = Path.Combine(Environment.SystemDirectory, "cmd.exe");
+            }
+            return new GatewayCliCommandRunner(shell, ["/d", "/c", executable], commandName);
+        }
+
+        return new GatewayCliCommandRunner(executable, [], commandName);
     }
 
     private static GatewayCliResult MissingCommandResult(string commandName)

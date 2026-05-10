@@ -104,7 +104,7 @@ public sealed class GatewayCliCommandRunnerTests
     }
 
     [TestMethod]
-    public void ConstructorResolvesCommandShimButKeepsDisplayName()
+    public void CreateGlobalOpenClawRunnerRunsCommandShimThroughCmd()
     {
         var root = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
         var originalPath = Environment.GetEnvironmentVariable("PATH");
@@ -115,14 +115,44 @@ public sealed class GatewayCliCommandRunnerTests
             File.WriteAllText(shim, "");
             Environment.SetEnvironmentVariable("PATH", root);
 
-            var runner = new GatewayCliCommandRunner("openclaw");
+            var runner = GatewayCliCommandRunner.CreateGlobalOpenClawRunner();
 
-            Assert.AreEqual(shim, runner.Executable);
+            StringAssert.EndsWith(runner.Executable, "cmd.exe");
+            CollectionAssert.AreEqual(new[] { "/d", "/c", shim }, runner.BaseArguments.ToArray());
             Assert.AreEqual("openclaw", runner.CommandName);
         }
         finally
         {
             Environment.SetEnvironmentVariable("PATH", originalPath);
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void ResolveExecutablePathExpandsEnvironmentVariablesFromPath()
+    {
+        var root = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        var originalValue = Environment.GetEnvironmentVariable("OPENCLAW_TEST_NPM_PREFIX");
+        try
+        {
+            Directory.CreateDirectory(root);
+            var shim = Path.Combine(root, "openclaw.cmd");
+            File.WriteAllText(shim, "");
+            Environment.SetEnvironmentVariable("OPENCLAW_TEST_NPM_PREFIX", root);
+
+            var executable = GatewayCliCommandRunner.ResolveExecutablePath(
+                "openclaw",
+                @"%OPENCLAW_TEST_NPM_PREFIX%",
+                ".COM;.EXE;.BAT;.CMD");
+
+            Assert.AreEqual(shim, executable);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("OPENCLAW_TEST_NPM_PREFIX", originalValue);
             if (Directory.Exists(root))
             {
                 Directory.Delete(root, recursive: true);
