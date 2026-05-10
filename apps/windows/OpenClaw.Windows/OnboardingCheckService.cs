@@ -13,9 +13,12 @@ public sealed record OnboardingCheckResult(
     OnboardingCheckState State,
     string Detail);
 
-public sealed class OnboardingCheckService(IGatewayCliCommandRunner commandRunner)
+public sealed class OnboardingCheckService(
+    IGatewayCliCommandRunner commandRunner,
+    AppPreferencesStore preferences)
 {
     private readonly IGatewayCliCommandRunner commandRunner = commandRunner;
+    private readonly AppPreferencesStore preferences = preferences;
 
     public async Task<IReadOnlyList<OnboardingCheckResult>> RunAsync(CancellationToken cancellationToken = default)
     {
@@ -25,7 +28,10 @@ public sealed class OnboardingCheckService(IGatewayCliCommandRunner commandRunne
             await CheckCommandAsync("node", "node", ["--version"], cancellationToken),
         };
 
-        var status = await this.commandRunner.RunAsync(["gateway", "status", "--json"], cancellationToken);
+        var currentPreferences = await this.preferences.LoadAsync(cancellationToken);
+        var status = await this.commandRunner.RunAsync(
+            GatewayCompanionController.BuildGatewayStatusArgs(currentPreferences),
+            cancellationToken);
         if (!status.Succeeded)
         {
             results.Add(new OnboardingCheckResult(

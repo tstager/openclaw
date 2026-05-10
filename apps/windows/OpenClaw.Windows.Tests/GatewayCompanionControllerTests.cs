@@ -20,6 +20,50 @@ public sealed class GatewayCompanionControllerTests
     }
 
     [TestMethod]
+    public async Task GatewayStatusUsesConfiguredUrlAndGatewayToken()
+    {
+        var runner = new FakeGatewayCliCommandRunner(
+            new GatewayCliResult(0, """{"ok":true,"service":{"installed":true,"state":"running"},"rpc":{"ok":true,"capability":"admin_capable"}}""", ""));
+        var store = new AppPreferencesStore(
+            Path.Combine(Path.GetTempPath(), Path.GetRandomFileName(), "preferences.json"),
+            new InMemoryAppCredentialStore());
+        await store.SaveAsync(AppPreferences.Default with
+        {
+            GatewayUrl = "ws://127.0.0.1:18789",
+            GatewayToken = "shared-token",
+        });
+        var controller = new GatewayCompanionController(runner, store);
+
+        await controller.RefreshStatusAsync();
+
+        CollectionAssert.AreEqual(
+            new[] { "gateway", "status", "--json", "--url", "ws://127.0.0.1:18789", "--token", "shared-token" },
+            runner.Calls[0].ToArray());
+    }
+
+    [TestMethod]
+    public async Task GatewayInstallUsesConfiguredGatewayToken()
+    {
+        var runner = new FakeGatewayCliCommandRunner(
+            new GatewayCliResult(0, """{"ok":true,"service":{"installed":true,"state":"running"},"rpc":{"ok":true,"capability":"admin_capable"}}""", ""),
+            new GatewayCliResult(0, """{"ok":true,"service":{"installed":true,"state":"running"},"rpc":{"ok":true,"capability":"admin_capable"}}""", ""));
+        var store = new AppPreferencesStore(
+            Path.Combine(Path.GetTempPath(), Path.GetRandomFileName(), "preferences.json"),
+            new InMemoryAppCredentialStore());
+        await store.SaveAsync(AppPreferences.Default with
+        {
+            GatewayToken = "shared-token",
+        });
+        var controller = new GatewayCompanionController(runner, store);
+
+        await controller.RunActionAsync(GatewayCliAction.Install);
+
+        CollectionAssert.AreEqual(
+            new[] { "gateway", "install", "--json", "--token", "shared-token" },
+            runner.Calls[0].ToArray());
+    }
+
+    [TestMethod]
     public async Task GatewayActionStopsAfterMissingCliFailure()
     {
         var runner = new FakeGatewayCliCommandRunner(
