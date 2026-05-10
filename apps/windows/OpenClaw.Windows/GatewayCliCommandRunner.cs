@@ -33,6 +33,7 @@ public sealed record GatewayCliResolutionDiagnostics(
     string? NodeExecutable,
     string? NpmExecutable,
     string? NpmPrefix,
+    string? PowerShellCommandPath,
     string? ExpectedNpmCmdShim,
     bool ExpectedNpmCmdShimExists,
     string? ExpectedNpmPowerShellShim,
@@ -61,6 +62,7 @@ public sealed record GatewayCliResolutionDiagnostics(
         builder.AppendLine($"- node: {this.NodeExecutable ?? "not found"}");
         builder.AppendLine($"- npm: {this.NpmExecutable ?? "not found"}");
         builder.AppendLine($"- npm prefix: {this.NpmPrefix ?? "not found"}");
+        builder.AppendLine($"- PowerShell command path: {this.PowerShellCommandPath ?? "not found"}");
         builder.AppendLine($"- expected cmd shim: {this.ExpectedNpmCmdShim ?? "not available"}");
         builder.AppendLine($"- expected cmd shim exists: {this.ExpectedNpmCmdShimExists}");
         builder.AppendLine($"- expected PowerShell shim: {this.ExpectedNpmPowerShellShim ?? "not available"}");
@@ -169,6 +171,13 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
             }
         }
 
+        if (includeNpmPrefix &&
+            string.Equals(commandName, "openclaw", StringComparison.OrdinalIgnoreCase) &&
+            QueryPowerShellCommandPath(commandName, pathVariable) is { } powerShellCommandPath)
+        {
+            return powerShellCommandPath;
+        }
+
         return null;
     }
 
@@ -179,6 +188,7 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
         var nodeExecutable = ResolveExecutablePath("node", null, null, includeNpmPrefix: false);
         var npmExecutable = ResolveExecutablePath("npm", null, null, includeNpmPrefix: false);
         var npmPrefix = ResolveNpmPrefix(pathVariable: null);
+        var powerShellCommandPath = QueryPowerShellCommandPath(commandName, pathVariable: null);
         var expectedCmdShim = string.IsNullOrWhiteSpace(npmPrefix)
             ? null
             : Path.Combine(npmPrefix, "openclaw.cmd");
@@ -195,6 +205,7 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
             nodeExecutable,
             npmExecutable,
             npmPrefix,
+            powerShellCommandPath,
             expectedCmdShim,
             expectedCmdShim is not null && File.Exists(expectedCmdShim),
             expectedPowerShellShim,
@@ -382,6 +393,62 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
 
         var output = process.StandardOutput.ReadToEnd().Trim();
         return string.IsNullOrWhiteSpace(output) ? null : output;
+    }
+
+    private static string? QueryPowerShellCommandPath(string commandName, string? pathVariable)
+    {
+        var escapedCommandName = commandName.Replace("'", "''", StringComparison.Ordinal);
+        foreach (var powerShell in new[] { "pwsh", "powershell" })
+        {
+            var executable = ResolveExecutablePath(powerShell, pathVariable, null, includeNpmPrefix: false);
+            if (string.IsNullOrWhiteSpace(executable))
+            {
+                continue;
+            }
+
+            using var process = new Process
+            {
+                StartInfo = CreateProcessStartInfo(
+                    CreateExecutableRunner(executable, powerShell),
+                    [
+                        "-NoProfile",
+                        "-ExecutionPolicy",
+                        "Bypass",
+                        "-Command",
+                        $"$command = Get-Command -Name '{escapedCommandName}' -ErrorAction SilentlyContinue | Select-Object -First 1; if ($null -ne $command) {{ if ($command.Path) {{ $command.Path }} elseif ($command.Source) {{ $command.Source }} elseif ($command.Definition) {{ $command.Definition }} }}",
+                    ]),
+            };
+            process.StartInfo.Environment["PATH"] = string.Join(
+                Path.PathSeparator,
+                GetExecutableSearchDirectories(pathVariable, includeNpmPrefix: false));
+            try
+            {
+                process.Start();
+                if (!process.WaitForExit(3000) || process.ExitCode != 0)
+                {
+                    try
+                    {
+                        process.Kill(entireProcessTree: true);
+                    }
+                    catch (Exception ex) when (ex is InvalidOperationException or Win32Exception)
+                    {
+                    }
+                    continue;
+                }
+            }
+            catch (Exception ex) when (ex is Win32Exception or FileNotFoundException or InvalidOperationException)
+            {
+                continue;
+            }
+
+            var output = process.StandardOutput.ReadToEnd().Trim();
+            if (File.Exists(output))
+            {
+                return output;
+            }
+        }
+
+        return null;
     }
 
     private static IEnumerable<string> GetPathVariables(string? pathVariable)
