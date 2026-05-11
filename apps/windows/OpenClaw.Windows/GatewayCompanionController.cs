@@ -141,17 +141,21 @@ public sealed record GatewayStatusSnapshot(
     {
         using var document = JsonDocument.Parse(json);
         var root = document.RootElement;
-        var state =
-            ReadString(root, "runtime", "state") ??
-            ReadString(root, "service", "state") ??
-            ReadString(root, "status") ??
-            (ReadBool(root, "ok") == true ? "running" : "unknown");
+        var primaryTarget = ReadPrimaryTarget(root);
 
         var reachable =
             ReadBool(root, "rpc", "ok") ??
             ReadBool(root, "probe", "ok") ??
+            ReadBool(primaryTarget, "connect", "ok") ??
+            ReadBool(primaryTarget, "connect", "rpcOk") ??
             ReadBool(root, "ok") ??
             false;
+
+        var state =
+            ReadString(root, "runtime", "state") ??
+            ReadString(root, "service", "state") ??
+            ReadString(root, "status") ??
+            (reachable ? "running" : "unknown");
 
         return new GatewayStatusSnapshot(
             State: state,
@@ -163,6 +167,7 @@ public sealed record GatewayStatusSnapshot(
                 ReadString(root, "rpc", "capability") ??
                 ReadString(root, "probe", "capability") ??
                 ReadString(root, "capability") ??
+                ReadString(primaryTarget, "auth", "capability") ??
                 "unknown",
             DashboardUrl:
                 ReadString(root, "dashboard", "url") ??
@@ -175,6 +180,30 @@ public sealed record GatewayStatusSnapshot(
             AuthWarning: ReadString(root, "rpc", "authWarning"),
             Error: ReadString(root, "error") ?? ReadString(root, "message"),
             RawJson: json);
+    }
+
+    private static JsonElement? ReadPrimaryTarget(JsonElement root)
+    {
+        if (root.ValueKind != JsonValueKind.Object ||
+            !root.TryGetProperty("targets", out var targets) ||
+            targets.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        var primaryTargetId = ReadString(root, "primaryTargetId");
+        JsonElement? firstTarget = null;
+        foreach (var target in targets.EnumerateArray())
+        {
+            firstTarget ??= target;
+            if (!string.IsNullOrWhiteSpace(primaryTargetId) &&
+                string.Equals(ReadString(target, "id"), primaryTargetId, StringComparison.OrdinalIgnoreCase))
+            {
+                return target;
+            }
+        }
+
+        return firstTarget;
     }
 
     private static bool? ReadBool(JsonElement root, params string[] path)
@@ -192,6 +221,16 @@ public sealed record GatewayStatusSnapshot(
     {
         var value = Read(root, path);
         return value?.ValueKind == JsonValueKind.String ? value.Value.GetString() : null;
+    }
+
+    private static bool? ReadBool(JsonElement? root, params string[] path)
+    {
+        return root is null ? null : ReadBool(root.Value, path);
+    }
+
+    private static string? ReadString(JsonElement? root, params string[] path)
+    {
+        return root is null ? null : ReadString(root.Value, path);
     }
 
     private static JsonElement? Read(JsonElement root, IReadOnlyList<string> path)
