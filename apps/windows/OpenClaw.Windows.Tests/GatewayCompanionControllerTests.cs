@@ -93,4 +93,70 @@ public sealed class GatewayCompanionControllerTests
         Assert.AreEqual("http://127.0.0.1:18080", snapshot.DashboardUrl);
         Assert.AreEqual(@"C:\openclaw.log", snapshot.LogPath);
     }
+
+    [TestMethod]
+    public void ParsesCurrentGatewayStatusJsonTargetShape()
+    {
+        var snapshot = GatewayStatusSnapshot.FromJson(
+            """
+            {
+              "ok": true,
+              "capability": "write_capable",
+              "primaryTargetId": "localLoopback",
+              "targets": [
+                {
+                  "id": "tailnet",
+                  "connect": {
+                    "ok": false,
+                    "rpcOk": false
+                  },
+                  "auth": {
+                    "capability": "read_only"
+                  }
+                },
+                {
+                  "id": "localLoopback",
+                  "connect": {
+                    "ok": true,
+                    "rpcOk": true
+                  },
+                  "auth": {
+                    "capability": "write_capable"
+                  }
+                }
+              ]
+            }
+            """);
+
+        Assert.AreEqual("running", snapshot.State);
+        Assert.IsTrue(snapshot.Reachable);
+        Assert.AreEqual("write_capable", snapshot.Capability);
+    }
+
+    [TestMethod]
+    public void UsesPrimaryTargetCapabilityWhenSummaryCapabilityIsMissing()
+    {
+        var snapshot = GatewayStatusSnapshot.FromJson(
+            """
+            {
+              "primaryTargetId": "localLoopback",
+              "targets": [
+                {
+                  "id": "localLoopback",
+                  "connect": {
+                    "ok": true,
+                    "rpcOk": true
+                  },
+                  "auth": {
+                    "capability": "write_capable"
+                  }
+                }
+              ]
+            }
+            """);
+
+        Assert.AreEqual("running", snapshot.State);
+        Assert.IsTrue(snapshot.Reachable);
+        Assert.AreEqual("write_capable", snapshot.Capability);
+    }
 }
