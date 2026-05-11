@@ -103,6 +103,9 @@ public sealed class GatewayCompanionControllerTests
               "ok": true,
               "capability": "write_capable",
               "primaryTargetId": "localLoopback",
+              "network": {
+                "localLoopbackUrl": "ws://127.0.0.1:18789"
+              },
               "targets": [
                 {
                   "id": "tailnet",
@@ -122,6 +125,11 @@ public sealed class GatewayCompanionControllerTests
                   },
                   "auth": {
                     "capability": "write_capable"
+                  },
+                  "config": {
+                    "gateway": {
+                      "controlUiBasePath": "/control"
+                    }
                   }
                 }
               ]
@@ -131,6 +139,7 @@ public sealed class GatewayCompanionControllerTests
         Assert.AreEqual("running", snapshot.State);
         Assert.IsTrue(snapshot.Reachable);
         Assert.AreEqual("write_capable", snapshot.Capability);
+        Assert.AreEqual("http://127.0.0.1:18789/control/", snapshot.DashboardUrl);
     }
 
     [TestMethod]
@@ -158,5 +167,33 @@ public sealed class GatewayCompanionControllerTests
         Assert.AreEqual("running", snapshot.State);
         Assert.IsTrue(snapshot.Reachable);
         Assert.AreEqual("write_capable", snapshot.Capability);
+    }
+
+    [TestMethod]
+    public void DerivesDashboardUrlFromPrimaryTargetWhenNetworkHintIsMissing()
+    {
+        var snapshot = GatewayStatusSnapshot.FromJson(
+            """
+            {
+              "primaryTargetId": "localLoopback",
+              "targets": [
+                {
+                  "id": "localLoopback",
+                  "url": "wss://127.0.0.1:18789",
+                  "connect": {
+                    "ok": true,
+                    "rpcOk": true
+                  },
+                  "config": {
+                    "gateway": {
+                      "controlUiBasePath": ""
+                    }
+                  }
+                }
+              ]
+            }
+            """);
+
+        Assert.AreEqual("https://127.0.0.1:18789/", snapshot.DashboardUrl);
     }
 }
