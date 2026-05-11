@@ -24,6 +24,7 @@ public sealed class GatewayCompanionController(
             BuildGatewayStatusArgs(currentPreferences),
             cancellationToken);
         var snapshot = GatewayStatusSnapshot.FromCliResult(result);
+        snapshot = ApplyDashboardUrlFallback(snapshot, currentPreferences);
         await this.preferences.UpdateAsync(current => current with
         {
             LastStatus = snapshot.State,
@@ -59,6 +60,19 @@ public sealed class GatewayCompanionController(
 
         var status = await this.RefreshStatusAsync(cancellationToken);
         return new GatewayActionResult(action, result.Succeeded, result.CombinedOutput, status);
+    }
+
+    public static GatewayStatusSnapshot ApplyDashboardUrlFallback(
+        GatewayStatusSnapshot snapshot,
+        AppPreferences preferences)
+    {
+        if (!string.IsNullOrWhiteSpace(snapshot.DashboardUrl))
+        {
+            return snapshot;
+        }
+
+        var dashboardUrl = GatewayStatusSnapshot.DeriveDashboardUrl(preferences.GatewayUrl);
+        return string.IsNullOrWhiteSpace(dashboardUrl) ? snapshot : snapshot with { DashboardUrl = dashboardUrl };
     }
 
     public static IReadOnlyList<string> BuildGatewayStatusArgs(AppPreferences preferences)
@@ -212,6 +226,12 @@ public sealed record GatewayStatusSnapshot(
         var gatewayUrl =
             ReadString(root, "network", "localLoopbackUrl") ??
             ReadString(primaryTarget, "url");
+        var basePath = ReadString(primaryTarget, "config", "gateway", "controlUiBasePath");
+        return DeriveDashboardUrl(gatewayUrl, basePath);
+    }
+
+    internal static string? DeriveDashboardUrl(string? gatewayUrl, string? basePath = null)
+    {
         if (string.IsNullOrWhiteSpace(gatewayUrl) ||
             !Uri.TryCreate(gatewayUrl, UriKind.Absolute, out var parsed) ||
             !IsWebSocketScheme(parsed.Scheme))
@@ -222,7 +242,7 @@ public sealed record GatewayStatusSnapshot(
         var builder = new UriBuilder(parsed)
         {
             Scheme = string.Equals(parsed.Scheme, "wss", StringComparison.OrdinalIgnoreCase) ? Uri.UriSchemeHttps : Uri.UriSchemeHttp,
-            Path = FormatControlUiPath(ReadString(primaryTarget, "config", "gateway", "controlUiBasePath")),
+            Path = FormatControlUiPath(basePath),
             Query = string.Empty,
             Fragment = string.Empty,
         };
