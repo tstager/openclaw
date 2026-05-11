@@ -42,6 +42,26 @@ public sealed class GatewayCompanionControllerTests
     }
 
     [TestMethod]
+    public async Task GatewayStatusDerivesDashboardUrlFromConfiguredGatewayUrl()
+    {
+        var runner = new FakeGatewayCliCommandRunner(
+            new GatewayCliResult(0, """{"ok":true,"service":{"installed":true,"state":"running"},"rpc":{"ok":true,"capability":"admin_capable"}}""", ""));
+        var store = new AppPreferencesStore(
+            Path.Combine(Path.GetTempPath(), Path.GetRandomFileName(), "preferences.json"),
+            new InMemoryAppCredentialStore());
+        await store.SaveAsync(AppPreferences.Default with
+        {
+            GatewayUrl = "ws://127.0.0.1:18789",
+            GatewayToken = "shared-token",
+        });
+        var controller = new GatewayCompanionController(runner, store);
+
+        var status = await controller.RefreshStatusAsync();
+
+        Assert.AreEqual("http://127.0.0.1:18789/", status.DashboardUrl);
+    }
+
+    [TestMethod]
     public async Task GatewayInstallUsesConfiguredGatewayToken()
     {
         var runner = new FakeGatewayCliCommandRunner(
