@@ -172,7 +172,8 @@ public sealed record GatewayStatusSnapshot(
             DashboardUrl:
                 ReadString(root, "dashboard", "url") ??
                 ReadString(root, "controlUi", "url") ??
-                ReadString(root, "url"),
+                ReadString(root, "url") ??
+                DeriveDashboardUrl(root, primaryTarget),
             LogPath:
                 ReadString(root, "logs", "file") ??
                 ReadString(root, "log", "path") ??
@@ -204,6 +205,45 @@ public sealed record GatewayStatusSnapshot(
         }
 
         return firstTarget;
+    }
+
+    private static string? DeriveDashboardUrl(JsonElement root, JsonElement? primaryTarget)
+    {
+        var gatewayUrl =
+            ReadString(root, "network", "localLoopbackUrl") ??
+            ReadString(primaryTarget, "url");
+        if (string.IsNullOrWhiteSpace(gatewayUrl) ||
+            !Uri.TryCreate(gatewayUrl, UriKind.Absolute, out var parsed) ||
+            !IsWebSocketScheme(parsed.Scheme))
+        {
+            return null;
+        }
+
+        var builder = new UriBuilder(parsed)
+        {
+            Scheme = string.Equals(parsed.Scheme, "wss", StringComparison.OrdinalIgnoreCase) ? Uri.UriSchemeHttps : Uri.UriSchemeHttp,
+            Path = FormatControlUiPath(ReadString(primaryTarget, "config", "gateway", "controlUiBasePath")),
+            Query = string.Empty,
+            Fragment = string.Empty,
+        };
+        return builder.Uri.ToString();
+    }
+
+    private static bool IsWebSocketScheme(string scheme)
+    {
+        return string.Equals(scheme, "ws", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(scheme, "wss", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string FormatControlUiPath(string? basePath)
+    {
+        if (string.IsNullOrWhiteSpace(basePath) || string.Equals(basePath.Trim(), "/", StringComparison.Ordinal))
+        {
+            return "/";
+        }
+
+        var trimmed = basePath.Trim().Trim('/');
+        return $"/{trimmed}/";
     }
 
     private static bool? ReadBool(JsonElement root, params string[] path)
