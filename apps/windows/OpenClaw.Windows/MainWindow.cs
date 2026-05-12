@@ -8,6 +8,7 @@ using Microsoft.UI.Xaml.Media;
 using OpenClaw.Windows.Native;
 using Windows.ApplicationModel.DataTransfer;
 using Windows.System;
+using Windows.UI;
 using XamlButton = Microsoft.UI.Xaml.Controls.Button;
 using XamlCheckBox = Microsoft.UI.Xaml.Controls.CheckBox;
 using XamlComboBox = Microsoft.UI.Xaml.Controls.ComboBox;
@@ -21,6 +22,15 @@ namespace OpenClaw.Windows;
 
 public sealed class MainWindow : Window
 {
+    private static readonly SolidColorBrush CardBackgroundBrush = new();
+    private static readonly SolidColorBrush CardStrokeBrush = new();
+    private static readonly SolidColorBrush LayerFillBrush = new();
+    private static readonly SolidColorBrush TextPrimaryBrush = new();
+    private static readonly SolidColorBrush TextSecondaryBrush = new();
+    private static readonly SolidColorBrush SuccessBrush = new();
+    private static readonly SolidColorBrush CautionBrush = new();
+    private static readonly SolidColorBrush CriticalBrush = new();
+
     private readonly WindowsCompanionState appState;
     private readonly WindowsCompanionCoordinator coordinator;
     private readonly WindowsCompanionCommandFactory commandFactory;
@@ -127,6 +137,7 @@ public sealed class MainWindow : Window
         if (this.Content is FrameworkElement root)
         {
             ApplyThemePreference(root, preference);
+            UpdateThemeBrushes(ResolveBrushTheme(root, preference));
         }
     }
 
@@ -246,6 +257,8 @@ public sealed class MainWindow : Window
         Grid.SetRow(navigation, 1);
         root.Children.Add(navigation);
         ApplyThemePreference(root, this.themePreference);
+        UpdateThemeBrushes(ResolveBrushTheme(root, this.themePreference));
+        root.ActualThemeChanged += (_, _) => UpdateThemeBrushes(root.ActualTheme);
 
         _ = this.RefreshAllAsync();
         return root;
@@ -480,34 +493,46 @@ public sealed class MainWindow : Window
 
     private static Brush ResourceBrush(string resourceName)
     {
+        if (string.Equals(resourceName, "CardBackgroundFillColorDefaultBrush", StringComparison.OrdinalIgnoreCase))
+        {
+            return CardBackgroundBrush;
+        }
+        if (string.Equals(resourceName, "CardStrokeColorDefaultBrush", StringComparison.OrdinalIgnoreCase))
+        {
+            return CardStrokeBrush;
+        }
+        if (string.Equals(resourceName, "LayerFillColorDefaultBrush", StringComparison.OrdinalIgnoreCase))
+        {
+            return LayerFillBrush;
+        }
+        if (string.Equals(resourceName, "TextFillColorPrimaryBrush", StringComparison.OrdinalIgnoreCase))
+        {
+            return TextPrimaryBrush;
+        }
+        if (string.Equals(resourceName, "TextFillColorSecondaryBrush", StringComparison.OrdinalIgnoreCase))
+        {
+            return TextSecondaryBrush;
+        }
+        if (string.Equals(resourceName, "SystemFillColorSuccessBrush", StringComparison.OrdinalIgnoreCase))
+        {
+            return SuccessBrush;
+        }
+        if (string.Equals(resourceName, "SystemFillColorCautionBrush", StringComparison.OrdinalIgnoreCase))
+        {
+            return CautionBrush;
+        }
+        if (string.Equals(resourceName, "SystemFillColorCriticalBrush", StringComparison.OrdinalIgnoreCase))
+        {
+            return CriticalBrush;
+        }
+
         if (Application.Current?.Resources.TryGetValue(resourceName, out var resource) == true &&
             resource is Brush brush)
         {
             return brush;
         }
 
-        if (resourceName.Contains("Background", StringComparison.OrdinalIgnoreCase))
-        {
-            return new SolidColorBrush(Microsoft.UI.Colors.White);
-        }
-        if (resourceName.Contains("Stroke", StringComparison.OrdinalIgnoreCase))
-        {
-            return new SolidColorBrush(Microsoft.UI.Colors.LightGray);
-        }
-        if (resourceName.Contains("Success", StringComparison.OrdinalIgnoreCase))
-        {
-            return new SolidColorBrush(Microsoft.UI.Colors.ForestGreen);
-        }
-        if (resourceName.Contains("Caution", StringComparison.OrdinalIgnoreCase))
-        {
-            return new SolidColorBrush(Microsoft.UI.Colors.DarkGoldenrod);
-        }
-        if (resourceName.Contains("Critical", StringComparison.OrdinalIgnoreCase))
-        {
-            return new SolidColorBrush(Microsoft.UI.Colors.Firebrick);
-        }
-
-        return new SolidColorBrush(Microsoft.UI.Colors.Black);
+        return TextPrimaryBrush;
     }
 
     private static CornerRadius ResourceCornerRadius(string resourceName)
@@ -899,6 +924,41 @@ public sealed class MainWindow : Window
             WindowsThemePreference.Dark => ElementTheme.Dark,
             _ => ElementTheme.Default,
         };
+    }
+
+    private static ElementTheme ResolveBrushTheme(FrameworkElement root, WindowsThemePreference preference)
+    {
+        return preference switch
+        {
+            WindowsThemePreference.Light => ElementTheme.Light,
+            WindowsThemePreference.Dark => ElementTheme.Dark,
+            _ => root.ActualTheme,
+        };
+    }
+
+    private static void UpdateThemeBrushes(ElementTheme theme)
+    {
+        if (theme == ElementTheme.Dark)
+        {
+            CardBackgroundBrush.Color = Color.FromArgb(255, 31, 31, 31);
+            CardStrokeBrush.Color = Color.FromArgb(255, 62, 62, 62);
+            LayerFillBrush.Color = Color.FromArgb(255, 24, 24, 24);
+            TextPrimaryBrush.Color = Color.FromArgb(255, 255, 255, 255);
+            TextSecondaryBrush.Color = Color.FromArgb(255, 196, 196, 196);
+            SuccessBrush.Color = Color.FromArgb(255, 108, 203, 95);
+            CautionBrush.Color = Color.FromArgb(255, 249, 199, 79);
+            CriticalBrush.Color = Color.FromArgb(255, 255, 107, 107);
+            return;
+        }
+
+        CardBackgroundBrush.Color = Color.FromArgb(255, 255, 255, 255);
+        CardStrokeBrush.Color = Color.FromArgb(255, 229, 231, 235);
+        LayerFillBrush.Color = Color.FromArgb(255, 248, 248, 248);
+        TextPrimaryBrush.Color = Color.FromArgb(255, 26, 26, 26);
+        TextSecondaryBrush.Color = Color.FromArgb(255, 96, 96, 96);
+        SuccessBrush.Color = Color.FromArgb(255, 24, 128, 56);
+        CautionBrush.Color = Color.FromArgb(255, 151, 104, 0);
+        CriticalBrush.Color = Color.FromArgb(255, 185, 28, 28);
     }
 
     private UIElement BuildLogsPanel()
