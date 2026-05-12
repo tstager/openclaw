@@ -1,5 +1,8 @@
 namespace OpenClaw.Windows;
 
+/// <summary>
+/// Severity shown for one onboarding prerequisite.
+/// </summary>
 public enum OnboardingCheckState
 {
     Passed,
@@ -7,12 +10,18 @@ public enum OnboardingCheckState
     Failed,
 }
 
+/// <summary>
+/// Display-ready onboarding check result.
+/// </summary>
 public sealed record OnboardingCheckResult(
     string Key,
     string Label,
     OnboardingCheckState State,
     string Detail);
 
+/// <summary>
+/// Runs lightweight local checks that explain whether the Windows companion can reach OpenClaw.
+/// </summary>
 public sealed class OnboardingCheckService(
     IGatewayCliCommandRunner commandRunner,
     AppPreferencesStore preferences)
@@ -20,6 +29,9 @@ public sealed class OnboardingCheckService(
     private readonly IGatewayCliCommandRunner commandRunner = commandRunner;
     private readonly AppPreferencesStore preferences = preferences;
 
+    /// <summary>
+    /// Checks CLI, Node, gateway reachability, and pairing capability in one refresh pass.
+    /// </summary>
     public async Task<IReadOnlyList<OnboardingCheckResult>> RunAsync(CancellationToken cancellationToken = default)
     {
         var results = new List<OnboardingCheckResult>
@@ -66,6 +78,9 @@ public sealed class OnboardingCheckService(
         return results;
     }
 
+    /// <summary>
+    /// Runs a standalone command such as node where no resolved OpenClaw runner is available.
+    /// </summary>
     private static async Task<OnboardingCheckResult> CheckCommandAsync(
         string key,
         string command,
@@ -92,6 +107,9 @@ public sealed class OnboardingCheckService(
         }
     }
 
+    /// <summary>
+    /// Runs a command through the app's resolved OpenClaw CLI runner.
+    /// </summary>
     private static async Task<OnboardingCheckResult> CheckRunnerAsync(
         string key,
         string label,

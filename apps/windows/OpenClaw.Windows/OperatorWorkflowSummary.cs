@@ -1,10 +1,16 @@
 namespace OpenClaw.Windows;
 
+/// <summary>
+/// Compact counts and readiness text for approval and pairing operator workflows.
+/// </summary>
 public sealed record OperatorWorkflowSummary(
     int PendingApprovals,
     int PendingPairingRequests,
     string PairingReadiness)
 {
+    /// <summary>
+    /// Empty state used before the app has fetched approvals or pairing requests.
+    /// </summary>
     public static OperatorWorkflowSummary Empty { get; } = new(0, 0, "Not checked");
 
     public string ApprovalsStatus => this.PendingApprovals switch
@@ -21,6 +27,9 @@ public sealed record OperatorWorkflowSummary(
         _ => $"{this.PendingPairingRequests} pairing requests pending",
     };
 
+    /// <summary>
+    /// Summarizes current realtime workflow data into Home page status rows.
+    /// </summary>
     public static OperatorWorkflowSummary Create(
         IReadOnlyCollection<PendingApproval> approvals,
         IReadOnlyCollection<PairingRequest> pairingRequests,

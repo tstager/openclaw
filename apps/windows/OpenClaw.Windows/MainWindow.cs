@@ -20,8 +20,12 @@ using XamlTextBox = Microsoft.UI.Xaml.Controls.TextBox;
 
 namespace OpenClaw.Windows;
 
+/// <summary>
+/// Programmatic WinUI shell for the Windows companion app.
+/// </summary>
 public sealed class MainWindow : Window
 {
+    // Shared brushes are mutated on theme changes so already-created pages repaint without being rebuilt.
     private static readonly SolidColorBrush AppBackgroundBrush = new();
     private static readonly SolidColorBrush CardBackgroundBrush = new();
     private static readonly SolidColorBrush CardStrokeBrush = new();
@@ -132,6 +136,9 @@ public sealed class MainWindow : Window
         this.Content = this.BuildContent();
     }
 
+    /// <summary>
+    /// Applies the persisted theme preference to the root element and app-owned brushes.
+    /// </summary>
     public void ApplyThemePreference(WindowsThemePreference preference)
     {
         this.themePreference = preference;
@@ -147,6 +154,9 @@ public sealed class MainWindow : Window
         this.trayHost = trayHost;
     }
 
+    /// <summary>
+    /// Shows and activates the main window from tray callbacks or notification clicks.
+    /// </summary>
     public void ShowShell()
     {
         this.AppWindow.Show();
@@ -159,6 +169,9 @@ public sealed class MainWindow : Window
         ? $"{latest.Title}: {latest.Message}"
         : this.coordinator.LastActivity ?? "None";
 
+    /// <summary>
+    /// Opens the shell directly to a navigation destination.
+    /// </summary>
     public void ShowDestination(string destination)
     {
         this.ShowShell();
@@ -170,6 +183,9 @@ public sealed class MainWindow : Window
         this.ShowDestination(this.appState.Notifications.Latest?.Destination ?? WindowsNavigationDestination.Home);
     }
 
+    /// <summary>
+    /// Starts a realtime connect from tray/menu entry points and reports failures through the common command path.
+    /// </summary>
     public async void ConnectGateway()
     {
         try
@@ -182,6 +198,9 @@ public sealed class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Opens the gateway log when known, otherwise opens the app crash log path as the closest diagnostic.
+    /// </summary>
     public void OpenLogs()
     {
         if (!string.IsNullOrWhiteSpace(this.coordinator.LogPath))
@@ -192,6 +211,9 @@ public sealed class MainWindow : Window
         WindowsShell.OpenFileInExplorer(CrashLog.Path);
     }
 
+    /// <summary>
+    /// Coordinates shutdown so background services stop before the WinUI window closes.
+    /// </summary>
     public async Task ExitApplicationAsync()
     {
         this.exitRequested = true;
@@ -199,6 +221,9 @@ public sealed class MainWindow : Window
         this.Close();
     }
 
+    /// <summary>
+    /// Runs gateway lifecycle commands from tray callbacks.
+    /// </summary>
     public async void RunGatewayAction(GatewayCliAction action)
     {
         try
@@ -211,6 +236,9 @@ public sealed class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Builds the root navigation shell and starts the initial refresh after the visual tree exists.
+    /// </summary>
     private UIElement BuildContent()
     {
         this.commandErrorText.Visibility = Visibility.Collapsed;
@@ -267,6 +295,9 @@ public sealed class MainWindow : Window
         return root;
     }
 
+    /// <summary>
+    /// Wraps a page body with the common OpenClaw page header.
+    /// </summary>
     private UIElement BuildPage(string title, FrameworkElement content)
     {
         var root = new Grid
@@ -358,6 +389,9 @@ public sealed class MainWindow : Window
         this.navigationContent.Content = this.GetNavigationPage(destination);
     }
 
+    /// <summary>
+    /// Lazily creates pages so controls keep local state while navigating.
+    /// </summary>
     private UIElement GetNavigationPage(string tag)
     {
         if (this.navigationPages.TryGetValue(tag, out var page))
@@ -497,6 +531,7 @@ public sealed class MainWindow : Window
 
     private static Brush ResourceBrush(string resourceName)
     {
+        // Programmatic resource lookup returns fixed brush instances, so the shell uses owned brushes for themeable surfaces.
         if (string.Equals(resourceName, "CardBackgroundFillColorDefaultBrush", StringComparison.OrdinalIgnoreCase))
         {
             return CardBackgroundBrush;
@@ -1116,6 +1151,7 @@ public sealed class MainWindow : Window
 
     private async Task RefreshAllAsync()
     {
+        // Keep refresh ordering explicit because later panels depend on status, onboarding, and preferences snapshots.
         try
         {
             try
@@ -1723,6 +1759,7 @@ public sealed class MainWindow : Window
 
     private async Task SaveSettingsAsync()
     {
+        // Persist secrets through AppPreferencesStore so tokens stay in the credential store.
         await this.appState.Preferences.UpdateAsync(current => current with
         {
             OpenMainWindowOnLaunch = this.openMainWindowOnLaunch,
@@ -2066,6 +2103,7 @@ public sealed class MainWindow : Window
 
     private async Task RunGatewayActionAsync(GatewayCliAction action)
     {
+        // Render the immediate action result before the full refresh updates every panel.
         this.homeActivityText.Text = $"{action} started.";
         this.statusText.Text = $"{action} in progress...";
         var result = await this.coordinator.RunGatewayActionAsync(action);

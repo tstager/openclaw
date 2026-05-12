@@ -2,6 +2,9 @@ using System.Text.Json;
 
 namespace OpenClaw.Windows;
 
+/// <summary>
+/// User-selected theme behavior for the WinUI shell.
+/// </summary>
 public enum WindowsThemePreference
 {
     System,
@@ -9,6 +12,9 @@ public enum WindowsThemePreference
     Dark,
 }
 
+/// <summary>
+/// Non-secret app settings persisted between Windows companion sessions.
+/// </summary>
 public sealed record AppPreferences(
     bool OpenMainWindowOnLaunch,
     string GatewayUrl,
@@ -22,6 +28,9 @@ public sealed record AppPreferences(
     DateTimeOffset? LastStatusCheckedAt,
     WindowsNotificationPreferences NotificationPreferences)
 {
+    /// <summary>
+    /// Defaults used for a fresh install and for missing/invalid persisted fields.
+    /// </summary>
     public static AppPreferences Default { get; } = new(
         OpenMainWindowOnLaunch: true,
         GatewayUrl: "ws://127.0.0.1:18789",
@@ -36,6 +45,9 @@ public sealed record AppPreferences(
         NotificationPreferences: WindowsNotificationPreferences.Default);
 }
 
+/// <summary>
+/// Persists preferences as JSON while delegating tokens and private keys to the credential store.
+/// </summary>
 public sealed class AppPreferencesStore : IDisposable
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
@@ -53,6 +65,9 @@ public sealed class AppPreferencesStore : IDisposable
 
     public string Path { get; }
 
+    /// <summary>
+    /// Creates the production store under LocalAppData/OpenClaw/WindowsCompanion.
+    /// </summary>
     public static AppPreferencesStore CreateDefault(IAppCredentialStore credentials)
     {
         var root = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
@@ -61,6 +76,9 @@ public sealed class AppPreferencesStore : IDisposable
             credentials);
     }
 
+    /// <summary>
+    /// Loads preferences and merges secrets from the credential store when one is configured.
+    /// </summary>
     public async Task<AppPreferences> LoadAsync(CancellationToken cancellationToken = default)
     {
         await this.gate.WaitAsync(cancellationToken);
@@ -74,6 +92,9 @@ public sealed class AppPreferencesStore : IDisposable
         }
     }
 
+    /// <summary>
+    /// Writes the full preference snapshot using a temp file and atomic replacement.
+    /// </summary>
     public async Task SaveAsync(AppPreferences preferences, CancellationToken cancellationToken = default)
     {
         await this.gate.WaitAsync(cancellationToken);
@@ -87,6 +108,9 @@ public sealed class AppPreferencesStore : IDisposable
         }
     }
 
+    /// <summary>
+    /// Serializes read-modify-write updates so overlapping UI actions do not corrupt preferences.
+    /// </summary>
     public async Task<AppPreferences> UpdateAsync(
         Func<AppPreferences, AppPreferences> update,
         CancellationToken cancellationToken = default)
@@ -175,6 +199,9 @@ public sealed class AppPreferencesStore : IDisposable
         }
     }
 
+    /// <summary>
+    /// JSON-only representation. Secret values are intentionally absent from this record.
+    /// </summary>
     private sealed record PersistedAppPreferences(
         bool OpenMainWindowOnLaunch,
         string GatewayUrl,

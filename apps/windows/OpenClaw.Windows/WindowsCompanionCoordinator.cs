@@ -1,5 +1,8 @@
 namespace OpenClaw.Windows;
 
+/// <summary>
+/// Keeps cross-page state synchronized between gateway CLI status, realtime events, and onboarding checks.
+/// </summary>
 public sealed class WindowsCompanionCoordinator(WindowsCompanionState appState)
 {
     private readonly WindowsCompanionState appState = appState;
@@ -18,6 +21,9 @@ public sealed class WindowsCompanionCoordinator(WindowsCompanionState appState)
 
     public string? LastActivity { get; private set; }
 
+    /// <summary>
+    /// Aggregates the current coordinator state into the Home dashboard model.
+    /// </summary>
     public GatewayDashboardSummary DashboardSummary =>
         GatewayDashboardSummary.Create(
             this.GatewayStatus,
@@ -25,6 +31,9 @@ public sealed class WindowsCompanionCoordinator(WindowsCompanionState appState)
             this.OnboardingChecks,
             this.appState.Realtime.Authorization);
 
+    /// <summary>
+    /// Refreshes CLI gateway status and stores the result for all pages that display gateway state.
+    /// </summary>
     public async Task<GatewayStatusSnapshot> RefreshGatewayStatusAsync(CancellationToken cancellationToken = default)
     {
         var status = await this.appState.Gateway.RefreshStatusAsync(cancellationToken);
@@ -32,6 +41,9 @@ public sealed class WindowsCompanionCoordinator(WindowsCompanionState appState)
         return status;
     }
 
+    /// <summary>
+    /// Runs onboarding probes and caches their latest display results.
+    /// </summary>
     public async Task<IReadOnlyList<OnboardingCheckResult>> RefreshOnboardingAsync(
         CancellationToken cancellationToken = default)
     {
@@ -39,6 +51,9 @@ public sealed class WindowsCompanionCoordinator(WindowsCompanionState appState)
         return this.OnboardingChecks;
     }
 
+    /// <summary>
+    /// Executes a gateway lifecycle command and records the user-facing activity/error text.
+    /// </summary>
     public async Task<GatewayActionResult> RunGatewayActionAsync(
         GatewayCliAction action,
         CancellationToken cancellationToken = default)
@@ -56,6 +71,9 @@ public sealed class WindowsCompanionCoordinator(WindowsCompanionState appState)
         return result;
     }
 
+    /// <summary>
+    /// Applies a status snapshot received from either refresh or an action follow-up.
+    /// </summary>
     public void ApplyGatewayStatus(GatewayStatusSnapshot status)
     {
         this.GatewayStatus = status;
@@ -68,6 +86,9 @@ public sealed class WindowsCompanionCoordinator(WindowsCompanionState appState)
         this.LastError = exception.Message;
     }
 
+    /// <summary>
+    /// Stores realtime connection state separately from CLI status because either channel can fail independently.
+    /// </summary>
     public void ApplyRealtimeState(GatewayRealtimeState state, string? reason)
     {
         this.RealtimeState = state;

@@ -3,8 +3,14 @@ using System.Text.Json.Serialization;
 
 namespace OpenClaw.Protocol;
 
+/// <summary>
+/// Provides the JSON contract shared by generated gateway protocol models.
+/// </summary>
 public static class GatewayProtocolJson
 {
+    /// <summary>
+    /// Serializer settings used for gateway frames so enum values stay wire-compatible with TypeScript names.
+    /// </summary>
     public static readonly JsonSerializerOptions SerializerOptions = CreateSerializerOptions();
 
     private static JsonSerializerOptions CreateSerializerOptions()

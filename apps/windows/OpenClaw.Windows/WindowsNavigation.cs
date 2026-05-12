@@ -1,5 +1,8 @@
 namespace OpenClaw.Windows;
 
+/// <summary>
+/// Stable navigation tags used by the shell, tray actions, and notification routing.
+/// </summary>
 public static class WindowsNavigationDestination
 {
     public const string Home = "home";
@@ -12,8 +15,14 @@ public static class WindowsNavigationDestination
     public const string Diagnostics = "diagnostics";
 }
 
+/// <summary>
+/// Defines a shell navigation entry and the Segoe Fluent icon glyph shown for it.
+/// </summary>
 public sealed record WindowsNavigationItem(string Label, string Destination, string Glyph);
 
+/// <summary>
+/// Centralizes navigation item order and normalizes external destinations to known pages.
+/// </summary>
 public sealed class WindowsNavigationService
 {
     public IReadOnlyList<WindowsNavigationItem> PrimaryItems { get; } =
@@ -26,6 +35,9 @@ public sealed class WindowsNavigationService
         new("Logs", WindowsNavigationDestination.Logs, "\uE8A5"),
     ];
 
+    /// <summary>
+    /// Maps unknown, legacy, or alias destinations to the closest supported page.
+    /// </summary>
     public static string Normalize(string? destination)
     {
         return destination switch
@@ -42,6 +54,9 @@ public sealed class WindowsNavigationService
         };
     }
 
+    /// <summary>
+    /// Returns the visible page heading for a normalized destination.
+    /// </summary>
     public static string PageTitle(string destination)
     {
         return Normalize(destination) switch
