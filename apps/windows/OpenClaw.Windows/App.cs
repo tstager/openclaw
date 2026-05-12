@@ -37,6 +37,7 @@ public sealed partial class App : XamlApplication, IDisposable
             var appState = AppBootstrap.CreateAppState();
             var preferences = await appState.Preferences.LoadAsync();
             this.window = new MainWindow(appState);
+            this.window.ApplyThemePreference(preferences.ThemePreference);
             this.trayHost = new WindowsTrayHost(
                 getGatewayStatus: () => this.window.GatewayStatusText,
                 getLatestActivity: () => this.window.LatestActivityText,
