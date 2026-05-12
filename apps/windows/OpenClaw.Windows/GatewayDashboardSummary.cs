@@ -1,5 +1,8 @@
 namespace OpenClaw.Windows;
 
+/// <summary>
+/// Display-ready aggregate of CLI status, realtime state, and onboarding checks for the Home page.
+/// </summary>
 public sealed record GatewayDashboardSummary(
     string GatewayState,
     string ServiceState,
@@ -11,6 +14,9 @@ public sealed record GatewayDashboardSummary(
     string DashboardUrl,
     string LogPath)
 {
+    /// <summary>
+    /// Produces concise dashboard rows while preferring live realtime authorization over stale CLI capability data.
+    /// </summary>
     public static GatewayDashboardSummary Create(
         GatewayStatusSnapshot? status,
         GatewayRealtimeState realtimeState,
@@ -34,6 +40,9 @@ public sealed record GatewayDashboardSummary(
             LogPath: status?.LogPath ?? "unknown");
     }
 
+    /// <summary>
+    /// Uses the realtime connection's current authorization when available because it reflects the active socket.
+    /// </summary>
     private static string ResolveCapability(
         GatewayStatusSnapshot? status,
         GatewayRealtimeState realtimeState,

@@ -2,6 +2,9 @@ using System.Text.Json;
 
 namespace OpenClaw.Windows;
 
+/// <summary>
+/// Gateway lifecycle operations exposed by the Windows app.
+/// </summary>
 public enum GatewayCliAction
 {
     Install,
@@ -10,6 +13,9 @@ public enum GatewayCliAction
     Restart,
 }
 
+/// <summary>
+/// Translates app actions and preferences into OpenClaw CLI commands and parses their JSON results.
+/// </summary>
 public sealed class GatewayCompanionController(
     IGatewayCliCommandRunner commandRunner,
     AppPreferencesStore preferences)
@@ -17,6 +23,9 @@ public sealed class GatewayCompanionController(
     private readonly IGatewayCliCommandRunner commandRunner = commandRunner;
     private readonly AppPreferencesStore preferences = preferences;
 
+    /// <summary>
+    /// Probes gateway status, applies compatibility fallbacks, and records the last check time.
+    /// </summary>
     public async Task<GatewayStatusSnapshot> RefreshStatusAsync(CancellationToken cancellationToken = default)
     {
         var currentPreferences = await this.preferences.LoadAsync(cancellationToken);
@@ -33,6 +42,9 @@ public sealed class GatewayCompanionController(
         return snapshot;
     }
 
+    /// <summary>
+    /// Runs an install/start/stop/restart command and refreshes status after successful actions.
+    /// </summary>
     public async Task<GatewayActionResult> RunActionAsync(
         GatewayCliAction action,
         CancellationToken cancellationToken = default)
@@ -62,6 +74,9 @@ public sealed class GatewayCompanionController(
         return new GatewayActionResult(action, result.Succeeded, result.CombinedOutput, status);
     }
 
+    /// <summary>
+    /// Derives a dashboard URL from saved settings for older global CLIs that do not emit one.
+    /// </summary>
     public static GatewayStatusSnapshot ApplyDashboardUrlFallback(
         GatewayStatusSnapshot snapshot,
         AppPreferences preferences)
@@ -75,6 +90,9 @@ public sealed class GatewayCompanionController(
         return string.IsNullOrWhiteSpace(dashboardUrl) ? snapshot : snapshot with { DashboardUrl = dashboardUrl };
     }
 
+    /// <summary>
+    /// Builds the status command with optional URL/token probe auth from preferences.
+    /// </summary>
     public static IReadOnlyList<string> BuildGatewayStatusArgs(AppPreferences preferences)
     {
         var args = new List<string> { "gateway", "status", "--json" };
@@ -115,12 +133,18 @@ public sealed class GatewayCompanionController(
     }
 }
 
+/// <summary>
+/// Result returned to the UI after a gateway lifecycle command.
+/// </summary>
 public sealed record GatewayActionResult(
     GatewayCliAction Action,
     bool Succeeded,
     string Output,
     GatewayStatusSnapshot Status);
 
+/// <summary>
+/// Normalized gateway status fields parsed from multiple CLI JSON versions.
+/// </summary>
 public sealed record GatewayStatusSnapshot(
     string State,
     bool ServiceInstalled,
@@ -132,6 +156,9 @@ public sealed record GatewayStatusSnapshot(
     string? Error,
     string RawJson)
 {
+    /// <summary>
+    /// Converts process output into a status snapshot, preserving failed output as the error detail.
+    /// </summary>
     public static GatewayStatusSnapshot FromCliResult(GatewayCliResult result)
     {
         if (!result.Succeeded)
@@ -151,6 +178,9 @@ public sealed record GatewayStatusSnapshot(
         return FromJson(result.StandardOutput);
     }
 
+    /// <summary>
+    /// Parses current and older gateway status JSON shapes into the stable Windows UI model.
+    /// </summary>
     public static GatewayStatusSnapshot FromJson(string json)
     {
         using var document = JsonDocument.Parse(json);
@@ -197,6 +227,9 @@ public sealed record GatewayStatusSnapshot(
             RawJson: json);
     }
 
+    /// <summary>
+    /// Selects the CLI's primary target, or the first target when older JSON lacks primaryTargetId.
+    /// </summary>
     private static JsonElement? ReadPrimaryTarget(JsonElement root)
     {
         if (root.ValueKind != JsonValueKind.Object ||
@@ -230,6 +263,9 @@ public sealed record GatewayStatusSnapshot(
         return DeriveDashboardUrl(gatewayUrl, basePath);
     }
 
+    /// <summary>
+    /// Converts a gateway WebSocket URL into the matching Control UI HTTP URL.
+    /// </summary>
     internal static string? DeriveDashboardUrl(string? gatewayUrl, string? basePath = null)
     {
         if (string.IsNullOrWhiteSpace(gatewayUrl) ||

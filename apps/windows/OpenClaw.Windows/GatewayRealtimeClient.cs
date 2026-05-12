@@ -8,6 +8,9 @@ using OpenClaw.Protocol.Generated;
 
 namespace OpenClaw.Windows;
 
+/// <summary>
+/// Coarse connection state for the gateway WebSocket channel.
+/// </summary>
 public enum GatewayRealtimeState
 {
     Disconnected,
@@ -17,8 +20,14 @@ public enum GatewayRealtimeState
     AuthFailed,
 }
 
+/// <summary>
+/// Gateway event delivered to the shell after frame parsing.
+/// </summary>
 public sealed record GatewayRealtimeEvent(string Name, JsonElement? Payload);
 
+/// <summary>
+/// Authorization returned by the gateway connect call and reduced to a UI capability label.
+/// </summary>
 public sealed record GatewayRealtimeAuthorization(string? Role, IReadOnlyList<string> Scopes)
 {
     public string Capability
@@ -42,8 +51,14 @@ public sealed record GatewayRealtimeAuthorization(string? Role, IReadOnlyList<st
     }
 }
 
+/// <summary>
+/// Chat transcript row shown in the Sessions page.
+/// </summary>
 public sealed record ChatMessage(string Role, string Text);
 
+/// <summary>
+/// Pending command approval surfaced through the operator Approvals page.
+/// </summary>
 public sealed record PendingApproval(
     string Id,
     string Command,
@@ -51,19 +66,29 @@ public sealed record PendingApproval(
     string? AgentId,
     string? SessionKey);
 
+/// <summary>
+/// Pending device or node pairing request.
+/// </summary>
 public sealed record PairingRequest(
     string RequestId,
     string Kind,
     string DisplayName,
     string DeviceId);
 
+/// <summary>
+/// Exception raised when the gateway returns an RPC error frame.
+/// </summary>
 public sealed class GatewayRpcException(string code, string message) : Exception(message)
 {
     public string Code { get; } = code;
 }
 
+/// <summary>
+/// Maintains the realtime WebSocket connection and exposes gateway RPC helpers for the WinUI shell.
+/// </summary>
 public sealed class GatewayRealtimeClient : IAsyncDisposable
 {
+    // The gateway currently accepts known client ids; macOS is used until a Windows id lands upstream.
     private const string ClientId = "openclaw-macos";
     private const string ClientMode = "ui";
     private const string ClientRole = "operator";
@@ -111,6 +136,9 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
 
     public event Action<GatewayRealtimeState, string?>? StateChanged;
 
+    /// <summary>
+    /// Loads current preferences and starts the realtime connection.
+    /// </summary>
     public async Task ConnectAsync(CancellationToken cancellationToken = default)
     {
         var prefs = await this.preferences.LoadAsync(cancellationToken);
@@ -122,6 +150,9 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
         await this.ConnectAsync(prefs, repairNarrowDeviceIdentity: true, cancellationToken);
     }
 
+    /// <summary>
+    /// Opens the WebSocket, completes the connect handshake, and repairs stale narrow device identity once.
+    /// </summary>
     private async Task ConnectAsync(
         AppPreferences prefs,
         bool repairNarrowDeviceIdentity,
@@ -161,6 +192,9 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
         await this.ConnectAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// Closes the socket, cancels the receive loop, and fails any outstanding RPC requests.
+    /// </summary>
     public async Task DisconnectAsync()
     {
         var socketToClose = this.socket;
@@ -209,6 +243,9 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
         this.sendGate.Dispose();
     }
 
+    /// <summary>
+    /// Reads recent chat messages from the gateway for the selected session.
+    /// </summary>
     public async Task<IReadOnlyList<ChatMessage>> LoadChatHistoryAsync(
         string sessionKey,
         CancellationToken cancellationToken = default)
@@ -217,6 +254,9 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
         return ParseChatHistoryPayload(payload);
     }
 
+    /// <summary>
+    /// Sends a chat message with a Windows-specific idempotency key.
+    /// </summary>
     public async Task SendChatAsync(
         string sessionKey,
         string message,
@@ -233,12 +273,18 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
             cancellationToken);
     }
 
+    /// <summary>
+    /// Requests pending command approvals from the gateway.
+    /// </summary>
     public async Task<IReadOnlyList<PendingApproval>> ListApprovalsAsync(CancellationToken cancellationToken = default)
     {
         var payload = await this.RequestAsync("exec.approval.list", new { }, cancellationToken);
         return ParseApprovalsPayload(payload);
     }
 
+    /// <summary>
+    /// Accepts multiple historical chat payload shapes from gateway versions.
+    /// </summary>
     public static IReadOnlyList<ChatMessage> ParseChatHistoryPayload(JsonElement payload)
     {
         if (!payload.TryGetProperty("messages", out var messages) || messages.ValueKind != JsonValueKind.Array)
@@ -253,6 +299,9 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
             .ToArray();
     }
 
+    /// <summary>
+    /// Accepts both array and wrapped pending-approval payloads.
+    /// </summary>
     public static IReadOnlyList<PendingApproval> ParseApprovalsPayload(JsonElement payload)
     {
         var array = payload.ValueKind == JsonValueKind.Array
@@ -268,6 +317,9 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
         return array.EnumerateArray().Select(ParsePendingApproval).ToArray();
     }
 
+    /// <summary>
+    /// Approves or rejects one pending command approval.
+    /// </summary>
     public async Task ResolveApprovalAsync(
         string id,
         string decision,
@@ -276,6 +328,9 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
         await this.RequestAsync("exec.approval.resolve", new { id, decision }, cancellationToken);
     }
 
+    /// <summary>
+    /// Combines device and node pairing queues into one UI list.
+    /// </summary>
     public async Task<IReadOnlyList<PairingRequest>> ListPairingRequestsAsync(
         CancellationToken cancellationToken = default)
     {
@@ -291,6 +346,9 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
         return ParsePairingList(kind, payload).ToArray();
     }
 
+    /// <summary>
+    /// Routes approval/rejection to the correct gateway method for device or node requests.
+    /// </summary>
     public async Task ResolvePairingAsync(
         PairingRequest request,
         bool approve,
@@ -305,6 +363,9 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
         await this.RequestAsync(method, new { requestId = request.RequestId }, cancellationToken);
     }
 
+    /// <summary>
+    /// Sends one gateway request frame and waits for the matching response id.
+    /// </summary>
     public async Task<JsonElement> RequestAsync(
         string method,
         object parameters,
@@ -358,6 +419,9 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Builds the gateway connect payload, including shared token, device token, and signed device identity.
+    /// </summary>
     private async Task SendConnectAsync(AppPreferences prefs, CancellationToken cancellationToken)
     {
         var scopes = RequestedScopes;
@@ -441,6 +505,9 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Clears stale device identity when a shared token is present but the device reconnects with narrow scopes.
+    /// </summary>
     private async Task<bool> TryRepairNarrowDeviceIdentityAsync(
         AppPreferences prefs,
         CancellationToken cancellationToken)
@@ -481,6 +548,9 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
         return new GatewayRealtimeAuthorization(ReadString(authPayload, "role"), scopes);
     }
 
+    /// <summary>
+    /// Continuously receives gateway frames and turns disconnects into state/error updates.
+    /// </summary>
     private async Task ReceiveLoopAsync(ClientWebSocket socketSnapshot, CancellationToken cancellationToken)
     {
         Exception? disconnectReason = null;
@@ -519,6 +589,9 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Dispatches response frames to pending requests and event frames to UI subscribers.
+    /// </summary>
     private void HandleFrame(string json)
     {
         var frame = GatewayFrameReader.Deserialize(json);
@@ -534,6 +607,9 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Captures the connect challenge nonce needed for signed device authentication.
+    /// </summary>
     private void HandleEvent(EventFrame @event)
     {
         if (@event.Event != "connect.challenge" ||
@@ -575,6 +651,9 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
         completion.TrySetException(new GatewayRpcException(code, message));
     }
 
+    /// <summary>
+    /// Serializes WebSocket writes because ClientWebSocket does not support concurrent sends.
+    /// </summary>
     private async Task SendJsonAsync(
         ClientWebSocket socketSnapshot,
         object payload,

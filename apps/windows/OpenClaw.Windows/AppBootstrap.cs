@@ -3,11 +3,17 @@ using OpenClaw.Windows.Native;
 
 namespace OpenClaw.Windows;
 
+/// <summary>
+/// Immutable facts shown in the shell header and onboarding diagnostics.
+/// </summary>
 public sealed record AppStartupSummary(
     string AppName,
     int GatewayProtocolVersion,
     WindowsHostCapabilities HostCapabilities);
 
+/// <summary>
+/// The dependency graph shared by the WinUI shell, tray host, and workflow coordinators.
+/// </summary>
 public sealed record WindowsCompanionState(
     AppStartupSummary Summary,
     GatewayCompanionController Gateway,
@@ -18,8 +24,14 @@ public sealed record WindowsCompanionState(
     WindowsNavigationService Navigation,
     WindowsNotificationActivityLog Notifications);
 
+/// <summary>
+/// Creates production Windows companion services with their storage, credential, and gateway dependencies.
+/// </summary>
 public static class AppBootstrap
 {
+    /// <summary>
+    /// Collects product, protocol, and native host capability metadata for display and diagnostics.
+    /// </summary>
     public static AppStartupSummary CreateStartupSummary()
     {
         return new AppStartupSummary(
@@ -28,6 +40,9 @@ public static class AppBootstrap
             HostCapabilities: WindowsHostCapabilityProbe.Current);
     }
 
+    /// <summary>
+    /// Builds the app's long-lived service graph. Tests construct this graph manually with fakes.
+    /// </summary>
     public static WindowsCompanionState CreateAppState()
     {
         var credentials = new PasswordVaultAppCredentialStore();

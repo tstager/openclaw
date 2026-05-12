@@ -3,6 +3,9 @@ using System.Runtime.InteropServices;
 
 namespace OpenClaw.Windows.Native;
 
+/// <summary>
+/// Registers and dispatches the app's process-local Ctrl+Shift+Space push-to-talk hotkey.
+/// </summary>
 public sealed class WindowsGlobalHotkeyService : IDisposable
 {
     private const int HotkeyId = 0x434c4157;
@@ -16,6 +19,9 @@ public sealed class WindowsGlobalHotkeyService : IDisposable
 
     public bool IsRegistered { get; private set; }
 
+    /// <summary>
+    /// Registers the global hotkey with user32 and throws when another app already owns it.
+    /// </summary>
     public void RegisterPushToTalkHotkey()
     {
         if (this.IsRegistered)
@@ -31,6 +37,9 @@ public sealed class WindowsGlobalHotkeyService : IDisposable
         this.IsRegistered = true;
     }
 
+    /// <summary>
+    /// Releases the hotkey registration while keeping the hidden message window alive.
+    /// </summary>
     public void Unregister()
     {
         if (!this.IsRegistered)
@@ -54,6 +63,9 @@ public sealed class WindowsGlobalHotkeyService : IDisposable
         this.disposed = true;
     }
 
+    /// <summary>
+    /// Hidden Win32 message sink that receives WM_HOTKEY outside the WinUI input tree.
+    /// </summary>
     private sealed class HotkeyWindow : NativeWindow, IDisposable
     {
         private const int WmHotkey = 0x0312;
@@ -83,6 +95,9 @@ public sealed class WindowsGlobalHotkeyService : IDisposable
     }
 }
 
+/// <summary>
+/// user32 modifier bitmask values passed to RegisterHotKey.
+/// </summary>
 [Flags]
 internal enum HotkeyModifiers : uint
 {
@@ -92,6 +107,9 @@ internal enum HotkeyModifiers : uint
     Win = 0x0008,
 }
 
+/// <summary>
+/// P/Invoke declarations for the global hotkey APIs.
+/// </summary>
 internal static partial class NativeMethods
 {
     [DllImport("user32.dll", SetLastError = true)]

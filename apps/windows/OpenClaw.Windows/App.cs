@@ -4,6 +4,9 @@ using XamlLaunchActivatedEventArgs = Microsoft.UI.Xaml.LaunchActivatedEventArgs;
 
 namespace OpenClaw.Windows;
 
+/// <summary>
+/// WinUI application entry point that owns single-instance lifetime, tray wiring, and crash logging.
+/// </summary>
 public sealed partial class App : XamlApplication, IDisposable
 {
     private const string SingleInstanceMutexName = "OpenClaw.Windows.Companion";
@@ -21,6 +24,9 @@ public sealed partial class App : XamlApplication, IDisposable
         };
     }
 
+    /// <summary>
+    /// Creates the app service graph, main window, and tray host after enforcing one running instance.
+    /// </summary>
     protected override async void OnLaunched(XamlLaunchActivatedEventArgs args)
     {
         try
@@ -38,6 +44,7 @@ public sealed partial class App : XamlApplication, IDisposable
             var preferences = await appState.Preferences.LoadAsync();
             this.window = new MainWindow(appState);
             this.window.ApplyThemePreference(preferences.ThemePreference);
+            // Tray callbacks run outside WinUI's normal input flow, so marshal every UI action to the window dispatcher.
             this.trayHost = new WindowsTrayHost(
                 getGatewayStatus: () => this.window.GatewayStatusText,
                 getLatestActivity: () => this.window.LatestActivityText,
@@ -93,6 +100,9 @@ public sealed partial class App : XamlApplication, IDisposable
         }
     }
 
+    /// <summary>
+    /// Releases native process-wide resources when the app exits or launch fails.
+    /// </summary>
     public void Dispose()
     {
         this.trayHost?.Dispose();
@@ -113,6 +123,9 @@ public sealed partial class App : XamlApplication, IDisposable
     }
 }
 
+/// <summary>
+/// App-local append-only crash log used when UI startup or event handlers fail before diagnostics are visible.
+/// </summary>
 internal static class CrashLog
 {
     public static string Path { get; } = System.IO.Path.Combine(
@@ -121,6 +134,9 @@ internal static class CrashLog
         "WindowsCompanion",
         "crash.log");
 
+    /// <summary>
+    /// Records an exception without rethrowing so callers can decide whether to continue or exit.
+    /// </summary>
     public static void Write(Exception exception)
     {
         var directory = System.IO.Path.GetDirectoryName(Path);
