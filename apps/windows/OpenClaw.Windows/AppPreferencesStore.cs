@@ -2,12 +2,20 @@ using System.Text.Json;
 
 namespace OpenClaw.Windows;
 
+public enum WindowsThemePreference
+{
+    System,
+    Light,
+    Dark,
+}
+
 public sealed record AppPreferences(
     bool OpenMainWindowOnLaunch,
     string GatewayUrl,
     string? GatewayToken,
     string? DeviceToken,
     string ChatSessionKey,
+    WindowsThemePreference ThemePreference,
     bool VoiceControlsEnabled,
     bool GlobalHotkeyEnabled,
     string? LastStatus,
@@ -20,6 +28,7 @@ public sealed record AppPreferences(
         GatewayToken: null,
         DeviceToken: null,
         ChatSessionKey: "main",
+        ThemePreference: WindowsThemePreference.System,
         VoiceControlsEnabled: false,
         GlobalHotkeyEnabled: false,
         LastStatus: null,
@@ -170,6 +179,7 @@ public sealed class AppPreferencesStore : IDisposable
         bool OpenMainWindowOnLaunch,
         string GatewayUrl,
         string ChatSessionKey,
+        string? Theme,
         bool VoiceControlsEnabled,
         bool GlobalHotkeyEnabled,
         string? LastStatus,
@@ -182,6 +192,7 @@ public sealed class AppPreferencesStore : IDisposable
                 preferences.OpenMainWindowOnLaunch,
                 preferences.GatewayUrl,
                 preferences.ChatSessionKey,
+                preferences.ThemePreference.ToString(),
                 preferences.VoiceControlsEnabled,
                 preferences.GlobalHotkeyEnabled,
                 preferences.LastStatus,
@@ -197,11 +208,19 @@ public sealed class AppPreferencesStore : IDisposable
                 GatewayToken: null,
                 DeviceToken: null,
                 string.IsNullOrWhiteSpace(this.ChatSessionKey) ? AppPreferences.Default.ChatSessionKey : this.ChatSessionKey,
+                ParseThemePreference(this.Theme),
                 this.VoiceControlsEnabled,
                 this.GlobalHotkeyEnabled,
                 this.LastStatus,
                 this.LastStatusCheckedAt,
                 this.NotificationPreferences ?? WindowsNotificationPreferences.Default);
+        }
+
+        private static WindowsThemePreference ParseThemePreference(string? value)
+        {
+            return Enum.TryParse<WindowsThemePreference>(value, ignoreCase: true, out var theme)
+                ? theme
+                : AppPreferences.Default.ThemePreference;
         }
     }
 }

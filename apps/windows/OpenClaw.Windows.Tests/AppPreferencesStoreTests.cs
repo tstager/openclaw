@@ -17,6 +17,7 @@ public sealed class AppPreferencesStoreTests
             OpenMainWindowOnLaunch = false,
             GatewayUrl = "ws://127.0.0.1:18800",
             ChatSessionKey = "windows",
+            ThemePreference = WindowsThemePreference.Dark,
             VoiceControlsEnabled = true,
             GlobalHotkeyEnabled = true,
             NotificationPreferences = new WindowsNotificationPreferences(
@@ -36,6 +37,7 @@ public sealed class AppPreferencesStoreTests
         Assert.AreEqual(expected.OpenMainWindowOnLaunch, actual.OpenMainWindowOnLaunch);
         Assert.AreEqual(expected.GatewayUrl, actual.GatewayUrl);
         Assert.AreEqual(expected.ChatSessionKey, actual.ChatSessionKey);
+        Assert.AreEqual(expected.ThemePreference, actual.ThemePreference);
         Assert.AreEqual(expected.VoiceControlsEnabled, actual.VoiceControlsEnabled);
         Assert.AreEqual(expected.GlobalHotkeyEnabled, actual.GlobalHotkeyEnabled);
         Assert.AreEqual(expected.NotificationPreferences, actual.NotificationPreferences);
@@ -84,6 +86,53 @@ public sealed class AppPreferencesStoreTests
         Assert.AreEqual("20", actual.LastStatus);
         using var document = JsonDocument.Parse(await File.ReadAllTextAsync(path));
         Assert.AreEqual(JsonValueKind.Object, document.RootElement.ValueKind);
+    }
+
+    [TestMethod]
+    public async Task MissingThemePreferenceDefaultsToSystem()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName(), "preferences.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        await File.WriteAllTextAsync(
+            path,
+            """
+            {
+              "openMainWindowOnLaunch": true,
+              "gatewayUrl": "ws://127.0.0.1:18789",
+              "chatSessionKey": "main",
+              "voiceControlsEnabled": false,
+              "globalHotkeyEnabled": false
+            }
+            """);
+        var store = new AppPreferencesStore(path);
+
+        var actual = await store.LoadAsync();
+
+        Assert.AreEqual(WindowsThemePreference.System, actual.ThemePreference);
+    }
+
+    [TestMethod]
+    public async Task UnknownThemePreferenceDefaultsToSystem()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName(), "preferences.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        await File.WriteAllTextAsync(
+            path,
+            """
+            {
+              "openMainWindowOnLaunch": true,
+              "gatewayUrl": "ws://127.0.0.1:18789",
+              "chatSessionKey": "main",
+              "theme": "Solarized",
+              "voiceControlsEnabled": false,
+              "globalHotkeyEnabled": false
+            }
+            """);
+        var store = new AppPreferencesStore(path);
+
+        var actual = await store.LoadAsync();
+
+        Assert.AreEqual(WindowsThemePreference.System, actual.ThemePreference);
     }
 
 }

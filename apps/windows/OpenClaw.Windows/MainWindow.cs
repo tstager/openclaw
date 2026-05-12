@@ -10,6 +10,8 @@ using Windows.ApplicationModel.DataTransfer;
 using Windows.System;
 using XamlButton = Microsoft.UI.Xaml.Controls.Button;
 using XamlCheckBox = Microsoft.UI.Xaml.Controls.CheckBox;
+using XamlComboBox = Microsoft.UI.Xaml.Controls.ComboBox;
+using XamlComboBoxItem = Microsoft.UI.Xaml.Controls.ComboBoxItem;
 using XamlHorizontalAlignment = Microsoft.UI.Xaml.HorizontalAlignment;
 using XamlOrientation = Microsoft.UI.Xaml.Controls.Orientation;
 using XamlPasswordBox = Microsoft.UI.Xaml.Controls.PasswordBox;
@@ -75,11 +77,13 @@ public sealed class MainWindow : Window
     private readonly XamlCheckBox devicePermissionAlertsInput = new();
     private readonly XamlCheckBox settingsVoiceControlsInput = new();
     private readonly XamlCheckBox settingsGlobalHotkeyInput = new();
+    private readonly XamlComboBox themePreferenceInput = new();
     private readonly XamlTextBox chatInput = new() { AcceptsReturn = true, Height = 88, TextWrapping = TextWrapping.Wrap };
     private readonly XamlTextBox gatewayUrlInput = new();
     private readonly XamlPasswordBox gatewayTokenInput = new();
     private readonly XamlTextBox chatSessionInput = new();
     private bool openMainWindowOnLaunch = AppPreferences.Default.OpenMainWindowOnLaunch;
+    private WindowsThemePreference themePreference = AppPreferences.Default.ThemePreference;
     private WindowsNotificationPreferences notificationPreferences = WindowsNotificationPreferences.Default;
     private bool voiceControlsEnabled;
     private bool globalHotkeyEnabled;
@@ -115,6 +119,15 @@ public sealed class MainWindow : Window
         this.Closed += this.OnClosed;
         this.AppWindow.Closing += this.OnAppWindowClosing;
         this.Content = this.BuildContent();
+    }
+
+    public void ApplyThemePreference(WindowsThemePreference preference)
+    {
+        this.themePreference = preference;
+        if (this.Content is FrameworkElement root)
+        {
+            ApplyThemePreference(root, preference);
+        }
     }
 
     public void AttachTrayHost(WindowsTrayHost trayHost)
@@ -232,6 +245,7 @@ public sealed class MainWindow : Window
         root.Children.Add(this.commandErrorText);
         Grid.SetRow(navigation, 1);
         root.Children.Add(navigation);
+        ApplyThemePreference(root, this.themePreference);
 
         _ = this.RefreshAllAsync();
         return root;
@@ -708,6 +722,13 @@ public sealed class MainWindow : Window
         AutomationProperties.SetName(this.gatewayTokenInput, "Gateway token");
         this.chatSessionInput.PlaceholderText = AppPreferences.Default.ChatSessionKey;
         AutomationProperties.SetName(this.chatSessionInput, "Chat session");
+        this.themePreferenceInput.Items.Clear();
+        this.themePreferenceInput.Items.Add(CreateThemePreferenceItem("System", WindowsThemePreference.System));
+        this.themePreferenceInput.Items.Add(CreateThemePreferenceItem("Light", WindowsThemePreference.Light));
+        this.themePreferenceInput.Items.Add(CreateThemePreferenceItem("Dark", WindowsThemePreference.Dark));
+        this.themePreferenceInput.SelectionChanged += this.OnThemePreferenceSelectionChanged;
+        this.SelectThemePreference(this.themePreference);
+        AutomationProperties.SetName(this.themePreferenceInput, "App theme");
         this.settingsText.TextWrapping = TextWrapping.Wrap;
         this.settingsText.Foreground = ResourceBrush("TextFillColorSecondaryBrush");
 
@@ -745,6 +766,8 @@ public sealed class MainWindow : Window
             BuildSettingsField("Gateway token", "Stored in the Windows credential store when available.", this.gatewayTokenInput))));
         panel.Children.Add(BuildDashboardCard("Identity", BuildSettingsSection(
             BuildSettingsField("Chat session", "Default OpenClaw session key used by the native chat workspace.", this.chatSessionInput))));
+        panel.Children.Add(BuildDashboardCard("Appearance", BuildSettingsSection(
+            BuildSettingsField("Theme", "Choose System, Light, or Dark for the Windows companion.", this.themePreferenceInput))));
         panel.Children.Add(BuildDashboardCard("Startup", BuildSettingsSection(
             this.openMainWindowOnLaunchInput,
             BuildReservedSettingsRow("Autostart", "Reserved", "Future tray startup preference."))));
@@ -794,6 +817,15 @@ public sealed class MainWindow : Window
         return section;
     }
 
+    private static XamlComboBoxItem CreateThemePreferenceItem(string label, WindowsThemePreference preference)
+    {
+        return new XamlComboBoxItem
+        {
+            Content = label,
+            Tag = preference,
+        };
+    }
+
     private static UIElement BuildSettingsField(string label, string detail, Control input)
     {
         var field = new StackPanel { Spacing = 4 };
@@ -831,6 +863,42 @@ public sealed class MainWindow : Window
         toggle.Checked += (_, _) => update(true);
         toggle.Unchecked += (_, _) => update(false);
         AutomationProperties.SetName(toggle, label);
+    }
+
+    private void OnThemePreferenceSelectionChanged(object sender, SelectionChangedEventArgs args)
+    {
+        if (this.themePreferenceInput.SelectedItem is XamlComboBoxItem { Tag: WindowsThemePreference preference })
+        {
+            this.ApplyThemePreference(preference);
+        }
+    }
+
+    private void SelectThemePreference(WindowsThemePreference preference)
+    {
+        foreach (var item in this.themePreferenceInput.Items.OfType<XamlComboBoxItem>())
+        {
+            if (item.Tag is WindowsThemePreference itemPreference && itemPreference == preference)
+            {
+                this.themePreferenceInput.SelectedItem = item;
+                return;
+            }
+        }
+    }
+
+    private static void ApplyThemePreference(FrameworkElement root, WindowsThemePreference preference)
+    {
+        if (preference == WindowsThemePreference.System)
+        {
+            root.ClearValue(FrameworkElement.RequestedThemeProperty);
+            return;
+        }
+
+        root.RequestedTheme = preference switch
+        {
+            WindowsThemePreference.Light => ElementTheme.Light,
+            WindowsThemePreference.Dark => ElementTheme.Dark,
+            _ => ElementTheme.Default,
+        };
     }
 
     private UIElement BuildLogsPanel()
@@ -1012,10 +1080,12 @@ public sealed class MainWindow : Window
             this.gatewayTokenInput.Password = preferences.GatewayToken ?? "";
             this.chatSessionInput.Text = preferences.ChatSessionKey;
             this.openMainWindowOnLaunch = preferences.OpenMainWindowOnLaunch;
+            this.ApplyThemePreference(preferences.ThemePreference);
             this.notificationPreferences = preferences.NotificationPreferences;
             this.voiceControlsEnabled = preferences.VoiceControlsEnabled;
             this.globalHotkeyEnabled = preferences.GlobalHotkeyEnabled;
             this.openMainWindowOnLaunchInput.IsChecked = preferences.OpenMainWindowOnLaunch;
+            this.SelectThemePreference(preferences.ThemePreference);
             this.approvalAlertsInput.IsChecked = preferences.NotificationPreferences.ApprovalAlerts;
             this.pairingAlertsInput.IsChecked = preferences.NotificationPreferences.PairingAlerts;
             this.gatewayHealthAlertsInput.IsChecked = preferences.NotificationPreferences.GatewayHealthAlerts;
@@ -1557,6 +1627,7 @@ public sealed class MainWindow : Window
     {
         this.settingsText.Text =
             $"Open main window on launch: {preferences.OpenMainWindowOnLaunch}\n" +
+            $"Theme: {preferences.ThemePreference}\n" +
             $"Last status: {preferences.LastStatus ?? "unknown"}\n" +
             $"Last checked: {preferences.LastStatusCheckedAt?.ToLocalTime().ToString("g", CultureInfo.CurrentCulture) ?? "never"}\n" +
             $"Device token cached: {!string.IsNullOrWhiteSpace(preferences.DeviceToken)}\n" +
@@ -1596,6 +1667,7 @@ public sealed class MainWindow : Window
             ChatSessionKey = string.IsNullOrWhiteSpace(this.chatSessionInput.Text)
                 ? AppPreferences.Default.ChatSessionKey
                 : this.chatSessionInput.Text.Trim(),
+            ThemePreference = this.themePreference,
             NotificationPreferences = this.notificationPreferences,
             VoiceControlsEnabled = this.voiceControlsEnabled,
             GlobalHotkeyEnabled = this.globalHotkeyEnabled,
