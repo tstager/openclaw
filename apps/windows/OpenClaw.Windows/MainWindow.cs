@@ -22,6 +22,7 @@ namespace OpenClaw.Windows;
 
 public sealed class MainWindow : Window
 {
+    private static readonly SolidColorBrush AppBackgroundBrush = new();
     private static readonly SolidColorBrush CardBackgroundBrush = new();
     private static readonly SolidColorBrush CardStrokeBrush = new();
     private static readonly SolidColorBrush LayerFillBrush = new();
@@ -231,6 +232,7 @@ public sealed class MainWindow : Window
             PaneDisplayMode = NavigationViewPaneDisplayMode.Left,
             PaneFooter = this.navigationGatewayStatusText,
             Content = this.navigationContent,
+            Background = AppBackgroundBrush,
         };
         foreach (var item in this.appState.Navigation.PrimaryItems)
         {
@@ -247,6 +249,7 @@ public sealed class MainWindow : Window
 
         var root = new Grid
         {
+            Background = AppBackgroundBrush,
             RowDefinitions =
             {
                 new RowDefinition { Height = GridLength.Auto },
@@ -268,6 +271,7 @@ public sealed class MainWindow : Window
     {
         var root = new Grid
         {
+            Background = AppBackgroundBrush,
             Padding = new Thickness(24),
             RowDefinitions =
             {
@@ -940,6 +944,7 @@ public sealed class MainWindow : Window
     {
         if (theme == ElementTheme.Dark)
         {
+            AppBackgroundBrush.Color = Color.FromArgb(255, 15, 15, 15);
             CardBackgroundBrush.Color = Color.FromArgb(255, 31, 31, 31);
             CardStrokeBrush.Color = Color.FromArgb(255, 62, 62, 62);
             LayerFillBrush.Color = Color.FromArgb(255, 24, 24, 24);
@@ -951,6 +956,7 @@ public sealed class MainWindow : Window
             return;
         }
 
+        AppBackgroundBrush.Color = Color.FromArgb(255, 247, 247, 247);
         CardBackgroundBrush.Color = Color.FromArgb(255, 255, 255, 255);
         CardStrokeBrush.Color = Color.FromArgb(255, 229, 231, 235);
         LayerFillBrush.Color = Color.FromArgb(255, 248, 248, 248);
