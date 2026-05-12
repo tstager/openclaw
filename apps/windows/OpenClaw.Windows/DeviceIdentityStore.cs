@@ -4,11 +4,17 @@ using System.Globalization;
 
 namespace OpenClaw.Windows;
 
+/// <summary>
+/// Represents the Windows companion device keypair used for gateway pairing and signed reconnects.
+/// </summary>
 public sealed record WindowsDeviceIdentity(
     string DeviceId,
     string PublicKeyPem,
     string PrivateKeyPem)
 {
+    /// <summary>
+    /// Signs the canonical gateway auth payload with the persisted P-256 private key.
+    /// </summary>
     public string SignPayload(string payload)
     {
         using var key = ECDsa.Create();
@@ -26,10 +32,16 @@ public sealed record WindowsDeviceIdentity(
     }
 }
 
+/// <summary>
+/// Loads or creates the long-lived Windows device identity stored in the credential store.
+/// </summary>
 public sealed class DeviceIdentityStore(IAppCredentialStore credentials)
 {
     private readonly IAppCredentialStore credentials = credentials;
 
+    /// <summary>
+    /// Reuses a valid persisted key or creates and stores a new identity when the key is missing/corrupt.
+    /// </summary>
     public async Task<WindowsDeviceIdentity> LoadOrCreateAsync(CancellationToken cancellationToken = default)
     {
         var privateKeyPem = await this.credentials.LoadDevicePrivateKeyAsync(cancellationToken);
@@ -43,12 +55,18 @@ public sealed class DeviceIdentityStore(IAppCredentialStore credentials)
         return created;
     }
 
+    /// <summary>
+    /// Clears device pairing material so the next connect must pair again.
+    /// </summary>
     public async Task ResetAsync(CancellationToken cancellationToken = default)
     {
         await this.credentials.SaveDeviceTokenAsync(null, cancellationToken);
         await this.credentials.SaveDevicePrivateKeyAsync(null, cancellationToken);
     }
 
+    /// <summary>
+    /// Builds the exact v3 string that the gateway verifies before accepting a Windows device identity.
+    /// </summary>
     public static string BuildDeviceAuthPayloadV3(
         string deviceId,
         string clientId,

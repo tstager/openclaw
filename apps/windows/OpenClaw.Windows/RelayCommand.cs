@@ -2,6 +2,9 @@ using System.Windows.Input;
 
 namespace OpenClaw.Windows;
 
+/// <summary>
+/// Async ICommand implementation that disables repeated execution and reports exceptions centrally.
+/// </summary>
 public sealed class RelayCommand(Func<Task> execute, Action<Exception>? onError = null) : ICommand
 {
     private readonly Func<Task> execute = execute;
@@ -10,6 +13,9 @@ public sealed class RelayCommand(Func<Task> execute, Action<Exception>? onError 
 
     public event EventHandler? CanExecuteChanged;
 
+    /// <summary>
+    /// Prevents double-clicks from starting overlapping async UI actions.
+    /// </summary>
     public bool CanExecute(object? parameter) => !this.isExecuting;
 
     public async void Execute(object? parameter)

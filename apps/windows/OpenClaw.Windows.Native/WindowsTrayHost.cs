@@ -3,6 +3,9 @@ using System.Windows.Forms;
 
 namespace OpenClaw.Windows.Native;
 
+/// <summary>
+/// WinForms NotifyIcon bridge used because WinUI 3 has no built-in tray icon API.
+/// </summary>
 public sealed class WindowsTrayHost : IDisposable
 {
     private readonly NotifyIcon notifyIcon;
@@ -23,6 +26,7 @@ public sealed class WindowsTrayHost : IDisposable
         Action onNotificationClicked,
         Action onExit)
     {
+        // Menu status rows are refreshed lazily so tray state reflects the latest coordinator values.
         var statusItem = new ToolStripMenuItem("Gateway: Unknown")
         {
             Enabled = false,
@@ -63,6 +67,9 @@ public sealed class WindowsTrayHost : IDisposable
         this.notifyIcon.BalloonTipClicked += (_, _) => onNotificationClicked();
     }
 
+    /// <summary>
+    /// Shows a Windows balloon notification through the tray icon.
+    /// </summary>
     public void ShowNotification(string title, string message)
     {
         this.notifyIcon.ShowBalloonTip(5000, title, message, ToolTipIcon.Info);

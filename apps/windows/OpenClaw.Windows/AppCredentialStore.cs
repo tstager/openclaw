@@ -2,6 +2,9 @@ using Windows.Security.Credentials;
 
 namespace OpenClaw.Windows;
 
+/// <summary>
+/// Abstracts secret storage so tests can use an in-memory store while production uses Windows PasswordVault.
+/// </summary>
 public interface IAppCredentialStore
 {
     Task<string?> LoadGatewayTokenAsync(CancellationToken cancellationToken = default);
@@ -17,6 +20,9 @@ public interface IAppCredentialStore
     Task SaveDevicePrivateKeyAsync(string? privateKey, CancellationToken cancellationToken = default);
 }
 
+/// <summary>
+/// Stores gateway and device secrets in Windows Credential Locker instead of the JSON preferences file.
+/// </summary>
 public sealed class PasswordVaultAppCredentialStore : IAppCredentialStore
 {
     private const string Resource = "OpenClaw.WindowsCompanion";
@@ -25,6 +31,9 @@ public sealed class PasswordVaultAppCredentialStore : IAppCredentialStore
     private const string DevicePrivateKeyUserName = "device-private-key";
     private readonly PasswordVault vault = new();
 
+    /// <summary>
+    /// Returns null when the credential is absent, empty, or inaccessible.
+    /// </summary>
     public Task<string?> LoadGatewayTokenAsync(CancellationToken cancellationToken = default)
     {
         return Task.FromResult(this.Load(GatewayTokenUserName));
@@ -72,6 +81,9 @@ public sealed class PasswordVaultAppCredentialStore : IAppCredentialStore
         }
     }
 
+    /// <summary>
+    /// Removes the previous secret before adding the replacement because PasswordVault does not overwrite.
+    /// </summary>
     private void Save(string userName, string? secret)
     {
         this.Remove(userName);

@@ -5,6 +5,9 @@ using Microsoft.Win32;
 
 namespace OpenClaw.Windows;
 
+/// <summary>
+/// Runs OpenClaw CLI commands through either a source checkout or installed global executable.
+/// </summary>
 public interface IGatewayCliCommandRunner
 {
     string CommandName { get; }
@@ -14,11 +17,17 @@ public interface IGatewayCliCommandRunner
         CancellationToken cancellationToken = default);
 }
 
+/// <summary>
+/// Captures CLI process output without throwing for non-zero exits.
+/// </summary>
 public sealed record GatewayCliResult(
     int ExitCode,
     string StandardOutput,
     string StandardError)
 {
+    /// <summary>
+    /// True when the process returned exit code zero.
+    /// </summary>
     public bool Succeeded => this.ExitCode == 0;
 
     public string CombinedOutput => string.Join(
@@ -26,6 +35,9 @@ public sealed record GatewayCliResult(
         new[] { this.StandardOutput.Trim(), this.StandardError.Trim() }.Where(static line => line.Length > 0));
 }
 
+/// <summary>
+/// Human-readable evidence collected when the app cannot resolve the OpenClaw CLI.
+/// </summary>
 public sealed record GatewayCliResolutionDiagnostics(
     string CommandName,
     IReadOnlyList<string> CandidateNames,
@@ -41,6 +53,9 @@ public sealed record GatewayCliResolutionDiagnostics(
     string? ExpectedPackageEntry,
     bool ExpectedPackageEntryExists)
 {
+    /// <summary>
+    /// Formats a support-ready message that shows every path and npm shim the app checked.
+    /// </summary>
     public string FormatMissingCliMessage()
     {
         var builder = new StringBuilder();
@@ -76,6 +91,9 @@ public sealed record GatewayCliResolutionDiagnostics(
     }
 }
 
+/// <summary>
+/// Resolves and executes the OpenClaw CLI while handling npm, PowerShell, and source-checkout layouts.
+/// </summary>
 public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
 {
     private readonly IReadOnlyList<string> baseArguments;
@@ -101,18 +119,27 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
 
     public IReadOnlyList<string> BaseArguments => this.baseArguments;
 
+    /// <summary>
+    /// Prefers a built source checkout when the app is launched from the repo, otherwise uses the global install.
+    /// </summary>
     public static GatewayCliCommandRunner CreateDefault()
     {
         return TryCreateFromSourceCheckout(Directory.GetCurrentDirectory(), AppContext.BaseDirectory) ??
             CreateGlobalOpenClawRunner();
     }
 
+    /// <summary>
+    /// Creates a runner for the installed openclaw command and unwraps shims when possible.
+    /// </summary>
     public static GatewayCliCommandRunner CreateGlobalOpenClawRunner()
     {
         var executable = ResolveExecutablePath("openclaw") ?? "openclaw";
         return CreateExecutableRunner(executable, "openclaw");
     }
 
+    /// <summary>
+    /// Detects a built source tree so repo-based development does not require npm -g install.
+    /// </summary>
     public static GatewayCliCommandRunner? TryCreateFromSourceCheckout(params string[] startDirectories)
     {
         foreach (var startDirectory in startDirectories)
@@ -133,6 +160,9 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
         return null;
     }
 
+    /// <summary>
+    /// Resolves an executable using process, user, machine, npm-prefix, and common Node install paths.
+    /// </summary>
     public static string? ResolveExecutablePath(
         string commandName,
         string? pathVariable = null,
@@ -214,6 +244,9 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
             expectedPackageEntry is not null && File.Exists(expectedPackageEntry));
     }
 
+    /// <summary>
+    /// Runs the configured executable plus base arguments and captures stdout/stderr asynchronously.
+    /// </summary>
     public async Task<GatewayCliResult> RunAsync(
         IReadOnlyList<string> arguments,
         CancellationToken cancellationToken = default)
@@ -252,6 +285,9 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
         return new GatewayCliResult(process.ExitCode, stdout.ToString(), stderr.ToString());
     }
 
+    /// <summary>
+    /// Requires dist output so a raw source archive does not run an unbuilt CLI.
+    /// </summary>
     private static string? FindRepoRoot(string startDirectory)
     {
         if (string.IsNullOrWhiteSpace(startDirectory))
@@ -276,6 +312,9 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
         return null;
     }
 
+    /// <summary>
+    /// Expands command names across PATHEXT plus npm's PowerShell and extensionless shim names.
+    /// </summary>
     private static IEnumerable<string> GetExecutableCandidateNames(string commandName, string? pathExtVariable)
     {
         if (Path.HasExtension(commandName))
@@ -296,6 +335,9 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
         yield return commandName;
     }
 
+    /// <summary>
+    /// Enumerates every location the app should search without relying solely on its inherited PATH.
+    /// </summary>
     private static IEnumerable<string> GetExecutableSearchDirectories(
         string? pathVariable,
         bool includeNpmPrefix = true)
@@ -344,6 +386,9 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
         }
     }
 
+    /// <summary>
+    /// Reads npm's global prefix so npm-installed shims are found even before the app is restarted.
+    /// </summary>
     private static string? ResolveNpmPrefix(string? pathVariable)
     {
         var prefix = Environment.GetEnvironmentVariable("NPM_CONFIG_PREFIX") ??
@@ -396,6 +441,9 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
         return string.IsNullOrWhiteSpace(output) ? null : output;
     }
 
+    /// <summary>
+    /// Uses PowerShell's command discovery as a last resort for ps1 shims that PATH probing missed.
+    /// </summary>
     private static string? QueryPowerShellCommandPath(string commandName, string? pathVariable)
     {
         var escapedCommandName = commandName.Replace("'", "''", StringComparison.Ordinal);
@@ -511,6 +559,9 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
         }
     }
 
+    /// <summary>
+    /// Builds a command runner that executes Windows script shims through their correct host.
+    /// </summary>
     private static GatewayCliCommandRunner CreateExecutableRunner(string executable, string commandName)
     {
         var extension = Path.GetExtension(executable);
@@ -540,6 +591,9 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
         return new GatewayCliCommandRunner(executable, [], commandName);
     }
 
+    /// <summary>
+    /// Bypasses npm's PowerShell wrapper when the package entrypoint can be run directly with node.
+    /// </summary>
     private static GatewayCliCommandRunner? TryCreateNodeRunnerFromNpmPowerShellShim(
         string shimPath,
         string commandName)
@@ -568,6 +622,9 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
         return new GatewayCliCommandRunner(nodeExecutable, [packageEntry], commandName);
     }
 
+    /// <summary>
+    /// Falls back to running a PowerShell shim when no package entrypoint can be inferred.
+    /// </summary>
     private static GatewayCliCommandRunner? TryCreatePowerShellShimRunner(
         string shimPath,
         string commandName)
@@ -590,6 +647,9 @@ public sealed class GatewayCliCommandRunner : IGatewayCliCommandRunner
             commandName);
     }
 
+    /// <summary>
+    /// Constructs ProcessStartInfo with ArgumentList so paths and tokens are not shell-expanded.
+    /// </summary>
     private static ProcessStartInfo CreateProcessStartInfo(
         GatewayCliCommandRunner runner,
         IReadOnlyList<string> arguments)
