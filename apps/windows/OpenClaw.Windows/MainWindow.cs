@@ -60,7 +60,11 @@ public sealed class MainWindow : Window
     private readonly TextBlock chatSessionText = new();
     private readonly TextBlock chatEmptyText = new();
     private readonly StackPanel chatEventMessages = new() { Spacing = 8 };
+    private readonly StackPanel chatEventVisibilityControls = new() { Spacing = 6 };
+    private readonly TextBlock chatEventVisibilitySummaryText = new();
     private readonly List<GatewayRealtimeEvent> chatRealtimeEvents = [];
+    private string? chatEventVisibilityControlSignature;
+    private bool updatingSessionEventVisibilityControls;
     private readonly XamlButton chatRefreshButton = new();
     private readonly XamlButton chatSendButton = new();
     private readonly StackPanel approvalsList = new() { Spacing = 8 };
@@ -99,6 +103,7 @@ public sealed class MainWindow : Window
     private readonly XamlTextBox chatSessionInput = new();
     private bool openMainWindowOnLaunch = AppPreferences.Default.OpenMainWindowOnLaunch;
     private WindowsThemePreference themePreference = AppPreferences.Default.ThemePreference;
+    private SessionEventVisibilityPreferences sessionEventVisibility = AppPreferences.Default.SessionEventVisibility;
     private WindowsNotificationPreferences notificationPreferences = WindowsNotificationPreferences.Default;
     private bool voiceControlsEnabled;
     private bool globalHotkeyEnabled;
@@ -638,6 +643,7 @@ public sealed class MainWindow : Window
         panel.Children.Add(header);
 
         panel.Children.Add(BuildDashboardCard("Session state", this.chatStateText));
+        panel.Children.Add(BuildDashboardCard("Event visibility", this.BuildChatEventVisibilityPanel()));
 
         var conversation = new Border
         {
@@ -929,6 +935,55 @@ public sealed class MainWindow : Window
         AutomationProperties.SetName(toggle, label);
     }
 
+    private UIElement BuildChatEventVisibilityPanel()
+    {
+        var panel = new StackPanel { Spacing = 10 };
+        this.chatEventVisibilitySummaryText.TextWrapping = TextWrapping.Wrap;
+        this.chatEventVisibilitySummaryText.Foreground = ResourceBrush("TextFillColorSecondaryBrush");
+        panel.Children.Add(this.chatEventVisibilitySummaryText);
+
+        var actions = new StackPanel { Orientation = XamlOrientation.Horizontal, Spacing = 8 };
+        actions.Children.Add(new XamlButton
+        {
+            Content = "Show all",
+            Command = this.CreateCommand(async () =>
+                await this.UpdateSessionEventVisibilityAsync(SessionEventVisibility.ShowAll)),
+        });
+        actions.Children.Add(new XamlButton
+        {
+            Content = "Hide operational",
+            Command = this.CreateCommand(async () =>
+                await this.UpdateSessionEventVisibilityAsync(SessionEventVisibility.HideOperational)),
+        });
+        actions.Children.Add(new XamlButton
+        {
+            Content = "Chat only",
+            Command = this.CreateCommand(async () =>
+                await this.UpdateSessionEventVisibilityAsync(SessionEventVisibility.ChatOnly)),
+        });
+        actions.Children.Add(new XamlButton
+        {
+            Content = "Reset",
+            Command = this.CreateCommand(async () =>
+                await this.UpdateSessionEventVisibilityAsync(_ => AppPreferences.Default.SessionEventVisibility)),
+        });
+        panel.Children.Add(actions);
+        panel.Children.Add(this.chatEventVisibilityControls);
+        return panel;
+    }
+
+    private async Task UpdateSessionEventVisibilityAsync(
+        Func<SessionEventVisibilityPreferences, SessionEventVisibilityPreferences> update)
+    {
+        var preferences = await this.appState.Preferences.UpdateAsync(current =>
+        {
+            var nextVisibility = update(current.SessionEventVisibility.WithObservedEvents(this.chatRealtimeEvents));
+            return current with { SessionEventVisibility = nextVisibility };
+        });
+        this.sessionEventVisibility = preferences.SessionEventVisibility.WithObservedEvents(this.chatRealtimeEvents);
+        this.RenderChatWorkspace();
+    }
+
     private void OnThemePreferenceSelectionChanged(object sender, SelectionChangedEventArgs args)
     {
         if (this.themePreferenceInput.SelectedItem is XamlComboBoxItem { Tag: WindowsThemePreference preference })
@@ -1105,7 +1160,8 @@ public sealed class MainWindow : Window
         {
             this.coordinator.RecordRealtimeEvent(@event);
             this.homeActivityText.Text = this.coordinator.LastActivity ?? "";
-            this.chatRealtimeEvents.Add(@event);
+            SessionEventVisibility.AddBounded(this.chatRealtimeEvents, @event);
+            this.sessionEventVisibility = this.sessionEventVisibility.WithObservedEvents(this.chatRealtimeEvents);
             this.RenderChatWorkspace();
         });
     }
@@ -1183,6 +1239,7 @@ public sealed class MainWindow : Window
             this.chatSessionInput.Text = preferences.ChatSessionKey;
             this.openMainWindowOnLaunch = preferences.OpenMainWindowOnLaunch;
             this.ApplyThemePreference(preferences.ThemePreference);
+            this.sessionEventVisibility = preferences.SessionEventVisibility.WithObservedEvents(this.chatRealtimeEvents);
             this.notificationPreferences = preferences.NotificationPreferences;
             this.voiceControlsEnabled = preferences.VoiceControlsEnabled;
             this.globalHotkeyEnabled = preferences.GlobalHotkeyEnabled;
@@ -1450,8 +1507,20 @@ public sealed class MainWindow : Window
         this.chatSendButton.IsEnabled = this.chatState.Status != ChatWorkspaceStatus.Sending;
         this.chatRefreshButton.IsEnabled = this.chatState.Status != ChatWorkspaceStatus.Sending;
 
+        var visibleEvents = SessionEventVisibility.Filter(
+            this.chatRealtimeEvents,
+            this.sessionEventVisibility,
+            activeSession);
+        var hiddenEventCount = SessionEventVisibility.CountHidden(
+            this.chatRealtimeEvents,
+            this.sessionEventVisibility,
+            activeSession);
+
+        this.chatEmptyText.Text = hiddenEventCount > 0
+            ? $"No visible realtime events match the current filters. {hiddenEventCount} hidden event{Plural(hiddenEventCount)} can be restored from Event visibility."
+            : "No messages in this session yet.";
         this.chatEmptyText.Visibility =
-            this.chatState.Messages.Count == 0 && this.chatRealtimeEvents.Count == 0
+            this.chatState.Messages.Count == 0 && visibleEvents.Count == 0
                 ? Visibility.Visible
                 : Visibility.Collapsed;
         this.chatMessages.Children.Clear();
@@ -1461,10 +1530,110 @@ public sealed class MainWindow : Window
         }
 
         this.chatEventMessages.Children.Clear();
-        foreach (var @event in this.chatRealtimeEvents)
+        foreach (var @event in visibleEvents)
         {
             this.chatEventMessages.Children.Add(BuildChatEventRow(@event));
         }
+        this.RenderChatEventVisibilityControls(activeSession, hiddenEventCount);
+    }
+
+    private void RenderChatEventVisibilityControls(string activeSession, int hiddenEventCount)
+    {
+        var eventTypes = SessionEventVisibility.EventTypesForControls(
+            this.chatRealtimeEvents,
+            this.sessionEventVisibility);
+        this.chatEventVisibilitySummaryText.Text =
+            $"{eventTypes.Count} event type{Plural(eventTypes.Count)} available. " +
+            $"{hiddenEventCount} hidden for session {activeSession}.";
+        var signature = string.Join("\n", eventTypes);
+        if (string.Equals(this.chatEventVisibilityControlSignature, signature, StringComparison.Ordinal))
+        {
+            this.SyncChatEventVisibilityControlState();
+            return;
+        }
+
+        this.chatEventVisibilityControlSignature = signature;
+        this.chatEventVisibilityControls.Children.Clear();
+        foreach (var eventType in eventTypes)
+        {
+            var checkBox = new XamlCheckBox
+            {
+                Content = EventVisibilityLabel(eventType),
+                IsChecked = this.sessionEventVisibility.IsVisible(eventType),
+                Tag = eventType,
+            };
+            AutomationProperties.SetName(checkBox, $"Show {eventType} events");
+            checkBox.Checked += this.OnSessionEventVisibilityChecked;
+            checkBox.Unchecked += this.OnSessionEventVisibilityUnchecked;
+            this.chatEventVisibilityControls.Children.Add(checkBox);
+        }
+    }
+
+    private async void OnSessionEventVisibilityChecked(object sender, RoutedEventArgs args)
+    {
+        if (this.updatingSessionEventVisibilityControls)
+        {
+            return;
+        }
+
+        if (sender is XamlCheckBox { Tag: string eventType })
+        {
+            await this.SetSessionEventVisibilityOrReportAsync(eventType, visible: true);
+        }
+    }
+
+    private async void OnSessionEventVisibilityUnchecked(object sender, RoutedEventArgs args)
+    {
+        if (this.updatingSessionEventVisibilityControls)
+        {
+            return;
+        }
+
+        if (sender is XamlCheckBox { Tag: string eventType })
+        {
+            await this.SetSessionEventVisibilityOrReportAsync(eventType, visible: false);
+        }
+    }
+
+    private void SyncChatEventVisibilityControlState()
+    {
+        this.updatingSessionEventVisibilityControls = true;
+        try
+        {
+            foreach (var checkBox in this.chatEventVisibilityControls.Children.OfType<XamlCheckBox>())
+            {
+                if (checkBox.Tag is string eventType)
+                {
+                    checkBox.IsChecked = this.sessionEventVisibility.IsVisible(eventType);
+                }
+            }
+        }
+        finally
+        {
+            this.updatingSessionEventVisibilityControls = false;
+        }
+    }
+
+    private async Task SetSessionEventVisibilityOrReportAsync(string eventType, bool visible)
+    {
+        try
+        {
+            await this.SetSessionEventVisibilityAsync(eventType, visible);
+        }
+        catch (Exception ex)
+        {
+            this.ReportCommandError(ex);
+        }
+    }
+
+    private async Task SetSessionEventVisibilityAsync(string eventType, bool visible)
+    {
+        await this.UpdateSessionEventVisibilityAsync(preferences => preferences.WithEventType(eventType, visible));
+    }
+
+    private static string EventVisibilityLabel(string eventType)
+    {
+        return SessionEventVisibility.IsOperationalEventType(eventType) ? $"{eventType} (operational)" : eventType;
     }
 
     private static UIElement BuildChatMessageRow(ChatMessage message)
@@ -1771,6 +1940,7 @@ public sealed class MainWindow : Window
                 ? AppPreferences.Default.ChatSessionKey
                 : this.chatSessionInput.Text.Trim(),
             ThemePreference = this.themePreference,
+            SessionEventVisibility = this.sessionEventVisibility.WithObservedEvents(this.chatRealtimeEvents),
             NotificationPreferences = this.notificationPreferences,
             VoiceControlsEnabled = this.voiceControlsEnabled,
             GlobalHotkeyEnabled = this.globalHotkeyEnabled,

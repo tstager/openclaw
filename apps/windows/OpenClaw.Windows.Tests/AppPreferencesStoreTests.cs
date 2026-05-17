@@ -27,6 +27,8 @@ public sealed class AppPreferencesStoreTests
                 DevicePermissionAlerts: true),
             LastStatus = "running",
             LastStatusCheckedAt = DateTimeOffset.Parse("2026-04-27T12:00:00Z", CultureInfo.InvariantCulture),
+            SessionEventVisibility = SessionEventVisibility.ChatOnly(AppPreferences.Default.SessionEventVisibility)
+                .WithEventType("custom.event", false),
         };
 
         await store.SaveAsync(expected);
@@ -41,6 +43,10 @@ public sealed class AppPreferencesStoreTests
         Assert.AreEqual(expected.VoiceControlsEnabled, actual.VoiceControlsEnabled);
         Assert.AreEqual(expected.GlobalHotkeyEnabled, actual.GlobalHotkeyEnabled);
         Assert.AreEqual(expected.NotificationPreferences, actual.NotificationPreferences);
+        Assert.IsFalse(actual.SessionEventVisibility.IsVisible("tick"));
+        Assert.IsFalse(actual.SessionEventVisibility.IsVisible("custom.event"));
+        Assert.IsTrue(actual.SessionEventVisibility.IsVisible("chat"));
+        Assert.AreEqual(SessionEventVisibilityPreset.Custom, actual.SessionEventVisibility.Preset);
     }
 
     [TestMethod]
@@ -109,6 +115,49 @@ public sealed class AppPreferencesStoreTests
         var actual = await store.LoadAsync();
 
         Assert.AreEqual(WindowsThemePreference.System, actual.ThemePreference);
+    }
+
+    [TestMethod]
+    public async Task MissingSessionEventVisibilityDefaultsToAllVisible()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName(), "preferences.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        await File.WriteAllTextAsync(
+            path,
+            """
+            {
+              "openMainWindowOnLaunch": true,
+              "gatewayUrl": "ws://127.0.0.1:18789",
+              "chatSessionKey": "main",
+              "theme": "Dark",
+              "voiceControlsEnabled": false,
+              "globalHotkeyEnabled": false
+            }
+            """);
+        var store = new AppPreferencesStore(path);
+
+        var actual = await store.LoadAsync();
+
+        Assert.IsTrue(actual.SessionEventVisibility.IsVisible("tick"));
+        Assert.IsTrue(actual.SessionEventVisibility.IsVisible("chat"));
+    }
+
+    [TestMethod]
+    public async Task SavesAndLoadsSessionEventVisibilityPreset()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName(), "preferences.json");
+        var store = new AppPreferencesStore(path);
+
+        await store.SaveAsync(AppPreferences.Default with
+        {
+            SessionEventVisibility = SessionEventVisibility.ChatOnly(AppPreferences.Default.SessionEventVisibility),
+        });
+
+        var actual = await store.LoadAsync();
+
+        Assert.AreEqual(SessionEventVisibilityPreset.ChatOnly, actual.SessionEventVisibility.Preset);
+        Assert.IsTrue(actual.SessionEventVisibility.IsVisible("chat"));
+        Assert.IsFalse(actual.SessionEventVisibility.IsVisible("tick"));
     }
 
     [TestMethod]

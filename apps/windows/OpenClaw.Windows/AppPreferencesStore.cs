@@ -26,6 +26,7 @@ public sealed record AppPreferences(
     bool GlobalHotkeyEnabled,
     string? LastStatus,
     DateTimeOffset? LastStatusCheckedAt,
+    SessionEventVisibilityPreferences SessionEventVisibility,
     WindowsNotificationPreferences NotificationPreferences)
 {
     /// <summary>
@@ -42,6 +43,7 @@ public sealed record AppPreferences(
         GlobalHotkeyEnabled: false,
         LastStatus: null,
         LastStatusCheckedAt: null,
+        SessionEventVisibility: SessionEventVisibilityPreferences.Default,
         NotificationPreferences: WindowsNotificationPreferences.Default);
 }
 
@@ -211,6 +213,8 @@ public sealed class AppPreferencesStore : IDisposable
         bool GlobalHotkeyEnabled,
         string? LastStatus,
         DateTimeOffset? LastStatusCheckedAt,
+        Dictionary<string, bool>? SessionEventVisibility,
+        string? SessionEventVisibilityPreset,
         WindowsNotificationPreferences? NotificationPreferences)
     {
         public static PersistedAppPreferences From(AppPreferences preferences)
@@ -224,6 +228,11 @@ public sealed class AppPreferencesStore : IDisposable
                 preferences.GlobalHotkeyEnabled,
                 preferences.LastStatus,
                 preferences.LastStatusCheckedAt,
+                preferences.SessionEventVisibility.EventTypes.ToDictionary(
+                    static entry => entry.Key,
+                    static entry => entry.Value,
+                    StringComparer.Ordinal),
+                preferences.SessionEventVisibility.Preset.ToString(),
                 preferences.NotificationPreferences);
         }
 
@@ -240,6 +249,9 @@ public sealed class AppPreferencesStore : IDisposable
                 this.GlobalHotkeyEnabled,
                 this.LastStatus,
                 this.LastStatusCheckedAt,
+                SessionEventVisibilityPreferences.From(
+                    this.SessionEventVisibility,
+                    ParseSessionEventVisibilityPreset(this.SessionEventVisibilityPreset)),
                 this.NotificationPreferences ?? WindowsNotificationPreferences.Default);
         }
 
@@ -248,6 +260,13 @@ public sealed class AppPreferencesStore : IDisposable
             return Enum.TryParse<WindowsThemePreference>(value, ignoreCase: true, out var theme)
                 ? theme
                 : AppPreferences.Default.ThemePreference;
+        }
+
+        private static SessionEventVisibilityPreset ParseSessionEventVisibilityPreset(string? value)
+        {
+            return Enum.TryParse<SessionEventVisibilityPreset>(value, ignoreCase: true, out var preset)
+                ? preset
+                : AppPreferences.Default.SessionEventVisibility.Preset;
         }
     }
 }
