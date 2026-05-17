@@ -9,7 +9,7 @@ namespace OpenClaw.Protocol.Generated;
 
 public static class GatewayProtocol
 {
-    public const int Version = 3;
+    public const int Version = 5;
 }
 
 public static class ErrorCodes
