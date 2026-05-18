@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Text.Json;
+using Microsoft.Web.WebView2.Core;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
@@ -17,6 +19,7 @@ using XamlHorizontalAlignment = Microsoft.UI.Xaml.HorizontalAlignment;
 using XamlOrientation = Microsoft.UI.Xaml.Controls.Orientation;
 using XamlPasswordBox = Microsoft.UI.Xaml.Controls.PasswordBox;
 using XamlTextBox = Microsoft.UI.Xaml.Controls.TextBox;
+using XamlWebView2 = Microsoft.UI.Xaml.Controls.WebView2;
 
 namespace OpenClaw.Windows;
 
@@ -67,6 +70,10 @@ public sealed class MainWindow : Window
     private bool updatingSessionEventVisibilityControls;
     private readonly XamlButton chatRefreshButton = new();
     private readonly XamlButton chatSendButton = new();
+    private readonly TextBlock canvasStatusText = new();
+    private readonly TextBlock canvasDetailText = new();
+    private XamlWebView2? canvasWebView;
+    private string? canvasTrustedA2UIUrl;
     private readonly StackPanel sessionsList = new() { Spacing = 8 };
     private readonly TextBlock sessionsStatusText = new();
     private readonly XamlButton sessionsRefreshButton = new();
@@ -99,6 +106,7 @@ public sealed class MainWindow : Window
     private readonly XamlCheckBox pairingAlertsInput = new();
     private readonly XamlCheckBox gatewayHealthAlertsInput = new();
     private readonly XamlCheckBox devicePermissionAlertsInput = new();
+    private readonly XamlCheckBox canvasNodeEnabledInput = new();
     private readonly XamlCheckBox settingsVoiceControlsInput = new();
     private readonly XamlCheckBox settingsGlobalHotkeyInput = new();
     private readonly XamlComboBox themePreferenceInput = new();
@@ -110,6 +118,7 @@ public sealed class MainWindow : Window
     private WindowsThemePreference themePreference = AppPreferences.Default.ThemePreference;
     private SessionEventVisibilityPreferences sessionEventVisibility = AppPreferences.Default.SessionEventVisibility;
     private WindowsNotificationPreferences notificationPreferences = WindowsNotificationPreferences.Default;
+    private bool canvasNodeEnabled = AppPreferences.Default.CanvasNodeEnabled;
     private bool voiceControlsEnabled;
     private bool globalHotkeyEnabled;
     private IReadOnlyList<WindowsDevicePermissionStatus> latestDevicePermissionStatuses = [];
@@ -141,6 +150,9 @@ public sealed class MainWindow : Window
         this.Title = "OpenClaw";
         this.appState.Realtime.StateChanged += this.OnRealtimeStateChanged;
         this.appState.Realtime.EventReceived += this.OnRealtimeEventReceived;
+        this.appState.CanvasNode.StateChanged += this.OnCanvasNodeStateChanged;
+        this.appState.CanvasNode.CanvasSurfaceUrlChanged += this.OnCanvasSurfaceUrlChanged;
+        this.appState.CanvasNode.InvokeAsync = this.HandleCanvasInvokeAsync;
         this.Closed += this.OnClosed;
         this.AppWindow.Closing += this.OnAppWindowClosing;
         this.Content = this.BuildContent();
@@ -413,6 +425,7 @@ public sealed class MainWindow : Window
         {
             WindowsNavigationDestination.Home => this.BuildPage(WindowsNavigationService.PageTitle(tag), Scrollable(this.BuildHomeDashboardPanel())),
             WindowsNavigationDestination.Chat => this.BuildPage(WindowsNavigationService.PageTitle(tag), Scrollable(this.BuildChatPanel())),
+            WindowsNavigationDestination.Canvas => this.BuildPage(WindowsNavigationService.PageTitle(tag), this.BuildCanvasPanel()),
             WindowsNavigationDestination.Sessions => this.BuildPage(WindowsNavigationService.PageTitle(tag), Scrollable(this.BuildSessionsPanel())),
             WindowsNavigationDestination.Approvals => this.BuildPage(WindowsNavigationService.PageTitle(tag), Scrollable(this.BuildApprovalsPanel())),
             WindowsNavigationDestination.Pairing => this.BuildPage(WindowsNavigationService.PageTitle(tag), Scrollable(this.BuildPairingPanel())),
@@ -674,6 +687,91 @@ public sealed class MainWindow : Window
         return panel;
     }
 
+    private FrameworkElement BuildCanvasPanel()
+    {
+        var root = new Grid
+        {
+            RowSpacing = 12,
+            RowDefinitions =
+            {
+                new RowDefinition { Height = GridLength.Auto },
+                new RowDefinition { Height = new GridLength(1, GridUnitType.Star) },
+            },
+        };
+
+        var header = new Grid
+        {
+            ColumnSpacing = 12,
+            ColumnDefinitions =
+            {
+                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                new ColumnDefinition { Width = GridLength.Auto },
+            },
+        };
+        var headerText = new StackPanel { Spacing = 4 };
+        headerText.Children.Add(new TextBlock
+        {
+            Text = "A2UI Canvas",
+            FontSize = 20,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+        });
+        this.canvasStatusText.Text = "Canvas node disconnected";
+        this.canvasStatusText.TextWrapping = TextWrapping.Wrap;
+        this.canvasStatusText.Foreground = ResourceBrush("TextFillColorSecondaryBrush");
+        this.canvasDetailText.Text = "Connect to the gateway to load the advertised A2UI surface.";
+        this.canvasDetailText.TextWrapping = TextWrapping.Wrap;
+        this.canvasDetailText.Foreground = ResourceBrush("TextFillColorSecondaryBrush");
+        headerText.Children.Add(this.canvasStatusText);
+        headerText.Children.Add(this.canvasDetailText);
+        header.Children.Add(headerText);
+
+        var buttons = new StackPanel { Orientation = XamlOrientation.Horizontal, Spacing = 8 };
+        buttons.Children.Add(new XamlButton
+        {
+            Content = "Connect Canvas",
+            Command = this.CreateCommand(async () => await this.ConnectCanvasNodeAsync()),
+        });
+        buttons.Children.Add(new XamlButton
+        {
+            Content = "Refresh A2UI",
+            Command = this.CreateCommand(async () => await this.RefreshCanvasA2UIAsync(forceRefresh: true)),
+        });
+        Grid.SetColumn(buttons, 1);
+        header.Children.Add(buttons);
+        root.Children.Add(header);
+
+        this.canvasWebView ??= this.CreateCanvasWebView();
+        Grid.SetRow(this.canvasWebView, 1);
+        root.Children.Add(this.canvasWebView);
+        this.RenderCanvasState();
+        return root;
+    }
+
+    private XamlWebView2 CreateCanvasWebView()
+    {
+        var webView = new XamlWebView2
+        {
+            HorizontalAlignment = XamlHorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+        };
+        webView.NavigationStarting += this.OnCanvasNavigationStarting;
+        webView.NavigationCompleted += this.OnCanvasNavigationCompleted;
+        webView.CoreWebView2Initialized += this.OnCanvasCoreWebView2Initialized;
+        webView.Loaded += async (_, _) =>
+        {
+            try
+            {
+                await webView.EnsureCoreWebView2Async();
+            }
+            catch (Exception ex)
+            {
+                this.canvasDetailText.Text = $"WebView2 initialization failed: {ex.Message}";
+                CrashLog.Write(ex);
+            }
+        };
+        return webView;
+    }
+
     private UIElement BuildSessionsPanel()
     {
         var panel = new StackPanel { Spacing = 16 };
@@ -868,6 +966,10 @@ public sealed class MainWindow : Window
             "Enable voice controls",
             value => this.voiceControlsEnabled = value);
         ConfigureSettingsToggle(
+            this.canvasNodeEnabledInput,
+            "Enable Canvas and A2UI node",
+            value => this.canvasNodeEnabled = value);
+        ConfigureSettingsToggle(
             this.settingsGlobalHotkeyInput,
             "Register Ctrl+Shift+Space push-to-talk hotkey",
             value => this.globalHotkeyEnabled = value);
@@ -888,6 +990,7 @@ public sealed class MainWindow : Window
             this.gatewayHealthAlertsInput,
             this.devicePermissionAlertsInput)));
         panel.Children.Add(BuildDashboardCard("Devices", BuildSettingsSection(
+            this.canvasNodeEnabledInput,
             this.settingsVoiceControlsInput,
             this.settingsGlobalHotkeyInput)));
         panel.Children.Add(BuildDashboardCard("Storage and Logs", this.settingsStorageRows));
@@ -1210,6 +1313,430 @@ public sealed class MainWindow : Window
         });
     }
 
+    private void OnCanvasNodeStateChanged(WindowsCanvasNodeState state, string? reason)
+    {
+        _ = this.DispatcherQueue.TryEnqueue(() =>
+        {
+            this.canvasStatusText.Text = $"Canvas node: {state}";
+            if (!string.IsNullOrWhiteSpace(reason))
+            {
+                this.canvasDetailText.Text = reason;
+            }
+            this.RenderCanvasState();
+            this.RenderDeviceCapabilityCards();
+        });
+    }
+
+    private void OnCanvasSurfaceUrlChanged(string? a2uiHostUrl)
+    {
+        _ = this.DispatcherQueue.TryEnqueue(async () =>
+        {
+            if (!string.IsNullOrWhiteSpace(a2uiHostUrl))
+            {
+                await this.NavigateCanvasToA2UIAsync(a2uiHostUrl);
+            }
+            this.RenderCanvasState();
+            this.RenderDeviceCapabilityCards();
+        });
+    }
+
+    private async Task RefreshCanvasA2UIAsync(bool forceRefresh)
+    {
+        var a2uiUrl = this.appState.CanvasNode.A2UIHostUrl;
+        if (forceRefresh || string.IsNullOrWhiteSpace(a2uiUrl))
+        {
+            await this.appState.CanvasNode.RefreshCanvasSurfaceUrlAsync();
+            a2uiUrl = this.appState.CanvasNode.A2UIHostUrl;
+        }
+
+        if (string.IsNullOrWhiteSpace(a2uiUrl))
+        {
+            this.canvasStatusText.Text = "A2UI host unavailable";
+            this.canvasDetailText.Text = "The gateway did not advertise the Canvas plugin surface.";
+            return;
+        }
+
+        await this.NavigateCanvasToA2UIAsync(a2uiUrl);
+    }
+
+    private async Task NavigateCanvasToA2UIAsync(string a2uiUrl)
+    {
+        if (this.canvasWebView is null)
+        {
+            return;
+        }
+
+        this.canvasTrustedA2UIUrl = a2uiUrl;
+        this.canvasStatusText.Text = "Loading A2UI";
+        this.canvasDetailText.Text = a2uiUrl;
+        try
+        {
+            await this.canvasWebView.EnsureCoreWebView2Async();
+            this.canvasWebView.Visibility = Visibility.Visible;
+            this.canvasWebView.Source = new Uri(a2uiUrl);
+        }
+        catch (Exception ex)
+        {
+            this.canvasStatusText.Text = "A2UI load failed";
+            this.canvasDetailText.Text = ex.Message;
+            CrashLog.Write(ex);
+        }
+    }
+
+    private void OnCanvasNavigationStarting(XamlWebView2 sender, CoreWebView2NavigationStartingEventArgs args)
+    {
+        if (WindowsCanvasA2UIUrl.IsTrustedA2UIUrl(args.Uri, this.canvasTrustedA2UIUrl))
+        {
+            return;
+        }
+
+        args.Cancel = true;
+        this.canvasStatusText.Text = "Blocked Canvas navigation";
+        this.canvasDetailText.Text = args.Uri;
+    }
+
+    private void OnCanvasNavigationCompleted(XamlWebView2 sender, CoreWebView2NavigationCompletedEventArgs args)
+    {
+        this.canvasStatusText.Text = args.IsSuccess ? "A2UI ready" : "A2UI navigation failed";
+        if (!args.IsSuccess)
+        {
+            this.canvasDetailText.Text = args.WebErrorStatus.ToString();
+        }
+    }
+
+    private async void OnCanvasCoreWebView2Initialized(XamlWebView2 sender, CoreWebView2InitializedEventArgs args)
+    {
+        if (args.Exception is not null)
+        {
+            this.canvasStatusText.Text = "WebView2 initialization failed";
+            this.canvasDetailText.Text = args.Exception.Message;
+            CrashLog.Write(args.Exception);
+            return;
+        }
+
+        sender.CoreWebView2.WebMessageReceived -= this.OnCanvasWebMessageReceived;
+        sender.CoreWebView2.WebMessageReceived += this.OnCanvasWebMessageReceived;
+        await sender.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(CanvasBridgeScript());
+    }
+
+    private async void OnCanvasWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs args)
+    {
+        if (!WindowsCanvasA2UIUrl.IsTrustedA2UIUrl(args.Source, this.canvasTrustedA2UIUrl))
+        {
+            return;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(args.WebMessageAsJson);
+            if (!document.RootElement.TryGetProperty("userAction", out var action) ||
+                action.ValueKind != JsonValueKind.Object)
+            {
+                return;
+            }
+
+            var name = ReadJsonString(action, "name");
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                return;
+            }
+
+            var preferences = await this.appState.Preferences.LoadAsync();
+            await this.appState.Realtime.SendChatAsync(
+                preferences.ChatSessionKey,
+                $"A2UI action: {name}\n{action.GetRawText()}");
+            this.canvasDetailText.Text = $"A2UI action sent to session {preferences.ChatSessionKey}.";
+        }
+        catch (Exception ex)
+        {
+            this.canvasDetailText.Text = $"A2UI action failed: {ex.Message}";
+            CrashLog.Write(ex);
+        }
+    }
+
+    private Task<WindowsCanvasInvokeResponse> HandleCanvasInvokeAsync(
+        WindowsCanvasInvokeRequest request,
+        CancellationToken cancellationToken)
+    {
+        return this.RunOnUiThreadAsync(async () =>
+        {
+            try
+            {
+                return request.Command switch
+                {
+                    WindowsCanvasCommands.Present => await this.HandleCanvasPresentAsync(),
+                    WindowsCanvasCommands.Hide => this.HandleCanvasHide(),
+                    WindowsCanvasCommands.Navigate => await this.HandleCanvasNavigateAsync(request.ParamsJson),
+                    WindowsCanvasCommands.Eval => await this.HandleCanvasEvalAsync(request.ParamsJson),
+                    WindowsCanvasCommands.Snapshot => WindowsCanvasInvokeResponse.Failure(
+                        "UNAVAILABLE",
+                        "canvas.snapshot is not implemented in the Windows companion yet."),
+                    WindowsCanvasCommands.A2UIReset => await this.HandleCanvasA2UIResetAsync(),
+                    WindowsCanvasCommands.A2UIPush or WindowsCanvasCommands.A2UIPushJsonl =>
+                        await this.HandleCanvasA2UIPushAsync(request.ParamsJson),
+                    _ => WindowsCanvasInvokeResponse.Failure("INVALID_REQUEST", $"Unknown Canvas command: {request.Command}"),
+                };
+            }
+            catch (Exception ex)
+            {
+                CrashLog.Write(ex);
+                return WindowsCanvasInvokeResponse.Failure("UNAVAILABLE", ex.Message);
+            }
+        }, cancellationToken);
+    }
+
+    private async Task<WindowsCanvasInvokeResponse> HandleCanvasPresentAsync()
+    {
+        await this.RefreshCanvasA2UIAsync(forceRefresh: false);
+        return WindowsCanvasInvokeResponse.Success("""{"status":"shown"}""");
+    }
+
+    private WindowsCanvasInvokeResponse HandleCanvasHide()
+    {
+        if (this.canvasWebView is not null)
+        {
+            this.canvasWebView.Visibility = Visibility.Collapsed;
+        }
+        this.canvasStatusText.Text = "Canvas hidden";
+        return WindowsCanvasInvokeResponse.Success("""{"status":"hidden"}""");
+    }
+
+    private async Task<WindowsCanvasInvokeResponse> HandleCanvasNavigateAsync(string? paramsJson)
+    {
+        var target = ReadParamString(paramsJson, "url") ?? ReadParamString(paramsJson, "path");
+        if (string.IsNullOrWhiteSpace(target))
+        {
+            await this.RefreshCanvasA2UIAsync(forceRefresh: false);
+            return WindowsCanvasInvokeResponse.Success("""{"status":"shown"}""");
+        }
+
+        if (WindowsCanvasA2UIUrl.IsTrustedA2UIUrl(target, this.canvasTrustedA2UIUrl))
+        {
+            await this.NavigateCanvasToA2UIAsync(target);
+            return WindowsCanvasInvokeResponse.Success("""{"status":"web"}""");
+        }
+
+        return WindowsCanvasInvokeResponse.Failure(
+            "INVALID_REQUEST",
+            "Windows Canvas currently allows navigation only to the trusted gateway A2UI host.");
+    }
+
+    private async Task<WindowsCanvasInvokeResponse> HandleCanvasEvalAsync(string? paramsJson)
+    {
+        var javaScript = ReadParamString(paramsJson, "javaScript") ?? ReadParamString(paramsJson, "js");
+        if (string.IsNullOrWhiteSpace(javaScript))
+        {
+            return WindowsCanvasInvokeResponse.Failure("INVALID_REQUEST", "canvas.eval requires javaScript.");
+        }
+
+        var result = await this.ExecuteCanvasScriptAsync(javaScript);
+        return WindowsCanvasInvokeResponse.Success(JsonSerializer.Serialize(new { result }));
+    }
+
+    private async Task<WindowsCanvasInvokeResponse> HandleCanvasA2UIResetAsync()
+    {
+        await this.EnsureCanvasA2UIReadyAsync();
+        var result = await this.ExecuteCanvasScriptAsync(
+            """
+            (() => {
+              const host = globalThis.openclawA2UI;
+              if (!host) return JSON.stringify({ ok: false, error: "missing openclawA2UI" });
+              return JSON.stringify(host.reset());
+            })()
+            """);
+        return WindowsCanvasInvokeResponse.Success(result);
+    }
+
+    private async Task<WindowsCanvasInvokeResponse> HandleCanvasA2UIPushAsync(string? paramsJson)
+    {
+        if (string.IsNullOrWhiteSpace(paramsJson))
+        {
+            return WindowsCanvasInvokeResponse.Failure("INVALID_REQUEST", "canvas.a2ui.push requires params.");
+        }
+
+        using var document = JsonDocument.Parse(paramsJson);
+        var root = document.RootElement;
+        string messagesJson;
+        if (root.TryGetProperty("messages", out var messages) && messages.ValueKind == JsonValueKind.Array)
+        {
+            messagesJson = messages.GetRawText();
+        }
+        else if (root.TryGetProperty("jsonl", out var jsonl) && jsonl.ValueKind == JsonValueKind.String)
+        {
+            var decoded = WindowsCanvasA2UIJsonl.DecodeMessagesFromJsonl(jsonl.GetString() ?? "");
+            messagesJson = JsonSerializer.Serialize(decoded.Select(message => message.RootElement));
+        }
+        else
+        {
+            return WindowsCanvasInvokeResponse.Failure(
+                "INVALID_REQUEST",
+                "canvas.a2ui.push requires messages or jsonl.");
+        }
+
+        await this.EnsureCanvasA2UIReadyAsync();
+        var result = await this.ExecuteCanvasScriptAsync(
+            $$"""
+            (() => {
+              try {
+                const host = globalThis.openclawA2UI;
+                if (!host) return JSON.stringify({ ok: false, error: "missing openclawA2UI" });
+                const messages = {{messagesJson}};
+                return JSON.stringify(host.applyMessages(messages));
+              } catch (e) {
+                return JSON.stringify({ ok: false, error: String(e?.message ?? e) });
+              }
+            })()
+            """);
+        return WindowsCanvasInvokeResponse.Success(result);
+    }
+
+    private async Task EnsureCanvasA2UIReadyAsync()
+    {
+        if (await this.IsCanvasA2UIReadyAsync())
+        {
+            return;
+        }
+
+        await this.RefreshCanvasA2UIAsync(forceRefresh: string.IsNullOrWhiteSpace(this.appState.CanvasNode.A2UIHostUrl));
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(6);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            if (await this.IsCanvasA2UIReadyAsync())
+            {
+                return;
+            }
+            await Task.Delay(120);
+        }
+
+        throw new InvalidOperationException("A2UI_HOST_UNAVAILABLE: A2UI host not reachable.");
+    }
+
+    private async Task<bool> IsCanvasA2UIReadyAsync()
+    {
+        try
+        {
+            var result = await this.ExecuteCanvasScriptAsync(
+                "(() => String(Boolean(globalThis.openclawA2UI)))()");
+            return string.Equals(result.Trim(), "true", StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private async Task<string> ExecuteCanvasScriptAsync(string javaScript)
+    {
+        if (this.canvasWebView is null)
+        {
+            throw new InvalidOperationException("Canvas WebView is not ready.");
+        }
+
+        await this.canvasWebView.EnsureCoreWebView2Async();
+        var raw = await this.canvasWebView.ExecuteScriptAsync(javaScript);
+        return WindowsCanvasA2UI.DecodeExecuteScriptResult(raw);
+    }
+
+    private Task<T> RunOnUiThreadAsync<T>(Func<Task<T>> action, CancellationToken cancellationToken)
+    {
+        var completion = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (!this.DispatcherQueue.TryEnqueue(async () =>
+            {
+                try
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    completion.TrySetResult(await action());
+                }
+                catch (Exception ex)
+                {
+                    completion.TrySetException(ex);
+                }
+            }))
+        {
+            completion.TrySetException(new InvalidOperationException("WinUI dispatcher is unavailable."));
+        }
+        return completion.Task;
+    }
+
+    private void RenderCanvasState()
+    {
+        if (!this.canvasNodeEnabled)
+        {
+            this.canvasStatusText.Text = "Canvas node disabled";
+            this.canvasDetailText.Text = "Enable Canvas and A2UI node in Settings.";
+            return;
+        }
+
+        if (this.appState.CanvasNode.State == WindowsCanvasNodeState.Connected)
+        {
+            this.canvasStatusText.Text = string.IsNullOrWhiteSpace(this.appState.CanvasNode.A2UIHostUrl)
+                ? "Canvas node connected"
+                : "A2UI host available";
+            this.canvasDetailText.Text = this.appState.CanvasNode.A2UIHostUrl ??
+                "Connected. The gateway has not advertised a Canvas plugin surface yet.";
+            return;
+        }
+
+        this.canvasStatusText.Text = $"Canvas node: {this.appState.CanvasNode.State}";
+        if (string.IsNullOrWhiteSpace(this.canvasDetailText.Text))
+        {
+            this.canvasDetailText.Text = "Connect to the gateway to expose the Windows A2UI Canvas node.";
+        }
+    }
+
+    private static string CanvasBridgeScript()
+    {
+        return """
+        (() => {
+          try {
+            if (globalThis.__openclawWindowsA2UIBridgeInstalled) return;
+            globalThis.__openclawWindowsA2UIBridgeInstalled = true;
+            globalThis.addEventListener('a2uiaction', (evt) => {
+              try {
+                const payload = evt?.detail ?? evt?.payload ?? null;
+                if (!payload || payload.eventType !== 'a2ui.action') return;
+                const action = payload.action ?? null;
+                const name = action?.name ?? '';
+                if (!name) return;
+                const context = Array.isArray(action?.context) ? action.context : [];
+                globalThis.chrome?.webview?.postMessage({
+                  userAction: {
+                    id: globalThis.crypto?.randomUUID?.() ?? String(Date.now()),
+                    name,
+                    surfaceId: payload.surfaceId ?? 'main',
+                    sourceComponentId: payload.sourceComponentId ?? '',
+                    dataContextPath: payload.dataContextPath ?? '',
+                    timestamp: new Date().toISOString(),
+                    ...(context.length ? { context } : {}),
+                  },
+                });
+              } catch {}
+            }, true);
+          } catch {}
+        })();
+        """;
+    }
+
+    private static string? ReadParamString(string? paramsJson, string propertyName)
+    {
+        if (string.IsNullOrWhiteSpace(paramsJson))
+        {
+            return null;
+        }
+
+        using var document = JsonDocument.Parse(paramsJson);
+        return ReadJsonString(document.RootElement, propertyName);
+    }
+
+    private static string? ReadJsonString(JsonElement root, string propertyName)
+    {
+        return root.ValueKind == JsonValueKind.Object &&
+               root.TryGetProperty(propertyName, out var value) &&
+               value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
+    }
+
     private void OnAppWindowClosing(AppWindow sender, AppWindowClosingEventArgs args)
     {
         if (this.exitRequested || this.trayHost is null)
@@ -1237,10 +1764,19 @@ public sealed class MainWindow : Window
         this.shutdownStarted = true;
         this.appState.Realtime.StateChanged -= this.OnRealtimeStateChanged;
         this.appState.Realtime.EventReceived -= this.OnRealtimeEventReceived;
+        this.appState.CanvasNode.StateChanged -= this.OnCanvasNodeStateChanged;
+        this.appState.CanvasNode.CanvasSurfaceUrlChanged -= this.OnCanvasSurfaceUrlChanged;
+        this.appState.CanvasNode.InvokeAsync = null;
+        if (this.canvasWebView?.CoreWebView2 is not null)
+        {
+            this.canvasWebView.CoreWebView2.WebMessageReceived -= this.OnCanvasWebMessageReceived;
+        }
+        this.canvasWebView?.Close();
         this.hotkeyService?.Dispose();
         this.overlayWindow?.Close();
         try
         {
+            await this.appState.CanvasNode.DisposeAsync();
             await this.appState.Realtime.DisposeAsync();
         }
         catch (Exception ex)
@@ -1285,6 +1821,7 @@ public sealed class MainWindow : Window
             this.ApplyThemePreference(preferences.ThemePreference);
             this.sessionEventVisibility = preferences.SessionEventVisibility.WithObservedEvents(this.chatRealtimeEvents);
             this.notificationPreferences = preferences.NotificationPreferences;
+            this.canvasNodeEnabled = preferences.CanvasNodeEnabled;
             this.voiceControlsEnabled = preferences.VoiceControlsEnabled;
             this.globalHotkeyEnabled = preferences.GlobalHotkeyEnabled;
             this.openMainWindowOnLaunchInput.IsChecked = preferences.OpenMainWindowOnLaunch;
@@ -1293,12 +1830,14 @@ public sealed class MainWindow : Window
             this.pairingAlertsInput.IsChecked = preferences.NotificationPreferences.PairingAlerts;
             this.gatewayHealthAlertsInput.IsChecked = preferences.NotificationPreferences.GatewayHealthAlerts;
             this.devicePermissionAlertsInput.IsChecked = preferences.NotificationPreferences.DevicePermissionAlerts;
+            this.canvasNodeEnabledInput.IsChecked = preferences.CanvasNodeEnabled;
             this.settingsVoiceControlsInput.IsChecked = preferences.VoiceControlsEnabled;
             this.settingsGlobalHotkeyInput.IsChecked = preferences.GlobalHotkeyEnabled;
             this.RenderHomeDashboard();
             this.RenderSettingsSummary(preferences);
             this.RenderSettingsStorage();
             this.RenderLogsDiagnostics();
+            this.RenderCanvasState();
             await this.RefreshDeviceCapabilitiesAsync();
             if (this.appState.Realtime.State == GatewayRealtimeState.Connected)
             {
@@ -1320,10 +1859,27 @@ public sealed class MainWindow : Window
     {
         await this.SaveSettingsAsync();
         await this.appState.Realtime.ReconnectAsync();
+        await this.ConnectCanvasNodeAsync();
         await this.RefreshChatAsync();
         await this.RefreshSessionsAsync();
         await this.RefreshApprovalsAsync();
         await this.RefreshPairingAsync();
+    }
+
+    private async Task ConnectCanvasNodeAsync()
+    {
+        var preferences = await this.appState.Preferences.LoadAsync();
+        if (!preferences.CanvasNodeEnabled)
+        {
+            this.canvasStatusText.Text = "Canvas node disabled";
+            this.canvasDetailText.Text = "Enable Canvas and A2UI node in Settings to expose A2UI to the gateway.";
+            await this.appState.CanvasNode.DisconnectAsync();
+            return;
+        }
+
+        this.canvasStatusText.Text = "Connecting Canvas node...";
+        await this.appState.CanvasNode.ReconnectAsync();
+        await this.RefreshCanvasA2UIAsync(forceRefresh: false);
     }
 
     private async Task RefreshChatAsync()
@@ -2077,6 +2633,7 @@ public sealed class MainWindow : Window
             $"Last status: {preferences.LastStatus ?? "unknown"}\n" +
             $"Last checked: {preferences.LastStatusCheckedAt?.ToLocalTime().ToString("g", CultureInfo.CurrentCulture) ?? "never"}\n" +
             $"Device token cached: {!string.IsNullOrWhiteSpace(preferences.DeviceToken)}\n" +
+            $"Canvas node: {preferences.CanvasNodeEnabled}\n" +
             $"Voice controls: {preferences.VoiceControlsEnabled}\n" +
             $"Global hotkey: {preferences.GlobalHotkeyEnabled}\n" +
             $"Approval alerts: {preferences.NotificationPreferences.ApprovalAlerts}\n" +
@@ -2115,6 +2672,7 @@ public sealed class MainWindow : Window
                 ? AppPreferences.Default.ChatSessionKey
                 : this.chatSessionInput.Text.Trim(),
             ThemePreference = this.themePreference,
+            CanvasNodeEnabled = this.canvasNodeEnabled,
             SessionEventVisibility = this.sessionEventVisibility.WithObservedEvents(this.chatRealtimeEvents),
             NotificationPreferences = this.notificationPreferences,
             VoiceControlsEnabled = this.voiceControlsEnabled,
@@ -2127,12 +2685,14 @@ public sealed class MainWindow : Window
     {
         var preferences = await this.appState.Preferences.LoadAsync();
         this.notificationPreferences = preferences.NotificationPreferences;
+        this.canvasNodeEnabled = preferences.CanvasNodeEnabled;
         this.voiceControlsEnabled = preferences.VoiceControlsEnabled;
         this.globalHotkeyEnabled = preferences.GlobalHotkeyEnabled;
         this.approvalAlertsInput.IsChecked = preferences.NotificationPreferences.ApprovalAlerts;
         this.pairingAlertsInput.IsChecked = preferences.NotificationPreferences.PairingAlerts;
         this.gatewayHealthAlertsInput.IsChecked = preferences.NotificationPreferences.GatewayHealthAlerts;
         this.devicePermissionAlertsInput.IsChecked = preferences.NotificationPreferences.DevicePermissionAlerts;
+        this.canvasNodeEnabledInput.IsChecked = preferences.CanvasNodeEnabled;
         this.settingsVoiceControlsInput.IsChecked = preferences.VoiceControlsEnabled;
         this.settingsGlobalHotkeyInput.IsChecked = preferences.GlobalHotkeyEnabled;
         this.SyncHotkeyRegistration(preferences.GlobalHotkeyEnabled);
@@ -2193,6 +2753,10 @@ public sealed class MainWindow : Window
     private void RenderDeviceCapabilityCards()
     {
         this.deviceCapabilityCards.Children.Clear();
+        this.deviceCapabilityCards.Children.Add(BuildDashboardCard("Canvas", BuildSettingsSection(
+            BuildDashboardRow("Node", this.appState.CanvasNode.State.ToString()),
+            BuildDashboardRow("A2UI", this.appState.CanvasNode.A2UIHostUrl ?? "unknown"),
+            BuildDashboardRow("Enabled", this.canvasNodeEnabled.ToString()))));
         this.deviceCapabilityCards.Children.Add(this.BuildDeviceCapabilityCard(
             DeviceCapabilityPresentation.Create("Screen", this.latestDevicePermissionStatuses, this.screenActionResult),
             [
