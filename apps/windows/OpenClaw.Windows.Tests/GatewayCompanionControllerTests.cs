@@ -163,6 +163,43 @@ public sealed class GatewayCompanionControllerTests
     }
 
     [TestMethod]
+    public void ParsesDaemonGatewayStatusJsonLogFileAndRuntimeState()
+    {
+        var snapshot = GatewayStatusSnapshot.FromJson(
+            """
+            {
+              "cli": {
+                "version": "2026.5.17",
+                "entrypoint": "C:\\openclaw\\openclaw.mjs"
+              },
+              "logFile": "C:\\Users\\Trent\\AppData\\Local\\Temp\\openclaw\\openclaw-2026-05-18.log",
+              "service": {
+                "label": "Scheduled Task",
+                "loaded": true,
+                "runtime": {
+                  "status": "running"
+                }
+              },
+              "gateway": {
+                "probeUrl": "ws://127.0.0.1:18789"
+              },
+              "rpc": {
+                "ok": true,
+                "capability": "write_capable"
+              }
+            }
+            """);
+
+        Assert.AreEqual("running", snapshot.State);
+        Assert.IsTrue(snapshot.ServiceInstalled);
+        Assert.IsTrue(snapshot.Reachable);
+        Assert.AreEqual("write_capable", snapshot.Capability);
+        Assert.AreEqual(
+            @"C:\Users\Trent\AppData\Local\Temp\openclaw\openclaw-2026-05-18.log",
+            snapshot.LogPath);
+    }
+
+    [TestMethod]
     public void UsesPrimaryTargetCapabilityWhenSummaryCapabilityIsMissing()
     {
         var snapshot = GatewayStatusSnapshot.FromJson(
