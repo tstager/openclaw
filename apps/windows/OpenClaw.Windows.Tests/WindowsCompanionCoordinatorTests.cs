@@ -62,6 +62,7 @@ public sealed class WindowsCompanionCoordinatorTests
             Summary: AppBootstrap.CreateStartupSummary(),
             Gateway: gateway,
             Realtime: new GatewayRealtimeClient(store),
+            CanvasNode: new WindowsCanvasNodeClient(store, new DeviceIdentityStore(new InMemoryAppCredentialStore())),
             DeviceCapabilities: new WindowsDeviceCapabilityService(),
             OnboardingChecks: new OnboardingCheckService(runner, store),
             Preferences: store,
