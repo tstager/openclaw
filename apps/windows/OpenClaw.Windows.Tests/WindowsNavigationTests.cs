@@ -23,6 +23,7 @@ public sealed class WindowsNavigationTests
             new[]
             {
                 WindowsNavigationDestination.Home,
+                WindowsNavigationDestination.Chat,
                 WindowsNavigationDestination.Sessions,
                 WindowsNavigationDestination.Approvals,
                 WindowsNavigationDestination.Pairing,

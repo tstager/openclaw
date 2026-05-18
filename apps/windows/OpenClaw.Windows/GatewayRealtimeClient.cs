@@ -52,9 +52,22 @@ public sealed record GatewayRealtimeAuthorization(string? Role, IReadOnlyList<st
 }
 
 /// <summary>
-/// Chat transcript row shown in the Sessions page.
+/// Chat transcript row shown in the Chat page.
 /// </summary>
 public sealed record ChatMessage(string Role, string Text);
+
+/// <summary>
+/// Session row shown by the Windows session browser.
+/// </summary>
+public sealed record SessionSummary(
+    string Key,
+    string DisplayName,
+    string Kind,
+    string? AgentId,
+    string? Channel,
+    string? Status,
+    bool HasActiveRun,
+    DateTimeOffset? UpdatedAt);
 
 /// <summary>
 /// Pending command approval surfaced through the operator Approvals page.
@@ -274,6 +287,18 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
     }
 
     /// <summary>
+    /// Lists gateway sessions so the Windows shell can select the active chat target.
+    /// </summary>
+    public async Task<IReadOnlyList<SessionSummary>> ListSessionsAsync(CancellationToken cancellationToken = default)
+    {
+        var payload = await this.RequestAsync(
+            "sessions.list",
+            new { limit = 100, includeDerivedTitles = true, includeLastMessage = true },
+            cancellationToken);
+        return ParseSessionsListPayload(payload);
+    }
+
+    /// <summary>
     /// Requests pending command approvals from the gateway.
     /// </summary>
     public async Task<IReadOnlyList<PendingApproval>> ListApprovalsAsync(CancellationToken cancellationToken = default)
@@ -315,6 +340,28 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
         }
 
         return array.EnumerateArray().Select(ParsePendingApproval).ToArray();
+    }
+
+    /// <summary>
+    /// Accepts the gateway sessions.list payload and keeps only fields used by the Windows browser.
+    /// </summary>
+    public static IReadOnlyList<SessionSummary> ParseSessionsListPayload(JsonElement payload)
+    {
+        var array = payload.ValueKind == JsonValueKind.Array
+            ? payload
+            : payload.TryGetProperty("sessions", out var sessions) && sessions.ValueKind == JsonValueKind.Array
+                ? sessions
+                : default;
+        if (array.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        return array.EnumerateArray()
+            .Select(ParseSessionSummary)
+            .Where(static session => session is not null)
+            .Cast<SessionSummary>()
+            .ToArray();
     }
 
     /// <summary>
@@ -741,6 +788,31 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
         return string.IsNullOrWhiteSpace(text) ? null : new ChatMessage(role, text);
     }
 
+    private static SessionSummary? ParseSessionSummary(JsonElement element)
+    {
+        var key = ReadString(element, "key") ?? ReadString(element, "sessionKey");
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return null;
+        }
+
+        var displayName =
+            ReadString(element, "derivedTitle") ??
+            ReadString(element, "displayName") ??
+            ReadString(element, "label") ??
+            ReadString(element, "lastMessagePreview") ??
+            key;
+        return new SessionSummary(
+            key,
+            displayName,
+            ReadString(element, "kind") ?? "unknown",
+            ResolveAgentId(key),
+            ReadString(element, "channel") ?? ReadString(element, "lastChannel"),
+            ReadString(element, "status"),
+            ReadBool(element, "hasActiveRun") == true,
+            ReadUnixTimeMilliseconds(element, "updatedAt"));
+    }
+
     private static PendingApproval ParsePendingApproval(JsonElement element)
     {
         var id = ReadString(element, "id") ?? ReadString(element, "requestId") ?? "";
@@ -785,5 +857,58 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
             }
         }
         return current.ValueKind == JsonValueKind.String ? current.GetString() : null;
+    }
+
+    private static bool? ReadBool(JsonElement root, params string[] path)
+    {
+        var current = root;
+        foreach (var segment in path)
+        {
+            if (current.ValueKind != JsonValueKind.Object || !current.TryGetProperty(segment, out current))
+            {
+                return null;
+            }
+        }
+
+        return current.ValueKind switch
+        {
+            JsonValueKind.True => true,
+            JsonValueKind.False => false,
+            _ => null,
+        };
+    }
+
+    private static DateTimeOffset? ReadUnixTimeMilliseconds(JsonElement root, params string[] path)
+    {
+        var current = root;
+        foreach (var segment in path)
+        {
+            if (current.ValueKind != JsonValueKind.Object || !current.TryGetProperty(segment, out current))
+            {
+                return null;
+            }
+        }
+
+        if (current.ValueKind != JsonValueKind.Number || !current.TryGetInt64(out var value))
+        {
+            return null;
+        }
+
+        try
+        {
+            return DateTimeOffset.FromUnixTimeMilliseconds(value);
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return null;
+        }
+    }
+
+    private static string? ResolveAgentId(string sessionKey)
+    {
+        var parts = sessionKey.Split(':', StringSplitOptions.RemoveEmptyEntries);
+        return parts.Length >= 2 && string.Equals(parts[0], "agent", StringComparison.Ordinal)
+            ? parts[1]
+            : null;
     }
 }
