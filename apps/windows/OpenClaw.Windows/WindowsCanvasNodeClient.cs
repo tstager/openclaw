@@ -19,7 +19,8 @@ public enum WindowsCanvasNodeState
 
 public sealed class WindowsCanvasNodeClient : IAsyncDisposable
 {
-    private const string ClientId = "openclaw-windows";
+    // The current stable gateway still rejects openclaw-windows as a node client id.
+    private const string ClientId = "openclaw-macos";
     private const string ClientMode = "node";
     private const string ClientRole = "node";
     private static readonly TimeSpan DefaultRequestTimeout = TimeSpan.FromSeconds(30);
