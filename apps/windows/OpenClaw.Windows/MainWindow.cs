@@ -1878,8 +1878,17 @@ public sealed class MainWindow : Window
         }
 
         this.canvasStatusText.Text = "Connecting Canvas node...";
-        await this.appState.CanvasNode.ReconnectAsync();
-        await this.RefreshCanvasA2UIAsync(forceRefresh: false);
+        try
+        {
+            await this.appState.CanvasNode.ReconnectAsync();
+            await this.RefreshCanvasA2UIAsync(forceRefresh: false);
+        }
+        catch (Exception ex)
+        {
+            this.canvasStatusText.Text = "Canvas node connection failed";
+            this.canvasDetailText.Text = ex.Message;
+            CrashLog.Write(ex);
+        }
     }
 
     private async Task RefreshChatAsync()
