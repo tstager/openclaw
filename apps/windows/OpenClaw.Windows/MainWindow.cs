@@ -67,6 +67,11 @@ public sealed class MainWindow : Window
     private bool updatingSessionEventVisibilityControls;
     private readonly XamlButton chatRefreshButton = new();
     private readonly XamlButton chatSendButton = new();
+    private readonly StackPanel sessionsList = new() { Spacing = 8 };
+    private readonly TextBlock sessionsStatusText = new();
+    private readonly XamlButton sessionsRefreshButton = new();
+    private IReadOnlyList<SessionSummary> latestSessions = [];
+    private string? latestSessionsError;
     private readonly StackPanel approvalsList = new() { Spacing = 8 };
     private readonly TextBlock approvalsStatusText = new();
     private readonly StackPanel pairingList = new() { Spacing = 8 };
@@ -407,7 +412,8 @@ public sealed class MainWindow : Window
         page = tag switch
         {
             WindowsNavigationDestination.Home => this.BuildPage(WindowsNavigationService.PageTitle(tag), Scrollable(this.BuildHomeDashboardPanel())),
-            WindowsNavigationDestination.Sessions => this.BuildPage(WindowsNavigationService.PageTitle(tag), Scrollable(this.BuildChatPanel())),
+            WindowsNavigationDestination.Chat => this.BuildPage(WindowsNavigationService.PageTitle(tag), Scrollable(this.BuildChatPanel())),
+            WindowsNavigationDestination.Sessions => this.BuildPage(WindowsNavigationService.PageTitle(tag), Scrollable(this.BuildSessionsPanel())),
             WindowsNavigationDestination.Approvals => this.BuildPage(WindowsNavigationService.PageTitle(tag), Scrollable(this.BuildApprovalsPanel())),
             WindowsNavigationDestination.Pairing => this.BuildPage(WindowsNavigationService.PageTitle(tag), Scrollable(this.BuildPairingPanel())),
             WindowsNavigationDestination.Devices => this.BuildPage(WindowsNavigationService.PageTitle(tag), Scrollable(this.BuildDevicesPanel())),
@@ -643,7 +649,6 @@ public sealed class MainWindow : Window
         panel.Children.Add(header);
 
         panel.Children.Add(BuildDashboardCard("Session state", this.chatStateText));
-        panel.Children.Add(BuildDashboardCard("Event visibility", this.BuildChatEventVisibilityPanel()));
 
         var conversation = new Border
         {
@@ -660,13 +665,49 @@ public sealed class MainWindow : Window
                 {
                     this.chatEmptyText,
                     this.chatMessages,
-                    this.chatEventMessages,
                 },
             },
         };
         panel.Children.Add(conversation);
         panel.Children.Add(BuildDashboardCard("Composer", this.chatInput));
         this.RenderChatWorkspace();
+        return panel;
+    }
+
+    private UIElement BuildSessionsPanel()
+    {
+        var panel = new StackPanel { Spacing = 16 };
+        this.sessionsStatusText.TextWrapping = TextWrapping.Wrap;
+        this.sessionsStatusText.Foreground = ResourceBrush("TextFillColorSecondaryBrush");
+
+        var header = new Grid
+        {
+            ColumnSpacing = 12,
+            ColumnDefinitions =
+            {
+                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                new ColumnDefinition { Width = GridLength.Auto },
+            },
+        };
+        var headerText = new StackPanel { Spacing = 4 };
+        headerText.Children.Add(new TextBlock
+        {
+            Text = "Session browser",
+            FontSize = 20,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+        });
+        headerText.Children.Add(this.sessionsStatusText);
+        header.Children.Add(headerText);
+
+        this.sessionsRefreshButton.Content = "Refresh";
+        this.sessionsRefreshButton.AccessKey = "R";
+        this.sessionsRefreshButton.Command = this.CreateCommand(async () => await this.RefreshSessionsAsync());
+        AutomationProperties.SetName(this.sessionsRefreshButton, "Refresh sessions");
+        Grid.SetColumn(this.sessionsRefreshButton, 1);
+        header.Children.Add(this.sessionsRefreshButton);
+        panel.Children.Add(header);
+        panel.Children.Add(this.sessionsList);
+        this.RenderSessions();
         return panel;
     }
 
@@ -981,7 +1022,7 @@ public sealed class MainWindow : Window
             return current with { SessionEventVisibility = nextVisibility };
         });
         this.sessionEventVisibility = preferences.SessionEventVisibility.WithObservedEvents(this.chatRealtimeEvents);
-        this.RenderChatWorkspace();
+        this.RenderGatewayEvents();
     }
 
     private void OnThemePreferenceSelectionChanged(object sender, SelectionChangedEventArgs args)
@@ -1087,6 +1128,8 @@ public sealed class MainWindow : Window
         panel.Children.Add(buttons);
         panel.Children.Add(BuildDashboardCard("Diagnostics", this.logsDiagnosticsRows));
         panel.Children.Add(BuildDashboardCard("Locations", this.logsLocationCards));
+        panel.Children.Add(BuildDashboardCard("Gateway events", this.BuildChatEventVisibilityPanel()));
+        panel.Children.Add(BuildDashboardCard("Filtered gateway events", this.chatEventMessages));
         panel.Children.Add(BuildDashboardCard("Raw log preview", this.rawLogsText));
         this.RenderLogsDiagnostics();
         return panel;
@@ -1149,6 +1192,7 @@ public sealed class MainWindow : Window
             this.RenderHomeDashboard();
             this.RenderApprovals();
             this.RenderPairing();
+            this.RenderSessions();
             this.RenderLogsDiagnostics();
             this.RenderChatWorkspace();
         });
@@ -1162,7 +1206,7 @@ public sealed class MainWindow : Window
             this.homeActivityText.Text = this.coordinator.LastActivity ?? "";
             SessionEventVisibility.AddBounded(this.chatRealtimeEvents, @event);
             this.sessionEventVisibility = this.sessionEventVisibility.WithObservedEvents(this.chatRealtimeEvents);
-            this.RenderChatWorkspace();
+            this.RenderLogsDiagnostics();
         });
     }
 
@@ -1256,6 +1300,10 @@ public sealed class MainWindow : Window
             this.RenderSettingsStorage();
             this.RenderLogsDiagnostics();
             await this.RefreshDeviceCapabilitiesAsync();
+            if (this.appState.Realtime.State == GatewayRealtimeState.Connected)
+            {
+                await this.RefreshSessionsAsync();
+            }
         }
         catch (Exception ex)
         {
@@ -1273,6 +1321,7 @@ public sealed class MainWindow : Window
         await this.SaveSettingsAsync();
         await this.appState.Realtime.ReconnectAsync();
         await this.RefreshChatAsync();
+        await this.RefreshSessionsAsync();
         await this.RefreshApprovalsAsync();
         await this.RefreshPairingAsync();
     }
@@ -1283,7 +1332,6 @@ public sealed class MainWindow : Window
         {
             var preferences = await this.appState.Preferences.LoadAsync();
             var messages = await this.appState.Realtime.LoadChatHistoryAsync(preferences.ChatSessionKey);
-            this.chatRealtimeEvents.Clear();
             this.chatState.ApplyMessages(messages, this.appState.Realtime.State);
             this.RenderChatWorkspace(preferences.ChatSessionKey);
         }
@@ -1292,6 +1340,23 @@ public sealed class MainWindow : Window
             this.chatState.ApplyFailure(ex);
             this.RenderChatWorkspace();
             throw;
+        }
+    }
+
+    private async Task RefreshSessionsAsync()
+    {
+        try
+        {
+            this.sessionsStatusText.Text = "Loading sessions...";
+            this.latestSessionsError = null;
+            this.latestSessions = await this.appState.Realtime.ListSessionsAsync();
+            this.RenderSessions();
+        }
+        catch (Exception ex)
+        {
+            this.latestSessionsError = ex.Message;
+            this.latestSessions = [];
+            this.RenderSessions();
         }
     }
 
@@ -1352,6 +1417,7 @@ public sealed class MainWindow : Window
             $"Gateway status: {summary.GatewayStatus}\n" +
             $"Last error: {summary.LastError}\n" +
             $"Last refresh: {summary.LastRefresh}";
+        this.RenderGatewayEvents();
     }
 
     private UIElement BuildLogLocationCard(
@@ -1507,20 +1573,9 @@ public sealed class MainWindow : Window
         this.chatSendButton.IsEnabled = this.chatState.Status != ChatWorkspaceStatus.Sending;
         this.chatRefreshButton.IsEnabled = this.chatState.Status != ChatWorkspaceStatus.Sending;
 
-        var visibleEvents = SessionEventVisibility.Filter(
-            this.chatRealtimeEvents,
-            this.sessionEventVisibility,
-            activeSession);
-        var hiddenEventCount = SessionEventVisibility.CountHidden(
-            this.chatRealtimeEvents,
-            this.sessionEventVisibility,
-            activeSession);
-
-        this.chatEmptyText.Text = hiddenEventCount > 0
-            ? $"No visible realtime events match the current filters. {hiddenEventCount} hidden event{Plural(hiddenEventCount)} can be restored from Event visibility."
-            : "No messages in this session yet.";
+        this.chatEmptyText.Text = "No messages in this session yet.";
         this.chatEmptyText.Visibility =
-            this.chatState.Messages.Count == 0 && visibleEvents.Count == 0
+            this.chatState.Messages.Count == 0
                 ? Visibility.Visible
                 : Visibility.Collapsed;
         this.chatMessages.Children.Clear();
@@ -1528,13 +1583,35 @@ public sealed class MainWindow : Window
         {
             this.chatMessages.Children.Add(BuildChatMessageRow(message));
         }
+    }
 
+    private void RenderGatewayEvents()
+    {
+        var visibleEvents = SessionEventVisibility.Filter(
+            this.chatRealtimeEvents,
+            this.sessionEventVisibility,
+            activeSession: null);
+        var hiddenEventCount = SessionEventVisibility.CountHidden(
+            this.chatRealtimeEvents,
+            this.sessionEventVisibility,
+            activeSession: null);
         this.chatEventMessages.Children.Clear();
+        if (visibleEvents.Count == 0)
+        {
+            this.chatEventMessages.Children.Add(new TextBlock
+            {
+                Text = hiddenEventCount > 0
+                    ? $"No visible gateway events match the current filters. {hiddenEventCount} hidden event{Plural(hiddenEventCount)} can be restored."
+                    : "No gateway events captured yet.",
+                TextWrapping = TextWrapping.Wrap,
+                Foreground = ResourceBrush("TextFillColorSecondaryBrush"),
+            });
+        }
         foreach (var @event in visibleEvents)
         {
             this.chatEventMessages.Children.Add(BuildChatEventRow(@event));
         }
-        this.RenderChatEventVisibilityControls(activeSession, hiddenEventCount);
+        this.RenderChatEventVisibilityControls("all sessions", hiddenEventCount);
     }
 
     private void RenderChatEventVisibilityControls(string activeSession, int hiddenEventCount)
@@ -1671,6 +1748,104 @@ public sealed class MainWindow : Window
             TextWrapping = TextWrapping.Wrap,
             Foreground = ResourceBrush("TextFillColorSecondaryBrush"),
         };
+    }
+
+    private void RenderSessions()
+    {
+        this.sessionsRefreshButton.IsEnabled = this.appState.Realtime.State == GatewayRealtimeState.Connected;
+        this.sessionsList.Children.Clear();
+        if (this.latestSessions.Count == 0)
+        {
+            this.sessionsStatusText.Text = !string.IsNullOrWhiteSpace(this.latestSessionsError)
+                ? $"Sessions unavailable: {this.latestSessionsError}"
+                : this.appState.Realtime.State == GatewayRealtimeState.Connected
+                ? "No sessions returned by the gateway."
+                : "Connect to the Gateway to load sessions.";
+            this.sessionsList.Children.Add(new TextBlock
+            {
+                Text = this.sessionsStatusText.Text,
+                TextWrapping = TextWrapping.Wrap,
+                Foreground = ResourceBrush("TextFillColorSecondaryBrush"),
+            });
+            return;
+        }
+
+        var activeSession = string.IsNullOrWhiteSpace(this.chatSessionInput.Text)
+            ? AppPreferences.Default.ChatSessionKey
+            : this.chatSessionInput.Text.Trim();
+        this.sessionsStatusText.Text = $"{this.latestSessions.Count} session{Plural(this.latestSessions.Count)} available. Active chat session: {activeSession}.";
+        foreach (var session in this.latestSessions)
+        {
+            this.sessionsList.Children.Add(this.BuildSessionRow(session, activeSession));
+        }
+    }
+
+    private UIElement BuildSessionRow(SessionSummary session, string activeSession)
+    {
+        var body = new Grid
+        {
+            ColumnSpacing = 12,
+            ColumnDefinitions =
+            {
+                new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                new ColumnDefinition { Width = GridLength.Auto },
+            },
+        };
+        var details = new StackPanel { Spacing = 6 };
+        details.Children.Add(new TextBlock
+        {
+            Text = session.DisplayName,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap,
+        });
+        details.Children.Add(new TextBlock
+        {
+            Text = session.Key,
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = ResourceBrush("TextFillColorSecondaryBrush"),
+        });
+        details.Children.Add(BuildDashboardRow("Kind", session.Kind));
+        details.Children.Add(BuildDashboardRow("Agent", session.AgentId ?? "unknown"));
+        details.Children.Add(BuildDashboardRow("Channel", session.Channel ?? "unknown"));
+        details.Children.Add(BuildDashboardRow("State", SessionStateLabel(session)));
+        details.Children.Add(BuildDashboardRow("Updated", session.UpdatedAt?.ToLocalTime().ToString("g", CultureInfo.CurrentCulture) ?? "unknown"));
+        body.Children.Add(details);
+
+        var selectButton = new XamlButton
+        {
+            Content = string.Equals(session.Key, activeSession, StringComparison.Ordinal) ? "Active" : "Use in Chat",
+            IsEnabled = !string.Equals(session.Key, activeSession, StringComparison.Ordinal),
+            Command = this.CreateCommand(async () => await this.SelectChatSessionAsync(session.Key)),
+        };
+        AutomationProperties.SetName(selectButton, $"Use {session.Key} in Chat");
+        Grid.SetColumn(selectButton, 1);
+        body.Children.Add(selectButton);
+        return BuildDashboardCard(null, body);
+    }
+
+    private async Task SelectChatSessionAsync(string sessionKey)
+    {
+        if (string.IsNullOrWhiteSpace(sessionKey))
+        {
+            return;
+        }
+
+        var normalized = sessionKey.Trim();
+        await this.appState.Preferences.UpdateAsync(current => current with { ChatSessionKey = normalized });
+        this.chatSessionInput.Text = normalized;
+        this.RenderSessions();
+        await this.RefreshChatAsync();
+        this.ShowDestination(WindowsNavigationDestination.Chat);
+    }
+
+    private static string SessionStateLabel(SessionSummary session)
+    {
+        if (session.HasActiveRun)
+        {
+            return "active";
+        }
+
+        return string.IsNullOrWhiteSpace(session.Status) ? "idle" : session.Status!;
     }
 
     private async Task RefreshApprovalsAsync()

@@ -6,6 +6,7 @@ namespace OpenClaw.Windows;
 public static class WindowsNavigationDestination
 {
     public const string Home = "home";
+    public const string Chat = "chat";
     public const string Sessions = "sessions";
     public const string Approvals = "approvals";
     public const string Pairing = "pairing";
@@ -28,6 +29,7 @@ public sealed class WindowsNavigationService
     public IReadOnlyList<WindowsNavigationItem> PrimaryItems { get; } =
     [
         new("Home", WindowsNavigationDestination.Home, "\uE80F"),
+        new("Chat", WindowsNavigationDestination.Chat, "\uE8F2"),
         new("Sessions", WindowsNavigationDestination.Sessions, "\uE8BD"),
         new("Approvals", WindowsNavigationDestination.Approvals, "\uE73E"),
         new("Pairing", WindowsNavigationDestination.Pairing, "\uE71B"),
@@ -43,6 +45,7 @@ public sealed class WindowsNavigationService
         return destination switch
         {
             WindowsNavigationDestination.Home => WindowsNavigationDestination.Home,
+            WindowsNavigationDestination.Chat => WindowsNavigationDestination.Chat,
             WindowsNavigationDestination.Sessions => WindowsNavigationDestination.Sessions,
             WindowsNavigationDestination.Approvals => WindowsNavigationDestination.Approvals,
             WindowsNavigationDestination.Pairing => WindowsNavigationDestination.Pairing,
@@ -61,6 +64,7 @@ public sealed class WindowsNavigationService
     {
         return Normalize(destination) switch
         {
+            WindowsNavigationDestination.Chat => "Chat",
             WindowsNavigationDestination.Sessions => "Sessions",
             WindowsNavigationDestination.Approvals => "Approvals",
             WindowsNavigationDestination.Pairing => "Pairing",
