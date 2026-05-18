@@ -19,14 +19,11 @@ public enum WindowsCanvasNodeState
 
 public sealed class WindowsCanvasNodeClient : IAsyncDisposable
 {
-    // The current stable gateway still rejects openclaw-windows as a node client id.
-    private const string ClientId = "openclaw-macos";
+    private const string ClientId = "openclaw-windows";
     private const string ClientMode = "node";
     private const string ClientRole = "node";
-    private const int InvokeResultSendReserveMs = 2_500;
     private static readonly TimeSpan DefaultRequestTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan DisconnectCloseTimeout = TimeSpan.FromSeconds(2);
-    private static readonly TimeSpan MinimumInvokeHandlerTimeout = TimeSpan.FromSeconds(1);
     private readonly AppPreferencesStore preferences;
     private readonly DeviceIdentityStore deviceIdentityStore;
     private readonly TimeSpan requestTimeout;
@@ -37,7 +34,6 @@ public sealed class WindowsCanvasNodeClient : IAsyncDisposable
     private CancellationTokenSource? receiveCts;
     private Task? receiveTask;
     private TaskCompletionSource<string>? connectChallenge;
-    private string? nodeId;
     private int nextRequestId;
 
     public WindowsCanvasNodeClient(
@@ -129,7 +125,6 @@ public sealed class WindowsCanvasNodeClient : IAsyncDisposable
         this.connectChallenge?.TrySetCanceled();
         this.connectChallenge = null;
         this.socket = null;
-        this.nodeId = null;
         this.SetCanvasSurfaceUrl(null);
 
         if (socketToClose is { State: WebSocketState.Open or WebSocketState.CloseReceived })
@@ -177,7 +172,6 @@ public sealed class WindowsCanvasNodeClient : IAsyncDisposable
         }
 
         var identity = await this.deviceIdentityStore.LoadOrCreateAsync(cancellationToken);
-        this.nodeId = identity.DeviceId;
         var nonce = await this.WaitForConnectChallengeAsync(cancellationToken);
         var signedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var signedPayload = DeviceIdentityStore.BuildDeviceAuthPayloadV3(
@@ -339,11 +333,8 @@ public sealed class WindowsCanvasNodeClient : IAsyncDisposable
         if (string.Equals(eventName, "node.invoke.request", StringComparison.Ordinal) &&
             frame.TryGetProperty("payload", out var invokePayload))
         {
-            CrashLog.WriteMessage(
-                $"Canvas node invoke received: command={ReadString(invokePayload, "command") ?? ""} id={ReadString(invokePayload, "id") ?? ""} nodeId={ReadString(invokePayload, "nodeId") ?? ""} timeoutMs={ReadInt(invokePayload, "timeoutMs")?.ToString(CultureInfo.InvariantCulture) ?? ""}");
-            var clonedPayload = invokePayload.Clone();
             _ = Task.Run(
-                async () => await this.HandleInvokeRequestAsync(clonedPayload, cancellationToken),
+                async () => await this.HandleInvokeRequestAsync(invokePayload.Clone(), cancellationToken),
                 CancellationToken.None);
         }
     }
@@ -364,90 +355,25 @@ public sealed class WindowsCanvasNodeClient : IAsyncDisposable
             ReadString(payload, "id") ?? "",
             ReadString(payload, "command") ?? "",
             ReadString(payload, "paramsJSON"),
-            ReadString(payload, "nodeId") ?? this.nodeId ?? "",
-            ReadInt(payload, "timeoutMs"));
-        var startedAt = DateTimeOffset.UtcNow;
-        WindowsCanvasInvokeResponse response;
-        try
-        {
-            CrashLog.WriteMessage(
-                $"Canvas node invoke handling: command={request.Command} id={request.Id} nodeId={request.NodeId} timeoutMs={request.TimeoutMs?.ToString(CultureInfo.InvariantCulture) ?? ""}");
-            var handler = this.InvokeAsync;
-            if (handler is null)
+            ReadString(payload, "nodeId"));
+        var handler = this.InvokeAsync;
+        var response = handler is null
+            ? WindowsCanvasInvokeResponse.Failure("UNAVAILABLE", "Windows Canvas handler is not ready.")
+            : await handler(request, cancellationToken);
+
+        await this.RequestAsync(
+            "node.invoke.result",
+            new
             {
-                response = WindowsCanvasInvokeResponse.Failure("UNAVAILABLE", "Windows Canvas handler is not ready.");
-            }
-            else
-            {
-                using var handlerCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                var handlerTimeout = ResolveInvokeHandlerTimeout(request.TimeoutMs);
-                handlerCts.CancelAfter(handlerTimeout);
-                response = await handler(request, handlerCts.Token);
-            }
-        }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        {
-            var handlerTimeout = ResolveInvokeHandlerTimeout(request.TimeoutMs);
-            response = WindowsCanvasInvokeResponse.Failure(
-                "TIMEOUT",
-                $"Windows Canvas command timed out after {handlerTimeout.TotalSeconds:0.#} seconds.");
-        }
-        catch (Exception ex)
-        {
-            CrashLog.WriteMessage(
-                $"Canvas node invoke handler failed: command={request.Command} id={request.Id} nodeId={request.NodeId} error={ex}");
-            response = WindowsCanvasInvokeResponse.Failure("UNAVAILABLE", ex.Message);
-        }
-
-        try
-        {
-            CrashLog.WriteMessage(
-                $"Canvas node invoke result sending: command={request.Command} id={request.Id} nodeId={request.NodeId} ok={response.Ok} elapsedMs={(DateTimeOffset.UtcNow - startedAt).TotalMilliseconds:0}");
-            await this.SendInvokeResultAsync(request, response, cancellationToken);
-            CrashLog.WriteMessage(
-                $"Canvas node invoke result sent: command={request.Command} id={request.Id} nodeId={request.NodeId} ok={response.Ok} elapsedMs={(DateTimeOffset.UtcNow - startedAt).TotalMilliseconds:0}");
-        }
-        catch (Exception ex)
-        {
-            CrashLog.WriteMessage(
-                $"Canvas node invoke result failed: command={request.Command} id={request.Id} nodeId={request.NodeId} error={ex}");
-        }
-    }
-
-    private TimeSpan ResolveInvokeHandlerTimeout(int? gatewayTimeoutMs)
-    {
-        var requestTimeoutMs = (int)Math.Max(1, this.requestTimeout.TotalMilliseconds - InvokeResultSendReserveMs);
-        var timeoutMs = gatewayTimeoutMs is > InvokeResultSendReserveMs
-            ? gatewayTimeoutMs.Value - InvokeResultSendReserveMs
-            : requestTimeoutMs;
-        return TimeSpan.FromMilliseconds(Math.Max(
-            (int)MinimumInvokeHandlerTimeout.TotalMilliseconds,
-            Math.Min(timeoutMs, requestTimeoutMs)));
-    }
-
-    private async Task SendInvokeResultAsync(
-        WindowsCanvasInvokeRequest request,
-        WindowsCanvasInvokeResponse response,
-        CancellationToken cancellationToken)
-    {
-        var parameters = new Dictionary<string, object?>
-        {
-            ["id"] = request.Id,
-            ["nodeId"] = request.NodeId,
-            ["ok"] = response.Ok,
-        };
-
-        if (!string.IsNullOrWhiteSpace(response.PayloadJson))
-        {
-            parameters["payloadJSON"] = response.PayloadJson;
-        }
-
-        if (response.Error is not null)
-        {
-            parameters["error"] = new { code = response.Error.Code, message = response.Error.Message };
-        }
-
-        await this.RequestAsync("node.invoke.result", parameters, cancellationToken);
+                id = request.Id,
+                nodeId = request.NodeId,
+                ok = response.Ok,
+                payloadJSON = response.PayloadJson,
+                error = response.Error is null
+                    ? null
+                    : new { code = response.Error.Code, message = response.Error.Message },
+            },
+            cancellationToken);
     }
 
     private void HandleResponse(JsonElement response)
@@ -570,23 +496,11 @@ public sealed class WindowsCanvasNodeClient : IAsyncDisposable
             result = await socketSnapshot.ReceiveAsync(buffer, cancellationToken);
             if (result.MessageType == WebSocketMessageType.Close)
             {
-                throw new IOException(FormatWebSocketCloseMessage(
-                    "Gateway node WebSocket closed",
-                    result.CloseStatus,
-                    result.CloseStatusDescription));
+                return null;
             }
             stream.Write(buffer, 0, result.Count);
         } while (!result.EndOfMessage);
         return Encoding.UTF8.GetString(stream.ToArray());
-    }
-
-    private static string FormatWebSocketCloseMessage(
-        string prefix,
-        WebSocketCloseStatus? status,
-        string? description)
-    {
-        var message = status is null ? prefix : $"{prefix}: {status}";
-        return string.IsNullOrWhiteSpace(description) ? message : $"{message} - {description}";
     }
 
     private static string? NormalizeToken(string? token)
@@ -600,16 +514,6 @@ public sealed class WindowsCanvasNodeClient : IAsyncDisposable
                root.TryGetProperty(propertyName, out var value) &&
                value.ValueKind == JsonValueKind.String
             ? value.GetString()
-            : null;
-    }
-
-    private static int? ReadInt(JsonElement root, string propertyName)
-    {
-        return root.ValueKind == JsonValueKind.Object &&
-               root.TryGetProperty(propertyName, out var value) &&
-               value.ValueKind == JsonValueKind.Number &&
-               value.TryGetInt32(out var result)
-            ? result
             : null;
     }
 }

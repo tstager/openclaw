@@ -18,6 +18,7 @@ public sealed record WindowsCompanionState(
     AppStartupSummary Summary,
     GatewayCompanionController Gateway,
     GatewayRealtimeClient Realtime,
+    WindowsCanvasNodeClient CanvasNode,
     WindowsDeviceCapabilityService DeviceCapabilities,
     OnboardingCheckService OnboardingChecks,
     AppPreferencesStore Preferences,
@@ -47,12 +48,14 @@ public static class AppBootstrap
     {
         var credentials = new PasswordVaultAppCredentialStore();
         var preferences = AppPreferencesStore.CreateDefault(credentials);
+        var deviceIdentityStore = new DeviceIdentityStore(credentials);
         var commandRunner = GatewayCliCommandRunner.CreateDefault();
         var gateway = new GatewayCompanionController(commandRunner, preferences);
         return new WindowsCompanionState(
             Summary: CreateStartupSummary(),
             Gateway: gateway,
-            Realtime: new GatewayRealtimeClient(preferences, new DeviceIdentityStore(credentials)),
+            Realtime: new GatewayRealtimeClient(preferences, deviceIdentityStore),
+            CanvasNode: new WindowsCanvasNodeClient(preferences, deviceIdentityStore),
             DeviceCapabilities: new WindowsDeviceCapabilityService(),
             OnboardingChecks: new OnboardingCheckService(commandRunner, preferences),
             Preferences: preferences,

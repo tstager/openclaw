@@ -24,6 +24,7 @@ public sealed class WindowsNavigationTests
             {
                 WindowsNavigationDestination.Home,
                 WindowsNavigationDestination.Chat,
+                WindowsNavigationDestination.Canvas,
                 WindowsNavigationDestination.Sessions,
                 WindowsNavigationDestination.Approvals,
                 WindowsNavigationDestination.Pairing,

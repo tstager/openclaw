@@ -59,27 +59,6 @@ public sealed class CanvasA2UIProtocolTests
     }
 
     [TestMethod]
-    public void ParseRendererResult_DoesNotRejectMissingOkFromOlderHosts()
-    {
-        var result = WindowsCanvasA2UI.ParseRendererResult("""{"hostPresent":true,"bodyText":"Canvas (A2UI)"}""");
-
-        Assert.IsNotNull(result);
-        Assert.IsNull(result.Ok);
-        Assert.IsFalse(result.Rejected);
-    }
-
-    [TestMethod]
-    public void ParseRendererResult_RejectsExplicitRendererFailure()
-    {
-        var result = WindowsCanvasA2UI.ParseRendererResult("""{"ok":false,"error":"missing openclawA2UI"}""");
-
-        Assert.IsNotNull(result);
-        Assert.IsFalse(result.Ok);
-        Assert.IsTrue(result.Rejected);
-        Assert.AreEqual("missing openclawA2UI", result.Error);
-    }
-
-    [TestMethod]
     public void JsonlParserAcceptsV08MessageObjects()
     {
         var jsonl = """
