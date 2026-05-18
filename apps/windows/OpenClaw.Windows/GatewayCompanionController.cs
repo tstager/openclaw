@@ -198,14 +198,13 @@ public sealed record GatewayStatusSnapshot(
         var state =
             ReadString(root, "runtime", "state") ??
             ReadString(root, "service", "state") ??
+            ReadString(root, "service", "runtime", "status") ??
             ReadString(root, "status") ??
             (reachable ? "running" : "unknown");
 
         return new GatewayStatusSnapshot(
             State: state,
-            ServiceInstalled:
-                ReadBool(root, "service", "installed") ??
-                !string.Equals(ReadString(root, "service", "state"), "not_installed", StringComparison.OrdinalIgnoreCase),
+            ServiceInstalled: ResolveServiceInstalled(root),
             Reachable: reachable,
             Capability:
                 ReadString(root, "rpc", "capability") ??
@@ -219,12 +218,31 @@ public sealed record GatewayStatusSnapshot(
                 ReadString(root, "url") ??
                 DeriveDashboardUrl(root, primaryTarget),
             LogPath:
+                ReadString(root, "logFile") ??
                 ReadString(root, "logs", "file") ??
                 ReadString(root, "log", "path") ??
                 ReadString(root, "logPath"),
             AuthWarning: ReadString(root, "rpc", "authWarning"),
             Error: ReadString(root, "error") ?? ReadString(root, "message"),
             RawJson: json);
+    }
+
+    private static bool ResolveServiceInstalled(JsonElement root)
+    {
+        if (ReadBool(root, "service", "installed") is { } installed)
+        {
+            return installed;
+        }
+
+        if (ReadBool(root, "service", "loaded") is { } loaded)
+        {
+            return loaded;
+        }
+
+        return !string.Equals(
+            ReadString(root, "service", "state"),
+            "not_installed",
+            StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
