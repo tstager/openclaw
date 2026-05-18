@@ -41,6 +41,45 @@ public sealed class GatewayRealtimeClientTests
     }
 
     [TestMethod]
+    public void ParsesSessionsListPayload()
+    {
+        using var document = JsonDocument.Parse(
+            """
+            {
+              "sessions": [
+                {
+                  "key": "agent:main:dashboard:abc",
+                  "kind": "direct",
+                  "derivedTitle": "Investigate Windows app",
+                  "channel": "dashboard",
+                  "status": "running",
+                  "hasActiveRun": true,
+                  "updatedAt": 1710000000000
+                },
+                {
+                  "key": "agent:ops:main",
+                  "displayName": "Ops main"
+                }
+              ]
+            }
+            """);
+
+        var sessions = GatewayRealtimeClient.ParseSessionsListPayload(document.RootElement);
+
+        Assert.HasCount(2, sessions);
+        Assert.AreEqual("agent:main:dashboard:abc", sessions[0].Key);
+        Assert.AreEqual("Investigate Windows app", sessions[0].DisplayName);
+        Assert.AreEqual("main", sessions[0].AgentId);
+        Assert.AreEqual("dashboard", sessions[0].Channel);
+        Assert.AreEqual("running", sessions[0].Status);
+        Assert.IsTrue(sessions[0].HasActiveRun);
+        Assert.IsNotNull(sessions[0].UpdatedAt);
+        Assert.AreEqual("agent:ops:main", sessions[1].Key);
+        Assert.AreEqual("Ops main", sessions[1].DisplayName);
+        Assert.AreEqual("ops", sessions[1].AgentId);
+    }
+
+    [TestMethod]
     public void ParsesPairingPayload()
     {
         using var document = JsonDocument.Parse(
