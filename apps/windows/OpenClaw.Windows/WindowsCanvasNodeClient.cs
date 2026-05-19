@@ -497,11 +497,23 @@ public sealed class WindowsCanvasNodeClient : IAsyncDisposable
             result = await socketSnapshot.ReceiveAsync(buffer, cancellationToken);
             if (result.MessageType == WebSocketMessageType.Close)
             {
-                return null;
+                throw new IOException(FormatWebSocketCloseMessage(
+                    "Gateway node WebSocket closed",
+                    result.CloseStatus,
+                    result.CloseStatusDescription));
             }
             stream.Write(buffer, 0, result.Count);
         } while (!result.EndOfMessage);
         return Encoding.UTF8.GetString(stream.ToArray());
+    }
+
+    private static string FormatWebSocketCloseMessage(
+        string prefix,
+        WebSocketCloseStatus? status,
+        string? description)
+    {
+        var message = status is null ? prefix : $"{prefix}: {status}";
+        return string.IsNullOrWhiteSpace(description) ? message : $"{message} - {description}";
     }
 
     private static string? NormalizeToken(string? token)

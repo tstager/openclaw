@@ -144,7 +144,7 @@ public sealed class GatewayRealtimeClientTests
         var exception = await ThrowsAsync<IOException>(async () =>
             await client.LoadChatHistoryAsync("main"));
 
-        StringAssert.Contains(exception.Message, "closed");
+        StringAssert.Contains(exception.Message, "Gateway WebSocket closed: EndpointUnavailable - test close");
         Assert.AreEqual(GatewayRealtimeState.Disconnected, client.State);
         await client.DisposeAsync();
     }
