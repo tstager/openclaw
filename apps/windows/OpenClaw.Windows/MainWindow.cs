@@ -1324,9 +1324,11 @@ public sealed class MainWindow : Window
         {
             if (state != WindowsCanvasNodeState.Connected)
             {
-                this.canvasNavigationTargetUrl = null;
-                this.canvasLoadedA2UIUrl = null;
-                this.canvasActiveNavigationId = null;
+                this.ResetCanvasNavigationState();
+                if (!string.IsNullOrWhiteSpace(reason))
+                {
+                    CrashLog.WriteMessage($"Canvas node disconnected: {state} - {reason}");
+                }
             }
             this.canvasStatusText.Text = $"Canvas node: {state}";
             if (!string.IsNullOrWhiteSpace(reason))
@@ -1348,9 +1350,7 @@ public sealed class MainWindow : Window
             }
             else
             {
-                this.canvasNavigationTargetUrl = null;
-                this.canvasLoadedA2UIUrl = null;
-                this.canvasActiveNavigationId = null;
+                this.ResetCanvasNavigationState();
             }
             this.RenderCanvasState();
             this.RenderDeviceCapabilityCards();
@@ -1378,7 +1378,7 @@ public sealed class MainWindow : Window
 
     private async Task NavigateCanvasToA2UIAsync(string a2uiUrl)
     {
-        if (this.canvasWebView is null)
+        if (this.canvasWebView is null || this.appState.CanvasNode.State != WindowsCanvasNodeState.Connected)
         {
             return;
         }
@@ -1412,6 +1412,13 @@ public sealed class MainWindow : Window
 
     private void OnCanvasNavigationStarting(XamlWebView2 sender, CoreWebView2NavigationStartingEventArgs args)
     {
+        if (this.appState.CanvasNode.State != WindowsCanvasNodeState.Connected)
+        {
+            args.Cancel = true;
+            this.ResetCanvasNavigationState();
+            return;
+        }
+
         if (WindowsCanvasA2UIUrl.IsTrustedA2UIUrl(args.Uri, this.canvasTrustedA2UIUrl))
         {
             this.canvasActiveNavigationId = args.NavigationId;
@@ -1426,6 +1433,12 @@ public sealed class MainWindow : Window
 
     private void OnCanvasNavigationCompleted(XamlWebView2 sender, CoreWebView2NavigationCompletedEventArgs args)
     {
+        if (this.appState.CanvasNode.State != WindowsCanvasNodeState.Connected)
+        {
+            this.ResetCanvasNavigationState();
+            return;
+        }
+
         if (this.canvasActiveNavigationId is { } activeNavigationId &&
             args.NavigationId != activeNavigationId)
         {
@@ -1447,6 +1460,14 @@ public sealed class MainWindow : Window
                 ? args.WebErrorStatus.ToString()
                 : $"{args.WebErrorStatus}: {targetUrl}";
         }
+    }
+
+    private void ResetCanvasNavigationState()
+    {
+        this.canvasTrustedA2UIUrl = null;
+        this.canvasNavigationTargetUrl = null;
+        this.canvasLoadedA2UIUrl = null;
+        this.canvasActiveNavigationId = null;
     }
 
     private async void OnCanvasCoreWebView2Initialized(XamlWebView2 sender, CoreWebView2InitializedEventArgs args)

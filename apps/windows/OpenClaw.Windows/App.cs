@@ -139,6 +139,21 @@ internal static class CrashLog
     /// </summary>
     public static void Write(Exception exception)
     {
+        WriteEntry(exception.ToString());
+    }
+
+    public static void WriteMessage(string message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+        {
+            return;
+        }
+
+        WriteEntry(message.Trim());
+    }
+
+    private static void WriteEntry(string message)
+    {
         var directory = System.IO.Path.GetDirectoryName(Path);
         if (!string.IsNullOrWhiteSpace(directory))
         {
@@ -147,6 +162,6 @@ internal static class CrashLog
 
         File.AppendAllText(
             Path,
-            $"[{DateTimeOffset.Now:O}] {exception}\n\n");
+            $"[{DateTimeOffset.Now:O}] {message}\n\n");
     }
 }
