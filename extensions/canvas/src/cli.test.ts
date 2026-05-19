@@ -14,11 +14,11 @@ function createCanvasCliDeps() {
   };
   const deps: CanvasCliDependencies = {
     defaultRuntime: runtime,
-    nodesCallOpts: (cmd) =>
+    nodesCallOpts: (cmd, defaults) =>
       cmd
         .option("--url <url>", "Gateway WebSocket URL")
         .option("--token <token>", "Gateway token")
-        .option("--timeout <ms>", "Timeout in ms", "10000")
+        .option("--timeout <ms>", "Timeout in ms", String(defaults?.timeoutMs ?? 10_000))
         .option("--json", "Output JSON", false),
     runNodesCommand: async (_label, action) => {
       await action();
@@ -64,7 +64,7 @@ describe("canvas CLI", () => {
       {
         node: "ios-node",
         format: "jpg",
-        timeout: "10000",
+        timeout: "60000",
         json: false,
         invokeTimeout: "20000",
       },
@@ -112,5 +112,31 @@ describe("canvas CLI", () => {
       }),
     ).rejects.toThrow(/invalid canvas\.snapshot payload/i);
     expect(writtenFiles).toHaveLength(0);
+  });
+
+  it("uses a longer gateway transport timeout for A2UI push", async () => {
+    const program = new Command();
+    program.exitOverride();
+    const nodes = program.command("nodes");
+    const { deps } = createCanvasCliDeps();
+
+    registerNodesCanvasCommands(nodes, deps);
+    await program.parseAsync(
+      ["nodes", "canvas", "a2ui", "push", "--node", "windows-node", "--text", "hello"],
+      { from: "user" },
+    );
+
+    expect(deps.callGatewayCli).toHaveBeenCalledWith(
+      "node.invoke",
+      expect.objectContaining({
+        node: "windows-node",
+        timeout: "60000",
+        text: "hello",
+      }),
+      expect.objectContaining({
+        nodeId: "windows-node",
+        command: "canvas.a2ui.pushJSONL",
+      }),
+    );
   });
 });
