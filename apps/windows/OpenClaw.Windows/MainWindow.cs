@@ -74,6 +74,9 @@ public sealed class MainWindow : Window
     private readonly TextBlock canvasDetailText = new();
     private XamlWebView2? canvasWebView;
     private string? canvasTrustedA2UIUrl;
+    private string? canvasNavigationTargetUrl;
+    private string? canvasLoadedA2UIUrl;
+    private ulong? canvasActiveNavigationId;
     private readonly SemaphoreSlim canvasBridgeScriptGate = new(1, 1);
     private bool canvasBridgeScriptInstalled;
     private readonly StackPanel sessionsList = new() { Spacing = 8 };
@@ -1319,6 +1322,12 @@ public sealed class MainWindow : Window
     {
         _ = this.DispatcherQueue.TryEnqueue(() =>
         {
+            if (state != WindowsCanvasNodeState.Connected)
+            {
+                this.canvasNavigationTargetUrl = null;
+                this.canvasLoadedA2UIUrl = null;
+                this.canvasActiveNavigationId = null;
+            }
             this.canvasStatusText.Text = $"Canvas node: {state}";
             if (!string.IsNullOrWhiteSpace(reason))
             {
@@ -1336,6 +1345,12 @@ public sealed class MainWindow : Window
             if (!string.IsNullOrWhiteSpace(a2uiHostUrl))
             {
                 await this.NavigateCanvasToA2UIAsync(a2uiHostUrl);
+            }
+            else
+            {
+                this.canvasNavigationTargetUrl = null;
+                this.canvasLoadedA2UIUrl = null;
+                this.canvasActiveNavigationId = null;
             }
             this.RenderCanvasState();
             this.RenderDeviceCapabilityCards();
@@ -1369,6 +1384,16 @@ public sealed class MainWindow : Window
         }
 
         this.canvasTrustedA2UIUrl = a2uiUrl;
+        if (string.Equals(this.canvasNavigationTargetUrl, a2uiUrl, StringComparison.Ordinal) ||
+            string.Equals(this.canvasLoadedA2UIUrl, a2uiUrl, StringComparison.Ordinal))
+        {
+            this.canvasWebView.Visibility = Visibility.Visible;
+            return;
+        }
+
+        this.canvasNavigationTargetUrl = a2uiUrl;
+        this.canvasLoadedA2UIUrl = null;
+        this.canvasActiveNavigationId = null;
         this.canvasStatusText.Text = "Loading A2UI";
         this.canvasDetailText.Text = a2uiUrl;
         try
@@ -1389,20 +1414,38 @@ public sealed class MainWindow : Window
     {
         if (WindowsCanvasA2UIUrl.IsTrustedA2UIUrl(args.Uri, this.canvasTrustedA2UIUrl))
         {
+            this.canvasActiveNavigationId = args.NavigationId;
             return;
         }
 
         args.Cancel = true;
+        this.canvasActiveNavigationId = null;
         this.canvasStatusText.Text = "Blocked Canvas navigation";
         this.canvasDetailText.Text = args.Uri;
     }
 
     private void OnCanvasNavigationCompleted(XamlWebView2 sender, CoreWebView2NavigationCompletedEventArgs args)
     {
-        this.canvasStatusText.Text = args.IsSuccess ? "A2UI ready" : "A2UI navigation failed";
-        if (!args.IsSuccess)
+        if (this.canvasActiveNavigationId is { } activeNavigationId &&
+            args.NavigationId != activeNavigationId)
         {
-            this.canvasDetailText.Text = args.WebErrorStatus.ToString();
+            return;
+        }
+
+        var targetUrl = this.canvasNavigationTargetUrl;
+        this.canvasNavigationTargetUrl = null;
+        this.canvasActiveNavigationId = null;
+        this.canvasStatusText.Text = args.IsSuccess ? "A2UI ready" : "A2UI navigation failed";
+        if (args.IsSuccess)
+        {
+            this.canvasLoadedA2UIUrl = targetUrl ?? this.canvasTrustedA2UIUrl;
+        }
+        else
+        {
+            this.canvasLoadedA2UIUrl = null;
+            this.canvasDetailText.Text = string.IsNullOrWhiteSpace(targetUrl)
+                ? args.WebErrorStatus.ToString()
+                : $"{args.WebErrorStatus}: {targetUrl}";
         }
     }
 
