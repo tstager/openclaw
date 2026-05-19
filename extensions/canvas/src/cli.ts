@@ -415,6 +415,7 @@ export function registerNodesCanvasCommands(nodes: Command, deps: CanvasCliDepen
           }
         });
       }),
+    { timeoutMs: 60_000 },
   );
 
   deps.nodesCallOpts(
@@ -432,5 +433,6 @@ export function registerNodesCanvasCommands(nodes: Command, deps: CanvasCliDepen
           }
         });
       }),
+    { timeoutMs: 60_000 },
   );
 }
