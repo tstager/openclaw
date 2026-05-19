@@ -74,6 +74,8 @@ public sealed class MainWindow : Window
     private readonly TextBlock canvasDetailText = new();
     private XamlWebView2? canvasWebView;
     private string? canvasTrustedA2UIUrl;
+    private readonly SemaphoreSlim canvasBridgeScriptGate = new(1, 1);
+    private bool canvasBridgeScriptInstalled;
     private readonly StackPanel sessionsList = new() { Spacing = 8 };
     private readonly TextBlock sessionsStatusText = new();
     private readonly XamlButton sessionsRefreshButton = new();
@@ -761,7 +763,7 @@ public sealed class MainWindow : Window
         {
             try
             {
-                await webView.EnsureCoreWebView2Async();
+                await this.EnsureCanvasBridgeAsync(webView);
             }
             catch (Exception ex)
             {
@@ -1371,7 +1373,7 @@ public sealed class MainWindow : Window
         this.canvasDetailText.Text = a2uiUrl;
         try
         {
-            await this.canvasWebView.EnsureCoreWebView2Async();
+            await this.EnsureCanvasBridgeAsync(this.canvasWebView);
             this.canvasWebView.Visibility = Visibility.Visible;
             this.canvasWebView.Source = new Uri(a2uiUrl);
         }
@@ -1416,7 +1418,7 @@ public sealed class MainWindow : Window
 
         sender.CoreWebView2.WebMessageReceived -= this.OnCanvasWebMessageReceived;
         sender.CoreWebView2.WebMessageReceived += this.OnCanvasWebMessageReceived;
-        await sender.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(CanvasBridgeScript());
+        await this.EnsureCanvasBridgeAsync(sender);
     }
 
     private async void OnCanvasWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs args)
@@ -1592,6 +1594,7 @@ public sealed class MainWindow : Window
 
     private async Task EnsureCanvasA2UIReadyAsync()
     {
+        this.ShowDestination(WindowsNavigationDestination.Canvas);
         if (await this.IsCanvasA2UIReadyAsync())
         {
             return;
@@ -1632,9 +1635,41 @@ public sealed class MainWindow : Window
             throw new InvalidOperationException("Canvas WebView is not ready.");
         }
 
-        await this.canvasWebView.EnsureCoreWebView2Async();
+        await this.EnsureCanvasBridgeAsync(this.canvasWebView);
         var raw = await this.canvasWebView.ExecuteScriptAsync(javaScript);
         return WindowsCanvasA2UI.DecodeExecuteScriptResult(raw);
+    }
+
+    private async Task EnsureCanvasBridgeAsync(XamlWebView2 webView)
+    {
+        await webView.EnsureCoreWebView2Async();
+        if (webView.CoreWebView2 is null)
+        {
+            throw new InvalidOperationException("Canvas WebView2 runtime is not ready.");
+        }
+
+        webView.CoreWebView2.WebMessageReceived -= this.OnCanvasWebMessageReceived;
+        webView.CoreWebView2.WebMessageReceived += this.OnCanvasWebMessageReceived;
+        if (this.canvasBridgeScriptInstalled)
+        {
+            return;
+        }
+
+        await this.canvasBridgeScriptGate.WaitAsync();
+        try
+        {
+            if (this.canvasBridgeScriptInstalled)
+            {
+                return;
+            }
+
+            await webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(CanvasBridgeScript());
+            this.canvasBridgeScriptInstalled = true;
+        }
+        finally
+        {
+            this.canvasBridgeScriptGate.Release();
+        }
     }
 
     private Task<T> RunOnUiThreadAsync<T>(Func<Task<T>> action, CancellationToken cancellationToken)
@@ -1691,6 +1726,16 @@ public sealed class MainWindow : Window
           try {
             if (globalThis.__openclawWindowsA2UIBridgeInstalled) return;
             globalThis.__openclawWindowsA2UIBridgeInstalled = true;
+            globalThis.openclawCanvasA2UIAction = {
+              postMessage: (message) => {
+                try {
+                  const payload = typeof message === 'string' ? JSON.parse(message) : message;
+                  globalThis.chrome?.webview?.postMessage(payload);
+                } catch {
+                  globalThis.chrome?.webview?.postMessage(message);
+                }
+              },
+            };
             globalThis.addEventListener('a2uiaction', (evt) => {
               try {
                 const payload = evt?.detail ?? evt?.payload ?? null;
