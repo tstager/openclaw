@@ -35,6 +35,7 @@ public sealed class WindowsCanvasNodeClient : IAsyncDisposable
     private CancellationTokenSource? receiveCts;
     private Task? receiveTask;
     private TaskCompletionSource<string>? connectChallenge;
+    private string? nodeId;
     private int nextRequestId;
 
     public WindowsCanvasNodeClient(
@@ -126,6 +127,7 @@ public sealed class WindowsCanvasNodeClient : IAsyncDisposable
         this.connectChallenge?.TrySetCanceled();
         this.connectChallenge = null;
         this.socket = null;
+        this.nodeId = null;
         this.SetCanvasSurfaceUrl(null);
 
         if (socketToClose is { State: WebSocketState.Open or WebSocketState.CloseReceived })
@@ -173,6 +175,7 @@ public sealed class WindowsCanvasNodeClient : IAsyncDisposable
         }
 
         var identity = await this.deviceIdentityStore.LoadOrCreateAsync(cancellationToken);
+        this.nodeId = identity.DeviceId;
         var nonce = await this.WaitForConnectChallengeAsync(cancellationToken);
         var signedAt = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var signedPayload = DeviceIdentityStore.BuildDeviceAuthPayloadV3(
@@ -356,25 +359,46 @@ public sealed class WindowsCanvasNodeClient : IAsyncDisposable
             ReadString(payload, "id") ?? "",
             ReadString(payload, "command") ?? "",
             ReadString(payload, "paramsJSON"),
-            ReadString(payload, "nodeId"));
-        var handler = this.InvokeAsync;
-        var response = handler is null
-            ? WindowsCanvasInvokeResponse.Failure("UNAVAILABLE", "Windows Canvas handler is not ready.")
-            : await handler(request, cancellationToken);
+            ReadString(payload, "nodeId") ?? this.nodeId ?? "");
+        try
+        {
+            var handler = this.InvokeAsync;
+            var response = handler is null
+                ? WindowsCanvasInvokeResponse.Failure("UNAVAILABLE", "Windows Canvas handler is not ready.")
+                : await handler(request, cancellationToken);
 
-        await this.RequestAsync(
-            "node.invoke.result",
-            new
-            {
-                id = request.Id,
-                nodeId = request.NodeId,
-                ok = response.Ok,
-                payloadJSON = response.PayloadJson,
-                error = response.Error is null
-                    ? null
-                    : new { code = response.Error.Code, message = response.Error.Message },
-            },
-            cancellationToken);
+            await this.SendInvokeResultAsync(request, response, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            CrashLog.WriteMessage(
+                $"Canvas node invoke failed: command={request.Command} id={request.Id} nodeId={request.NodeId} error={ex}");
+        }
+    }
+
+    private async Task SendInvokeResultAsync(
+        WindowsCanvasInvokeRequest request,
+        WindowsCanvasInvokeResponse response,
+        CancellationToken cancellationToken)
+    {
+        var parameters = new Dictionary<string, object?>
+        {
+            ["id"] = request.Id,
+            ["nodeId"] = request.NodeId,
+            ["ok"] = response.Ok,
+        };
+
+        if (!string.IsNullOrWhiteSpace(response.PayloadJson))
+        {
+            parameters["payloadJSON"] = response.PayloadJson;
+        }
+
+        if (response.Error is not null)
+        {
+            parameters["error"] = new { code = response.Error.Code, message = response.Error.Message };
+        }
+
+        await this.RequestAsync("node.invoke.result", parameters, cancellationToken);
     }
 
     private void HandleResponse(JsonElement response)
