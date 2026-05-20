@@ -43,7 +43,8 @@ public sealed record WindowsCanvasInvokeRequest(
     string Id,
     string Command,
     string? ParamsJson,
-    string? NodeId);
+    string? NodeId,
+    int? TimeoutMs);
 
 public sealed record WindowsCanvasInvokeError(string Code, string Message);
 

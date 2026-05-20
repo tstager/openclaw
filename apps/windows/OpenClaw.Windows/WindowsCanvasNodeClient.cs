@@ -23,8 +23,10 @@ public sealed class WindowsCanvasNodeClient : IAsyncDisposable
     private const string ClientId = "openclaw-macos";
     private const string ClientMode = "node";
     private const string ClientRole = "node";
+    private const int InvokeResultSendReserveMs = 2_500;
     private static readonly TimeSpan DefaultRequestTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan DisconnectCloseTimeout = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan MinimumInvokeHandlerTimeout = TimeSpan.FromSeconds(1);
     private readonly AppPreferencesStore preferences;
     private readonly DeviceIdentityStore deviceIdentityStore;
     private readonly TimeSpan requestTimeout;
@@ -359,21 +361,58 @@ public sealed class WindowsCanvasNodeClient : IAsyncDisposable
             ReadString(payload, "id") ?? "",
             ReadString(payload, "command") ?? "",
             ReadString(payload, "paramsJSON"),
-            ReadString(payload, "nodeId") ?? this.nodeId ?? "");
+            ReadString(payload, "nodeId") ?? this.nodeId ?? "",
+            ReadInt(payload, "timeoutMs"));
+        WindowsCanvasInvokeResponse response;
         try
         {
             var handler = this.InvokeAsync;
-            var response = handler is null
-                ? WindowsCanvasInvokeResponse.Failure("UNAVAILABLE", "Windows Canvas handler is not ready.")
-                : await handler(request, cancellationToken);
+            if (handler is null)
+            {
+                response = WindowsCanvasInvokeResponse.Failure("UNAVAILABLE", "Windows Canvas handler is not ready.");
+            }
+            else
+            {
+                using var handlerCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                var handlerTimeout = ResolveInvokeHandlerTimeout(request.TimeoutMs);
+                handlerCts.CancelAfter(handlerTimeout);
+                response = await handler(request, handlerCts.Token);
+            }
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            var handlerTimeout = ResolveInvokeHandlerTimeout(request.TimeoutMs);
+            response = WindowsCanvasInvokeResponse.Failure(
+                "TIMEOUT",
+                $"Windows Canvas command timed out after {handlerTimeout.TotalSeconds:0.#} seconds.");
+        }
+        catch (Exception ex)
+        {
+            CrashLog.WriteMessage(
+                $"Canvas node invoke handler failed: command={request.Command} id={request.Id} nodeId={request.NodeId} error={ex}");
+            response = WindowsCanvasInvokeResponse.Failure("UNAVAILABLE", ex.Message);
+        }
 
+        try
+        {
             await this.SendInvokeResultAsync(request, response, cancellationToken);
         }
         catch (Exception ex)
         {
             CrashLog.WriteMessage(
-                $"Canvas node invoke failed: command={request.Command} id={request.Id} nodeId={request.NodeId} error={ex}");
+                $"Canvas node invoke result failed: command={request.Command} id={request.Id} nodeId={request.NodeId} error={ex}");
         }
+    }
+
+    private TimeSpan ResolveInvokeHandlerTimeout(int? gatewayTimeoutMs)
+    {
+        var requestTimeoutMs = (int)Math.Max(1, this.requestTimeout.TotalMilliseconds - InvokeResultSendReserveMs);
+        var timeoutMs = gatewayTimeoutMs is > InvokeResultSendReserveMs
+            ? gatewayTimeoutMs.Value - InvokeResultSendReserveMs
+            : requestTimeoutMs;
+        return TimeSpan.FromMilliseconds(Math.Max(
+            (int)MinimumInvokeHandlerTimeout.TotalMilliseconds,
+            Math.Min(timeoutMs, requestTimeoutMs)));
     }
 
     private async Task SendInvokeResultAsync(
@@ -551,6 +590,16 @@ public sealed class WindowsCanvasNodeClient : IAsyncDisposable
                root.TryGetProperty(propertyName, out var value) &&
                value.ValueKind == JsonValueKind.String
             ? value.GetString()
+            : null;
+    }
+
+    private static int? ReadInt(JsonElement root, string propertyName)
+    {
+        return root.ValueKind == JsonValueKind.Object &&
+               root.TryGetProperty(propertyName, out var value) &&
+               value.ValueKind == JsonValueKind.Number &&
+               value.TryGetInt32(out var result)
+            ? result
             : null;
     }
 }
