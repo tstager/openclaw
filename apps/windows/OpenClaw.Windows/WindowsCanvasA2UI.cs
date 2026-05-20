@@ -104,8 +104,14 @@ public static class WindowsCanvasA2UI
                 return null;
             }
 
-            var ok = root.TryGetProperty("ok", out var okValue) &&
-                okValue.ValueKind == JsonValueKind.True;
+            bool? ok = root.TryGetProperty("ok", out var okValue)
+                ? okValue.ValueKind switch
+                {
+                    JsonValueKind.True => true,
+                    JsonValueKind.False => false,
+                    _ => null,
+                }
+                : null;
             var error = root.TryGetProperty("error", out var errorValue) &&
                 errorValue.ValueKind == JsonValueKind.String
                     ? errorValue.GetString()
@@ -129,9 +135,12 @@ public static class WindowsCanvasA2UI
 }
 
 public sealed record WindowsCanvasRendererResult(
-    bool Ok,
+    bool? Ok,
     string? Error,
-    IReadOnlyList<string> Surfaces);
+    IReadOnlyList<string> Surfaces)
+{
+    public bool Rejected => this.Ok == false || !string.IsNullOrWhiteSpace(this.Error);
+}
 
 /// <summary>
 /// Resolves Gateway canvas surface URLs to the Windows A2UI host URL.

@@ -1666,11 +1666,11 @@ public sealed class MainWindow : Window
             """);
         var rendererResult = WindowsCanvasA2UI.ParseRendererResult(result);
         this.canvasDetailText.Text = $"A2UI push: {result}";
-        if (rendererResult is { Ok: false })
+        if (rendererResult is { Rejected: true })
         {
             return WindowsCanvasInvokeResponse.Failure(
                 "UNAVAILABLE",
-                rendererResult.Error ?? "A2UI renderer rejected the push.");
+                rendererResult.Error ?? $"A2UI renderer rejected the push: {result}");
         }
         return WindowsCanvasInvokeResponse.Success(result);
     }
