@@ -1660,27 +1660,9 @@ public sealed class MainWindow : Window
                   : Array.isArray(element?.surfaces)
                     ? element.surfaces.map(([id]) => id)
                     : [];
-                const surfaceDetails = Array.isArray(element?.surfaces)
-                  ? element.surfaces.map(([id, surface]) => ({
-                      id,
-                      rootComponentId: surface?.rootComponentId ?? null,
-                      componentCount: surface?.components?.size ?? 0,
-                      componentIds: Array.from(surface?.components?.keys?.() ?? []),
-                      componentTreeType: surface?.componentTree?.type ?? null,
-                      hasComponentTree: Boolean(surface?.componentTree),
-                    }))
-                  : [];
                 return JSON.stringify({
-                  diagnosticVersion: "windows-a2ui-push-v2",
                   ...result,
-                  messageCount: messages.length,
-                  messageKeys: messages.map((message) => Object.keys(message ?? {})[0] ?? "").filter(Boolean),
-                  bodyText: document.body?.innerText ?? "",
-                  shadowText: element?.shadowRoot?.innerText ?? "",
-                  hostPresent: Boolean(element),
-                  surfaceCount: surfaces.length,
                   surfaces,
-                  surfaceDetails,
                 });
               } catch (e) {
                 return JSON.stringify({ ok: false, error: String(e?.message ?? e) });
@@ -1688,7 +1670,9 @@ public sealed class MainWindow : Window
             })()
             """);
         var rendererResult = WindowsCanvasA2UI.ParseRendererResult(result);
-        this.canvasDetailText.Text = $"A2UI push: {result}";
+        this.canvasDetailText.Text = rendererResult?.Surfaces.Count > 0
+            ? $"A2UI updated: {string.Join(", ", rendererResult.Surfaces)}"
+            : "A2UI updated.";
         if (rendererResult is { Rejected: true })
         {
             return WindowsCanvasInvokeResponse.Failure(
