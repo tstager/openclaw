@@ -1604,12 +1604,10 @@ public sealed class MainWindow : Window
         await this.EnsureCanvasA2UIReadyAsync();
         var result = await this.ExecuteCanvasScriptAsync(
             """
-            (async () => {
+            (() => {
               const host = globalThis.openclawA2UI;
               if (!host) return JSON.stringify({ ok: false, error: "missing openclawA2UI" });
               const result = host.reset();
-              const element = document.querySelector("openclaw-a2ui-host");
-              await Promise.resolve(element?.updateComplete);
               return JSON.stringify(result);
             })()
             """);
@@ -1646,14 +1644,13 @@ public sealed class MainWindow : Window
         await this.EnsureCanvasA2UIReadyAsync();
         var result = await this.ExecuteCanvasScriptAsync(
             $$"""
-            (async () => {
+            (() => {
               try {
                 const host = globalThis.openclawA2UI;
                 if (!host) return JSON.stringify({ ok: false, error: "missing openclawA2UI" });
                 const messages = {{messagesJson}};
                 const result = host.applyMessages(messages);
                 const element = document.querySelector("openclaw-a2ui-host");
-                await Promise.resolve(element?.updateComplete);
                 const surfaces = Array.isArray(result?.surfaces)
                   ? result.surfaces
                   : Array.isArray(element?.surfaces)
