@@ -1654,10 +1654,21 @@ public sealed class MainWindow : Window
                 const result = host.applyMessages(messages);
                 const element = document.querySelector("openclaw-a2ui-host");
                 await Promise.resolve(element?.updateComplete);
+                const surfaces = Array.isArray(result?.surfaces)
+                  ? result.surfaces
+                  : Array.isArray(element?.surfaces)
+                    ? element.surfaces.map(([id]) => id)
+                    : [];
                 return JSON.stringify({
+                  diagnosticVersion: "windows-a2ui-push-v2",
                   ...result,
+                  messageCount: messages.length,
+                  messageKeys: messages.map((message) => Object.keys(message ?? {})[0] ?? "").filter(Boolean),
                   bodyText: document.body?.innerText ?? "",
+                  shadowText: element?.shadowRoot?.innerText ?? "",
                   hostPresent: Boolean(element),
+                  surfaceCount: surfaces.length,
+                  surfaces,
                 });
               } catch (e) {
                 return JSON.stringify({ ok: false, error: String(e?.message ?? e) });
