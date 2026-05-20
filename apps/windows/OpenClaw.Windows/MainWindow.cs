@@ -696,6 +696,9 @@ public sealed class MainWindow : Window
     {
         var root = new Grid
         {
+            HorizontalAlignment = XamlHorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            MinHeight = 480,
             RowSpacing = 12,
             RowDefinitions =
             {
@@ -758,6 +761,7 @@ public sealed class MainWindow : Window
         {
             HorizontalAlignment = XamlHorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
+            MinHeight = 360,
         };
         webView.NavigationStarting += this.OnCanvasNavigationStarting;
         webView.NavigationCompleted += this.OnCanvasNavigationCompleted;
