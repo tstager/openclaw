@@ -339,6 +339,8 @@ public sealed class WindowsCanvasNodeClient : IAsyncDisposable
         if (string.Equals(eventName, "node.invoke.request", StringComparison.Ordinal) &&
             frame.TryGetProperty("payload", out var invokePayload))
         {
+            CrashLog.WriteMessage(
+                $"Canvas node invoke received: command={ReadString(invokePayload, "command") ?? ""} id={ReadString(invokePayload, "id") ?? ""} nodeId={ReadString(invokePayload, "nodeId") ?? ""} timeoutMs={ReadInt(invokePayload, "timeoutMs")?.ToString(CultureInfo.InvariantCulture) ?? ""}");
             _ = Task.Run(
                 async () => await this.HandleInvokeRequestAsync(invokePayload.Clone(), cancellationToken),
                 CancellationToken.None);
@@ -363,9 +365,12 @@ public sealed class WindowsCanvasNodeClient : IAsyncDisposable
             ReadString(payload, "paramsJSON"),
             ReadString(payload, "nodeId") ?? this.nodeId ?? "",
             ReadInt(payload, "timeoutMs"));
+        var startedAt = DateTimeOffset.UtcNow;
         WindowsCanvasInvokeResponse response;
         try
         {
+            CrashLog.WriteMessage(
+                $"Canvas node invoke handling: command={request.Command} id={request.Id} nodeId={request.NodeId} timeoutMs={request.TimeoutMs?.ToString(CultureInfo.InvariantCulture) ?? ""}");
             var handler = this.InvokeAsync;
             if (handler is null)
             {
@@ -395,7 +400,11 @@ public sealed class WindowsCanvasNodeClient : IAsyncDisposable
 
         try
         {
+            CrashLog.WriteMessage(
+                $"Canvas node invoke result sending: command={request.Command} id={request.Id} nodeId={request.NodeId} ok={response.Ok} elapsedMs={(DateTimeOffset.UtcNow - startedAt).TotalMilliseconds:0}");
             await this.SendInvokeResultAsync(request, response, cancellationToken);
+            CrashLog.WriteMessage(
+                $"Canvas node invoke result sent: command={request.Command} id={request.Id} nodeId={request.NodeId} ok={response.Ok} elapsedMs={(DateTimeOffset.UtcNow - startedAt).TotalMilliseconds:0}");
         }
         catch (Exception ex)
         {
