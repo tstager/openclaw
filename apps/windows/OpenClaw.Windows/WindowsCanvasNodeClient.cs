@@ -341,8 +341,9 @@ public sealed class WindowsCanvasNodeClient : IAsyncDisposable
         {
             CrashLog.WriteMessage(
                 $"Canvas node invoke received: command={ReadString(invokePayload, "command") ?? ""} id={ReadString(invokePayload, "id") ?? ""} nodeId={ReadString(invokePayload, "nodeId") ?? ""} timeoutMs={ReadInt(invokePayload, "timeoutMs")?.ToString(CultureInfo.InvariantCulture) ?? ""}");
+            var clonedPayload = invokePayload.Clone();
             _ = Task.Run(
-                async () => await this.HandleInvokeRequestAsync(invokePayload.Clone(), cancellationToken),
+                async () => await this.HandleInvokeRequestAsync(clonedPayload, cancellationToken),
                 CancellationToken.None);
         }
     }
