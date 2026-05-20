@@ -1754,7 +1754,7 @@ public sealed class MainWindow : Window
         {
             completion.TrySetException(new InvalidOperationException("WinUI dispatcher is unavailable."));
         }
-        return completion.Task;
+        return completion.Task.WaitAsync(cancellationToken);
     }
 
     private void RenderCanvasState()
