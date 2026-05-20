@@ -1656,6 +1656,16 @@ public sealed class MainWindow : Window
                   : Array.isArray(element?.surfaces)
                     ? element.surfaces.map(([id]) => id)
                     : [];
+                const surfaceDetails = Array.isArray(element?.surfaces)
+                  ? element.surfaces.map(([id, surface]) => ({
+                      id,
+                      rootComponentId: surface?.rootComponentId ?? null,
+                      componentCount: surface?.components?.size ?? 0,
+                      componentIds: Array.from(surface?.components?.keys?.() ?? []),
+                      componentTreeType: surface?.componentTree?.type ?? null,
+                      hasComponentTree: Boolean(surface?.componentTree),
+                    }))
+                  : [];
                 return JSON.stringify({
                   diagnosticVersion: "windows-a2ui-push-v2",
                   ...result,
@@ -1666,6 +1676,7 @@ public sealed class MainWindow : Window
                   hostPresent: Boolean(element),
                   surfaceCount: surfaces.length,
                   surfaces,
+                  surfaceDetails,
                 });
               } catch (e) {
                 return JSON.stringify({ ok: false, error: String(e?.message ?? e) });
