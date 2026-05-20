@@ -1604,12 +1604,16 @@ public sealed class MainWindow : Window
         await this.EnsureCanvasA2UIReadyAsync();
         var result = await this.ExecuteCanvasScriptAsync(
             """
-            (() => {
+            (async () => {
               const host = globalThis.openclawA2UI;
               if (!host) return JSON.stringify({ ok: false, error: "missing openclawA2UI" });
-              return JSON.stringify(host.reset());
+              const result = host.reset();
+              const element = document.querySelector("openclaw-a2ui-host");
+              await Promise.resolve(element?.updateComplete);
+              return JSON.stringify(result);
             })()
             """);
+        this.canvasDetailText.Text = $"A2UI reset: {result}";
         return WindowsCanvasInvokeResponse.Success(result);
     }
 
@@ -1642,17 +1646,32 @@ public sealed class MainWindow : Window
         await this.EnsureCanvasA2UIReadyAsync();
         var result = await this.ExecuteCanvasScriptAsync(
             $$"""
-            (() => {
+            (async () => {
               try {
                 const host = globalThis.openclawA2UI;
                 if (!host) return JSON.stringify({ ok: false, error: "missing openclawA2UI" });
                 const messages = {{messagesJson}};
-                return JSON.stringify(host.applyMessages(messages));
+                const result = host.applyMessages(messages);
+                const element = document.querySelector("openclaw-a2ui-host");
+                await Promise.resolve(element?.updateComplete);
+                return JSON.stringify({
+                  ...result,
+                  bodyText: document.body?.innerText ?? "",
+                  hostPresent: Boolean(element),
+                });
               } catch (e) {
                 return JSON.stringify({ ok: false, error: String(e?.message ?? e) });
               }
             })()
             """);
+        var rendererResult = WindowsCanvasA2UI.ParseRendererResult(result);
+        this.canvasDetailText.Text = $"A2UI push: {result}";
+        if (rendererResult is { Ok: false })
+        {
+            return WindowsCanvasInvokeResponse.Failure(
+                "UNAVAILABLE",
+                rendererResult.Error ?? "A2UI renderer rejected the push.");
+        }
         return WindowsCanvasInvokeResponse.Success(result);
     }
 

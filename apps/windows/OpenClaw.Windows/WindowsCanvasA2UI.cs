@@ -87,7 +87,51 @@ public static class WindowsCanvasA2UI
             return rawResult;
         }
     }
+
+    public static WindowsCanvasRendererResult? ParseRendererResult(string rawResult)
+    {
+        if (string.IsNullOrWhiteSpace(rawResult))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(rawResult);
+            var root = document.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                return null;
+            }
+
+            var ok = root.TryGetProperty("ok", out var okValue) &&
+                okValue.ValueKind == JsonValueKind.True;
+            var error = root.TryGetProperty("error", out var errorValue) &&
+                errorValue.ValueKind == JsonValueKind.String
+                    ? errorValue.GetString()
+                    : null;
+            var surfaces = root.TryGetProperty("surfaces", out var surfacesValue) &&
+                surfacesValue.ValueKind == JsonValueKind.Array
+                    ? surfacesValue.EnumerateArray()
+                        .Where(static value => value.ValueKind == JsonValueKind.String)
+                        .Select(static value => value.GetString())
+                        .Where(static value => !string.IsNullOrWhiteSpace(value))
+                        .Cast<string>()
+                        .ToArray()
+                    : [];
+            return new WindowsCanvasRendererResult(ok, error, surfaces);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
 }
+
+public sealed record WindowsCanvasRendererResult(
+    bool Ok,
+    string? Error,
+    IReadOnlyList<string> Surfaces);
 
 /// <summary>
 /// Resolves Gateway canvas surface URLs to the Windows A2UI host URL.
