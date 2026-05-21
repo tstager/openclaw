@@ -43,7 +43,10 @@ public sealed partial class App : XamlApplication, IDisposable
             var appState = AppBootstrap.CreateAppState();
             var preferences = await appState.Preferences.LoadAsync();
             this.window = new MainWindow(appState);
-            this.window.ApplyThemePreference(preferences.ThemePreference);
+            this.window.ApplyAppearancePreferences(
+                preferences.ThemePreference,
+                preferences.AccentColorPreference,
+                preferences.ColorThemePreference);
             // Tray callbacks run outside WinUI's normal input flow, so marshal every UI action to the window dispatcher.
             this.trayHost = new WindowsTrayHost(
                 getGatewayStatus: () => this.window.GatewayStatusText,
