@@ -1141,6 +1141,7 @@ public sealed class MainWindow : Window
     private static void ConfigureSettingsToggle(XamlCheckBox toggle, string label, Action<bool> update)
     {
         toggle.Content = label;
+        ApplyAccentCheckedState(toggle);
         toggle.Checked += (_, _) => update(true);
         toggle.Unchecked += (_, _) => update(false);
         AutomationProperties.SetName(toggle, label);
