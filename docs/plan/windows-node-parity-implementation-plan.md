@@ -1,385 +1,316 @@
-# Windows Node Parity Implementation Plan
+# Windows Companion Parity Implementation Plan
 
 Source documents:
 
 - `docs/plan/windows-node-feature-gap-list.md`
 - `docs/plan/windows-node-shared-feature-comparison.md`
+- `docs/plan/macos-windows-companion-comparison.md`
+- `docs/plan/macos-external-windows-comparison.md`
 
 ## Goal
 
-Bring the OpenClaw Windows companion surface substantially in line with the external `openclaw-windows-node` implementation without replacing the current app's strongest patterns. This plan prioritizes missing foundational capabilities first, then deeper operational UX, then optional polish and repo-level follow-ons.
+Move `apps/windows` toward the highest-value parity shared by **both** comparison apps:
+
+- **macOS parity** where it improves the Windows companion as a better orchestrator/product surface,
+- **external Windows parity** where it improves Windows-native runtime depth,
+- without turning `apps/windows` into either a Swift/macOS clone or a second `openclaw-windows-node` rewrite.
+
+The target is a stronger **tray-first, single-shell WinUI 3 companion app** with deeper topology, policy, diagnostics, onboarding, and Windows-native capability coverage.
 
 ## What should be extended, not rewritten
 
-The current `apps/windows` surface already has adequate parity in several core areas and should be **extended rather than replaced**:
+The current `apps/windows` app already has the right base shape and should be **extended**:
 
 - tray shell and single-instance lifetime,
 - gateway lifecycle controls,
 - native chat and session browsing,
 - approvals and pairing queue UX,
 - base Canvas/A2UI integration,
-- Devices page, overlays, hotkeys, and recent theme customization.
+- Devices page, overlays, hotkeys, and theme customization.
 
-The external repo is mostly ahead on **depth**, not on whether these categories exist at all.
+WinUI 3 reality for this plan:
 
-## Priority buckets
+- prefer adding **services, models, and focused pages/dialogs** over introducing a new multi-window shell,
+- use the existing app/window/tray model rather than cloning the external app's full window topology,
+- treat anything that requires a large new XAML rendering stack or a separate repo/project family as late work.
 
-### Foundational parity gaps
+## Parity framing
 
-1. Expanded persisted settings and service seams
-2. SSH tunnel management
-3. `openclaw://` deep-link handling
-4. Port diagnostics
-5. Structured JSONL diagnostics
-6. Activity stream and notification history
-7. Persistent exec approval policy
-8. URL risk evaluation
-9. Browser proxy capability
-10. Screen recording
-11. Windows text-to-speech
-12. Localization scaffold
+### Shared parity work that advances toward both comparison apps
 
-### Later or optional parity work
+These are the best near-term investments because they help Windows close gaps against **both** targets:
 
-1. ElevenLabs provider
-2. Notification rule editor polish
-3. Full onboarding wizard parity
-4. PowerToys Command Palette extension
-5. WinNode CLI utility
-6. Full native A2UI renderer parity
-7. Additional locale packs
-8. Screen recording audio capture
+1. broader settings/service seams,
+2. richer connection topology handling,
+3. deep links and app-driven entry routing,
+4. structured diagnostics plus historical operational state,
+5. persistent approval/policy depth,
+6. safer capability execution and URL handling,
+7. browser/media/node capability expansion,
+8. guided onboarding beyond static readiness checks.
+
+### macOS-skewed areas
+
+These matter for product breadth, but should stay **late or explicitly partial** on Windows:
+
+- discovery breadth beyond SSH/direct basics,
+- large admin/settings breadth,
+- voice wake/talk product features,
+- automation bridge breadth like Peekaboo,
+- full macOS-style orchestrator behavior around launchd/Tailscale-specific flows.
+
+### external-Windows-skewed areas
+
+These are valuable, but should be treated as **late Windows-specific follow-ons** unless a smaller slice is cheap:
+
+- full native A2UI renderer,
+- MCP-only local server mode,
+- localization packs beyond a scaffold,
+- PowerToys Command Palette integration,
+- WinNode CLI utility,
+- ElevenLabs and other extra TTS providers.
 
 ## Sequencing principles
 
-1. **Build shared seams before adding features.** Settings, service registration, diagnostics sinks, and topology handling should land before feature-specific UI.
-2. **Prefer incremental extension of the current shell.** Do not rebuild the app into a clone of the external repo's window model.
-3. **Land safety rails before high-risk capabilities.** Persistent approvals, URL risk evaluation, and redaction should precede browser proxy and richer media flows.
-4. **Treat repo-level extras as follow-ons.** Command Palette and WinNode CLI parity matter, but they should not block the core `apps/windows` roadmap.
+1. **Do shared parity work first.** Prefer sessions that move Windows closer to both comparison apps before taking on one-sided parity.
+2. **Strengthen seams before surfacing more UI.** Settings, topology, diagnostics, and policy infrastructure should land before richer WinUI affordances.
+3. **Keep the shell compact.** Favor page/dialog expansion inside the current shell; only add extra windows when history/activity UX clearly benefits.
+4. **Land safety before reach.** Persistent exec policy, URL risk evaluation, and redaction should precede browser proxy and richer media flows.
+5. **Split app parity from repo parity.** `apps/windows` work should not be blocked by Command Palette, CLI, or MCP-server follow-ons.
 
-## Implementation sessions
+## Revised phased session structure
 
-## Session 1 - Settings and service scaffolding
+| Revised session | Absorbs from current plan | Primary parity value | Notes |
+| --- | --- | --- | --- |
+| **1. Platform seams and settings expansion** | Session 1 | **Shared** | Keep first. Enables every later phase. |
+| **2. Topology, deep links, and guided entry points** | Session 2 + onboarding-routing slice of Session 8 | **Shared** | Moves toward macOS topology and external Windows deep-link/setup flows. |
+| **3. Operational backbone** | Session 3 + port diagnostics parts of Session 2 | **Shared** | Build diagnostics/activity/history substrate before UI polish. |
+| **4. Policy and safe execution foundation** | Session 5 | **Shared** | Needed before browser/media expansion. |
+| **5. Windows capability parity** | Session 6 + core of Session 7 | **Shared**, with external-Windows depth | Browser proxy, screen recording, and Windows TTS belong together as capability growth. |
+| **6. Operational UX and notification rules** | Session 4 + notification-rule slice of Session 8 | **Shared**, leaning external-Windows | Expose history/diagnostics once the backend exists. |
+| **7. Guided onboarding and focused admin expansion** | remaining onboarding/admin slice of Session 8 | **Shared**, leaning macOS | Deeper onboarding should come after topology, diagnostics, and capabilities exist. |
+| **8. Late Windows-specific parity follow-ons** | app-local slice of Session 9 | **External-Windows-only** | Keep app-local localization or other selective Windows extras here. |
+| **9. Stretch repo-level follow-ons** | repo-level slice of Session 9 | **External-Windows-only / stretch** | Command Palette, WinNode CLI, MCP server, full native A2UI renderer. |
 
-**Goal:** create the app-level seams needed for parity work without making `MainWindow.cs` more monolithic.
+## Session details
 
-**In scope**
+## Session 1 - Platform seams and settings expansion
 
-- Expand the persisted settings model beyond the current appearance/basic shell preferences.
-- Introduce service registration slots for future diagnostics, history, tunnel, browser proxy, and approval-policy services.
-- Add only the navigation placeholders needed for later sessions.
-- Extract small helper/service seams from `MainWindow.cs` where it reduces future coupling.
-
-**Likely files**
-
-- `apps/windows/OpenClaw.Windows/AppBootstrap.cs`
-- `apps/windows/OpenClaw.Windows/AppPreferencesStore.cs`
-- `apps/windows/OpenClaw.Windows/App.cs`
-- `apps/windows/OpenClaw.Windows/MainWindow.cs`
-- `apps/windows/OpenClaw.Windows/WindowsNavigation.cs`
-- `apps/windows/OpenClaw.Windows.Tests/AppPreferencesStoreTests.cs`
-
-**Dependencies:** none
-
-**Main risks**
-
-- preference migration regressions,
-- adding settings without clear ownership boundaries,
-- making the main window harder to evolve.
-
-**Recommended proof**
-
-- settings round-trip and fallback tests,
-- Windows companion launch/settings smoke,
-- existing Windows test/build lane.
-
-## Session 2 - Connection topology foundation
-
-**Goal:** support non-direct gateway topologies and app-driven entry points.
+**Why first:** this is the smallest safe step that unlocks both comparison paths without committing to a rewrite.
 
 **In scope**
 
-- Add SSH tunnel settings and lifecycle management.
-- Add unpackaged `openclaw://` registration and deep-link handling.
-- Add second-instance handoff so deep links route into the running app.
-- Add a port/topology model for gateway, tunnel, and future browser-proxy ports.
-- Surface topology and tunnel state in the existing shell.
+- expand persisted settings beyond appearance/basic shell preferences,
+- add service-registration seams for topology, diagnostics, policy, history, browser, and media services,
+- add only the navigation placeholders needed for later phases,
+- keep breaking up `MainWindow.cs` only where it reduces future coupling.
 
-**Likely files**
+**Parity target:** **shared parity work** for both comparison apps.
 
-- `apps/windows/OpenClaw.Windows/App.cs`
-- `apps/windows/OpenClaw.Windows/AppBootstrap.cs`
-- `apps/windows/OpenClaw.Windows/AppPreferencesStore.cs`
-- `apps/windows/OpenClaw.Windows/MainWindow.cs`
-- `apps/windows/OpenClaw.Windows/GatewayRealtimeClient.cs`
-- new `apps/windows/OpenClaw.Windows/SshTunnelService.cs`
-- new `apps/windows/OpenClaw.Windows/DeepLinkHandler.cs`
-- new `apps/windows/OpenClaw.Windows/PortDiagnosticsService.cs`
+## Session 2 - Topology, deep links, and guided entry points
 
-**Dependencies:** Session 1
-
-**Main risks**
-
-- unpackaged protocol-registration edge cases,
-- `ssh.exe` availability and subprocess management,
-- incorrect UI-thread marshaling from tray and deep-link callbacks.
-
-**Recommended proof**
-
-- direct/manual `openclaw://` route tests,
-- start/stop/restart tunnel proof,
-- unit tests for endpoint and port derivation.
-
-## Session 3 - Structured diagnostics backbone
-
-**Goal:** add the history and telemetry substrate that later UX surfaces can reuse.
+**Why here:** both comparison apps are ahead on how users enter and route through the product, but the enabling work is mostly shared infrastructure.
 
 **In scope**
 
-- Structured JSONL diagnostics with bounded async queue and rotation.
-- Activity stream service for app, gateway, device, and tunnel events.
-- Notification history storage beyond the current latest-only state.
-- Structured event emission from existing gateway and device actions.
+- SSH tunnel settings and lifecycle management,
+- `openclaw://` registration plus second-instance handoff,
+- gateway/tunnel/browser-proxy port/topology model,
+- port diagnostics plumbing needed by setup and support flows,
+- minimal guided connection entry surfaces that can later grow into richer onboarding.
 
-**Likely files**
+**Parity target:** **shared parity work**.
 
-- `apps/windows/OpenClaw.Windows/App.cs`
-- `apps/windows/OpenClaw.Windows/WindowsCompanionCoordinator.cs`
-- `apps/windows/OpenClaw.Windows/LogsDiagnosticsSummary.cs`
-- `apps/windows/OpenClaw.Windows/MainWindow.cs`
-- new `apps/windows/OpenClaw.Windows/DiagnosticsJsonlService.cs`
-- new `apps/windows/OpenClaw.Windows/ActivityStreamService.cs`
-- new `apps/windows/OpenClaw.Windows/NotificationHistoryService.cs`
+**WinUI 3 note:** prefer routing into existing shell pages/dialogs instead of building a separate window graph.
 
-**Dependencies:** Session 1
+## Session 3 - Operational backbone
 
-**Main risks**
-
-- shutdown/disposal ordering bugs,
-- excessive log volume,
-- leaking sensitive values into diagnostics.
-
-**Recommended proof**
-
-- queue/rotation tests,
-- manual event-generation smoke with JSONL verification,
-- logs surface verification from the current shell.
-
-## Session 4 - History and diagnostics UX
-
-**Goal:** expose the new diagnostics backends in usable Windows UI surfaces.
+**Why before more UX:** the app needs durable operational state before richer history surfaces make sense.
 
 **In scope**
 
-- Activity stream window or page with filtering and copy/clear support.
-- Notification history window or page with counts, timestamps, deep links, and clear-all.
-- Support-bundle or copy-summary actions.
-- Tight integration with tray/deep-link entry points.
+- structured JSONL diagnostics with bounded async writing and rotation,
+- activity stream service,
+- notification history storage,
+- structured event emission from gateway/device/tunnel flows.
 
-**Likely files**
+**Parity target:** **shared parity work**.
 
-- `apps/windows/OpenClaw.Windows/MainWindow.cs`
-- `apps/windows/OpenClaw.Windows/WindowsNavigation.cs`
-- `apps/windows/OpenClaw.Windows/App.cs`
-- new history/activity window files under `apps/windows/OpenClaw.Windows/`
+This session closes gaps against external Windows operational tooling while also helping Windows catch up with macOS's broader runtime coordination.
 
-**Dependencies:** Session 3
+## Session 4 - Policy and safe execution foundation
 
-**Main risks**
-
-- secondary-window lifetime management in WinUI 3,
-- over-coupling new windows back into `MainWindow.cs`,
-- accessibility/focus regressions.
-
-**Recommended proof**
-
-- manual tray/deep-link open flows,
-- keyboard and focus smoke,
-- docs-only `git diff --check` plus Windows test/build lane if code changes touch runtime paths.
-
-## Session 5 - Security and policy foundation
-
-**Goal:** add local safety rails before expanding browser and media capabilities.
+**Why before capability expansion:** browser/media/node growth should not bypass local safety rails.
 
 **In scope**
 
-- Persistent exec approval policy with allow/deny/prompt rules.
-- Extended approvals UX with persistent decisions where appropriate.
-- URL risk evaluation before browser/media navigation or fetch handoff.
-- A2UI secret redaction for logged or surfaced data.
-- Optional: persist notification categorization rules even if editor UX lands later.
+- persistent exec approval policy,
+- clearer one-time vs stored approval behavior,
+- URL risk evaluation,
+- A2UI secret redaction,
+- policy storage seams that later settings/onboarding flows can reuse.
 
-**Likely files**
+**Parity target:** **shared parity work**.
 
-- `apps/windows/OpenClaw.Windows/MainWindow.cs`
-- `apps/windows/OpenClaw.Windows/GatewayRealtimeClient.cs`
-- `apps/windows/OpenClaw.Windows/WindowsCanvasA2UI.cs`
-- `apps/windows/OpenClaw.Windows/AppPreferencesStore.cs` or a dedicated policy store
-- new `apps/windows/OpenClaw.Windows/ExecApprovalPolicy.cs`
-- new `apps/windows/OpenClaw.Windows/HttpUrlRiskEvaluator.cs`
+This is the clearest session where Windows can close **macOS policy depth** and **external Windows persistent-rule depth** at the same time.
 
-**Dependencies:** Sessions 1 and 3
+## Session 5 - Windows capability parity
 
-**Main risks**
-
-- false-positive URL warnings,
-- confusing one-off approvals vs stored policy,
-- incomplete redaction coverage.
-
-**Recommended proof**
-
-- rule-precedence tests,
-- URL risk classification tests,
-- manual one-time vs persistent approval flows.
-
-## Session 6 - Browser proxy capability
-
-**Goal:** close one of the most important missing native-node features.
+**Why here:** once topology and policy exist, Windows can add the highest-value native/runtime capabilities without unstable layering.
 
 **In scope**
 
-- Add a `browser.proxy` capability/service.
-- Resolve direct and SSH-forwarded browser-control endpoints.
-- Handle auth, timeout, path normalization, and file results.
-- Surface browser proxy status and repair guidance in the shell.
+- browser proxy capability,
+- screen recording with bounded duration/fps and realistic WinUI/Windows capture limits,
+- Windows system TTS provider,
+- status/repair guidance inside the current shell.
 
-**Likely files**
+**Parity target:** mostly **shared parity work**, with stronger pull from the external Windows comparison.
 
-- `apps/windows/OpenClaw.Windows/AppBootstrap.cs`
-- `apps/windows/OpenClaw.Windows/AppPreferencesStore.cs`
-- `apps/windows/OpenClaw.Windows/MainWindow.cs`
-- topology services from Session 2
-- new browser proxy service/capability files under `apps/windows/OpenClaw.Windows/`
+**Recommended split if needed**
 
-**Dependencies:** Sessions 2 and 5
+- **5A:** browser proxy,
+- **5B:** screen recording + Windows TTS.
 
-**Main risks**
+**Explicitly not in this session**
 
-- auth mismatch with browser-control hosts,
-- bad assumptions about localhost-only control paths,
-- confusing failure states when tunnel forwarding is incomplete.
+- voice wake/talk mode,
+- automation bridge breadth,
+- ElevenLabs,
+- screen-recording audio capture unless the implementation stays very small.
 
-**Recommended proof**
+## Session 6 - Operational UX and notification rules
 
-- manual direct-topology proof,
-- manual SSH-forwarded proof,
-- normalization and timeout tests.
-
-## Session 7 - Media and voice parity
-
-**Goal:** expand the existing Devices surface with higher-value external capabilities.
+**Why after Session 3:** build the UX only after the backing services are proven.
 
 **In scope**
 
-- MP4 screen recording with bounded duration/fps and screen selection.
-- Integration into the current Devices UX and any node-capability plumbing required.
-- Windows speech-synthesis/TTS provider.
-- Leave audio capture and ElevenLabs as explicit follow-up work unless scope stays small.
+- activity stream page/window with filtering and copy/clear,
+- notification history page/window with timestamps and deep links,
+- support-bundle/copy-summary actions,
+- stored notification categorization rules with a minimal editor.
 
-**Likely files**
+**Parity target:** **shared parity work**, leaning toward external Windows operational depth.
 
-- `apps/windows/OpenClaw.Windows.Native/WindowsDeviceCapabilityService.cs`
-- `apps/windows/OpenClaw.Windows/MainWindow.cs`
-- `apps/windows/OpenClaw.Windows/AppPreferencesStore.cs`
-- new `apps/windows/OpenClaw.Windows.Native/ScreenRecordingService.cs`
-- new `apps/windows/OpenClaw.Windows/TextToSpeechService.cs`
+**WinUI 3 note:** prefer one focused history surface at a time; avoid multiplying secondary windows unless usability clearly improves.
 
-**Dependencies:** Sessions 1 and 5
+## Session 7 - Guided onboarding and focused admin expansion
 
-**Main risks**
-
-- `Windows.Graphics.Capture` and transcoding complexity,
-- recording memory pressure,
-- TTS playback/interruption edge cases.
-
-**Recommended proof**
-
-- manual MP4 capture proof,
-- manual TTS playback and interrupt proof,
-- settings persistence and argument-clamping tests.
-
-## Session 8 - Onboarding depth and notification rules
-
-**Goal:** improve guided setup and rule-backed notification handling after the foundations exist.
+**Why late-middle:** richer onboarding should be built on real topology, diagnostics, policy, and capability checks rather than mocked placeholders.
 
 **In scope**
 
-- Expand onboarding from diagnostics-only checks toward guided connection/setup flows.
-- Add stored notification categorization rules and minimal management UI.
-- Reuse topology, tunnel, and diagnostics services from earlier sessions rather than duplicating them.
+- evolve onboarding from diagnostics-only checks into guided connection/setup flows,
+- expose the new topology/policy/capability settings coherently,
+- add only the highest-value admin/settings depth needed to support the new runtime features.
 
-**Likely files**
+**Parity target:** **shared parity work**, but mainly where Windows should borrow from macOS breadth without inheriting macOS-only platform assumptions.
 
-- `apps/windows/OpenClaw.Windows/OnboardingCheckService.cs`
-- `apps/windows/OpenClaw.Windows/MainWindow.cs`
-- `apps/windows/OpenClaw.Windows/AppPreferencesStore.cs`
-- new onboarding helper/state files under `apps/windows/OpenClaw.Windows/`
+**Explicitly partial**
 
-**Dependencies:** Sessions 1 through 5
+- do not attempt full macOS settings breadth,
+- do not attempt discovery/Tailscale parity in this phase.
 
-**Main risks**
+## Session 8 - Late Windows-specific parity follow-ons
 
-- overbuilding a wizard that does not fit the current shell,
-- mixing onboarding state with general runtime state,
-- notification-rule UX complexity.
+**Why late:** these are useful, but not required to claim a much stronger `apps/windows` companion.
 
-**Recommended proof**
+**Reasonable candidates**
 
-- onboarding route smoke,
-- notification rule persistence tests,
-- manual notification categorization proof.
+- MRT/resource-based localization scaffold,
+- one proof locale after the scaffold is stable,
+- selective app-local Windows affordances that do not require a new repo-scale architecture.
 
-## Session 9 - Localization and repo-level parity follow-ons
+**Parity target:** **external-Windows-only**.
 
-**Goal:** finish the highest-value remaining parity items once the core Windows companion is mature.
+**Callout:** localization is correctly late because the current Windows shell is heavily code-built and would need broad string extraction.
 
-**In scope**
+## Session 9 - Stretch repo-level follow-ons
 
-- Add MRT/resource-based localization scaffolding and localize the core shell.
-- Add one non-English locale as the initial proof set.
-- Evaluate repo-level follow-ons that are not core `apps/windows` work:
-  - PowerToys Command Palette extension
-  - WinNode CLI utility
-  - additional locale packs
-  - ElevenLabs provider
-  - screen-recording audio capture
+**Why separate:** these are not core `apps/windows` parity work and should not distort the app roadmap.
 
-**Likely files**
+**Candidates**
 
-- `apps/windows/OpenClaw.Windows/MainWindow.cs`
-- `apps/windows/OpenClaw.Windows/App.cs`
-- `apps/windows/OpenClaw.Windows/WindowsNavigation.cs`
-- new `apps/windows/OpenClaw.Windows/Strings\*\Resources.resw`
-- new repo-level project folders if Command Palette or WinNode CLI work is accepted
+- PowerToys Command Palette extension,
+- WinNode CLI utility,
+- MCP-only local server mode,
+- full native A2UI renderer parity.
 
-**Dependencies:** Sessions 1 through 8 for app-local parity; repo-level follow-ons can be split further
+**Parity target:** **external-Windows-only / stretch**.
 
-**Main risks**
+**Callout:** full native A2UI renderer should stay here; it is a large WinUI/XAML hosting investment, not a small extension of the current shell.
 
-- programmatic UI string extraction effort,
-- layout regressions from longer translated strings,
-- scope spill beyond `apps/windows`.
+## Current-plan changes to make
 
-**Recommended proof**
+### Merge
 
-- language-switch smoke across at least two locales,
-- accessibility and keyboard smoke on updated surfaces,
-- separate validation plans for Command Palette and CLI work if those sessions are taken on.
+- **Merge current Sessions 3 and 4 conceptually** into one diagnostics track: backend first, UX immediately after.
+- **Merge current Sessions 6 and 7** under a single capability-parity phase, optionally split internally into 5A/5B.
 
-## Suggested cut lines
+### Rename
 
-### "Substantial parity" milestone
+- Session 1 → **Platform seams and settings expansion**
+- Session 2 → **Topology, deep links, and guided entry points**
+- Session 5 → **Policy and safe execution foundation**
 
-Sessions 1, 2, 3, 5, 6, and 7 deliver the biggest functional gains and close the most important external gaps.
+### Reorder
 
-### "Operational UX parity" milestone
+- move onboarding work earlier in concept, but only as **entry routing/topology-aware setup** in Session 2,
+- move full onboarding depth later to Session 7,
+- keep policy ahead of browser/media work,
+- move localization out of the same bucket as repo-level extras.
 
-Add Session 4 and the notification/history portions of Session 8.
+### Split
 
-### "Broader product parity" milestone
+- **Current Session 8** should split into:
+  - early entry/topology work,
+  - late onboarding/admin depth,
+  - notification rules aligned with operational UX.
+- **Current Session 9** should split into:
+  - app-local late parity,
+  - repo-level stretch work.
 
-Add Session 9 and any repo-level follow-ons that still provide clear user value.
+## Out-of-plan or explicit stretch scope
+
+These should remain out of the main parity plan or be called late/stretch:
+
+- voice wake/talk product parity,
+- Peekaboo-style automation/admin breadth,
+- broad discovery and Tailscale-like topology parity,
+- full native A2UI renderer parity,
+- MCP-only local server mode,
+- PowerToys Command Palette,
+- WinNode CLI,
+- ElevenLabs provider,
+- screen-recording audio capture beyond a trivial add-on.
+
+## Milestones
+
+### "Shared parity core" milestone
+
+Sessions **1 through 5**.
+
+This is the best stopping point for a realistic Windows upgrade that materially improves parity with **both** comparison apps.
+
+### "Operational parity" milestone
+
+Add **Session 6**.
+
+### "Guided product parity" milestone
+
+Add **Session 7**.
+
+### "Late Windows-specific parity" milestone
+
+Add **Sessions 8 and 9** only if the core app roadmap is already healthy.
 
 ## Immediate recommendation
 
-Start with **Session 1**, then **Session 2**, then **Session 3**. That sequence creates the settings, topology, and diagnostics seams that the remaining sessions depend on. After that, prioritize **Session 5** before **Session 6** so browser-proxy and richer media work land on top of persistent policy and URL-safety infrastructure instead of bypassing it.
+Start with:
+
+1. **Session 1 - Platform seams and settings expansion**
+2. **Session 2 - Topology, deep links, and guided entry points**
+3. **Session 3 - Operational backbone**
+4. **Session 4 - Policy and safe execution foundation**
+
+That order keeps the roadmap realistic for `apps/windows` and WinUI 3: it strengthens the existing shell, avoids a giant rewrite, and front-loads the work that advances Windows toward **both** comparison apps before taking on Windows-only stretch features.
