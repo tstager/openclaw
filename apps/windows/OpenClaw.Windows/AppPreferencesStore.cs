@@ -13,6 +13,20 @@ public enum WindowsThemePreference
 }
 
 /// <summary>
+/// User-selected accent color behavior for app-owned Windows companion highlights.
+/// </summary>
+public enum WindowsAccentColorPreference
+{
+    System,
+    Blue,
+    Teal,
+    Green,
+    Orange,
+    Rose,
+    Purple,
+}
+
+/// <summary>
 /// Non-secret app settings persisted between Windows companion sessions.
 /// </summary>
 public sealed record AppPreferences(
@@ -22,6 +36,7 @@ public sealed record AppPreferences(
     string? DeviceToken,
     string ChatSessionKey,
     WindowsThemePreference ThemePreference,
+    WindowsAccentColorPreference AccentColorPreference,
     bool CanvasNodeEnabled,
     bool VoiceControlsEnabled,
     bool GlobalHotkeyEnabled,
@@ -40,6 +55,7 @@ public sealed record AppPreferences(
         DeviceToken: null,
         ChatSessionKey: "main",
         ThemePreference: WindowsThemePreference.System,
+        AccentColorPreference: WindowsAccentColorPreference.System,
         CanvasNodeEnabled: true,
         VoiceControlsEnabled: false,
         GlobalHotkeyEnabled: false,
@@ -211,6 +227,7 @@ public sealed class AppPreferencesStore : IDisposable
         string GatewayUrl,
         string ChatSessionKey,
         string? Theme,
+        string? AccentColor,
         bool? CanvasNodeEnabled,
         bool VoiceControlsEnabled,
         bool GlobalHotkeyEnabled,
@@ -227,6 +244,7 @@ public sealed class AppPreferencesStore : IDisposable
                 preferences.GatewayUrl,
                 preferences.ChatSessionKey,
                 preferences.ThemePreference.ToString(),
+                preferences.AccentColorPreference.ToString(),
                 preferences.CanvasNodeEnabled,
                 preferences.VoiceControlsEnabled,
                 preferences.GlobalHotkeyEnabled,
@@ -249,6 +267,7 @@ public sealed class AppPreferencesStore : IDisposable
                 DeviceToken: null,
                 string.IsNullOrWhiteSpace(this.ChatSessionKey) ? AppPreferences.Default.ChatSessionKey : this.ChatSessionKey,
                 ParseThemePreference(this.Theme),
+                ParseAccentColorPreference(this.AccentColor),
                 this.CanvasNodeEnabled ?? AppPreferences.Default.CanvasNodeEnabled,
                 this.VoiceControlsEnabled,
                 this.GlobalHotkeyEnabled,
@@ -265,6 +284,13 @@ public sealed class AppPreferencesStore : IDisposable
             return Enum.TryParse<WindowsThemePreference>(value, ignoreCase: true, out var theme)
                 ? theme
                 : AppPreferences.Default.ThemePreference;
+        }
+
+        private static WindowsAccentColorPreference ParseAccentColorPreference(string? value)
+        {
+            return Enum.TryParse<WindowsAccentColorPreference>(value, ignoreCase: true, out var accentColor)
+                ? accentColor
+                : AppPreferences.Default.AccentColorPreference;
         }
 
         private static SessionEventVisibilityPreset ParseSessionEventVisibilityPreset(string? value)

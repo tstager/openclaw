@@ -18,6 +18,7 @@ public sealed class AppPreferencesStoreTests
             GatewayUrl = "ws://127.0.0.1:18800",
             ChatSessionKey = "windows",
             ThemePreference = WindowsThemePreference.Dark,
+            AccentColorPreference = WindowsAccentColorPreference.Purple,
             VoiceControlsEnabled = true,
             GlobalHotkeyEnabled = true,
             NotificationPreferences = new WindowsNotificationPreferences(
@@ -40,6 +41,7 @@ public sealed class AppPreferencesStoreTests
         Assert.AreEqual(expected.GatewayUrl, actual.GatewayUrl);
         Assert.AreEqual(expected.ChatSessionKey, actual.ChatSessionKey);
         Assert.AreEqual(expected.ThemePreference, actual.ThemePreference);
+        Assert.AreEqual(expected.AccentColorPreference, actual.AccentColorPreference);
         Assert.AreEqual(expected.VoiceControlsEnabled, actual.VoiceControlsEnabled);
         Assert.AreEqual(expected.GlobalHotkeyEnabled, actual.GlobalHotkeyEnabled);
         Assert.AreEqual(expected.NotificationPreferences, actual.NotificationPreferences);
@@ -118,6 +120,30 @@ public sealed class AppPreferencesStoreTests
     }
 
     [TestMethod]
+    public async Task MissingAccentColorPreferenceDefaultsToSystem()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName(), "preferences.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        await File.WriteAllTextAsync(
+            path,
+            """
+            {
+              "openMainWindowOnLaunch": true,
+              "gatewayUrl": "ws://127.0.0.1:18789",
+              "chatSessionKey": "main",
+              "theme": "Dark",
+              "voiceControlsEnabled": false,
+              "globalHotkeyEnabled": false
+            }
+            """);
+        var store = new AppPreferencesStore(path);
+
+        var actual = await store.LoadAsync();
+
+        Assert.AreEqual(WindowsAccentColorPreference.System, actual.AccentColorPreference);
+    }
+
+    [TestMethod]
     public async Task MissingSessionEventVisibilityDefaultsToAllVisible()
     {
         var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName(), "preferences.json");
@@ -158,6 +184,31 @@ public sealed class AppPreferencesStoreTests
         Assert.AreEqual(SessionEventVisibilityPreset.ChatOnly, actual.SessionEventVisibility.Preset);
         Assert.IsTrue(actual.SessionEventVisibility.IsVisible("chat"));
         Assert.IsFalse(actual.SessionEventVisibility.IsVisible("tick"));
+    }
+
+    [TestMethod]
+    public async Task UnknownAccentColorPreferenceDefaultsToSystem()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName(), "preferences.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        await File.WriteAllTextAsync(
+            path,
+            """
+            {
+              "openMainWindowOnLaunch": true,
+              "gatewayUrl": "ws://127.0.0.1:18789",
+              "chatSessionKey": "main",
+              "theme": "Dark",
+              "accentColor": "Neon",
+              "voiceControlsEnabled": false,
+              "globalHotkeyEnabled": false
+            }
+            """);
+        var store = new AppPreferencesStore(path);
+
+        var actual = await store.LoadAsync();
+
+        Assert.AreEqual(WindowsAccentColorPreference.System, actual.AccentColorPreference);
     }
 
     [TestMethod]
