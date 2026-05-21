@@ -19,6 +19,7 @@ public sealed class AppPreferencesStoreTests
             ChatSessionKey = "windows",
             ThemePreference = WindowsThemePreference.Dark,
             AccentColorPreference = WindowsAccentColorPreference.Purple,
+            ColorThemePreference = WindowsColorThemePreference.Forest,
             VoiceControlsEnabled = true,
             GlobalHotkeyEnabled = true,
             NotificationPreferences = new WindowsNotificationPreferences(
@@ -42,6 +43,7 @@ public sealed class AppPreferencesStoreTests
         Assert.AreEqual(expected.ChatSessionKey, actual.ChatSessionKey);
         Assert.AreEqual(expected.ThemePreference, actual.ThemePreference);
         Assert.AreEqual(expected.AccentColorPreference, actual.AccentColorPreference);
+        Assert.AreEqual(expected.ColorThemePreference, actual.ColorThemePreference);
         Assert.AreEqual(expected.VoiceControlsEnabled, actual.VoiceControlsEnabled);
         Assert.AreEqual(expected.GlobalHotkeyEnabled, actual.GlobalHotkeyEnabled);
         Assert.AreEqual(expected.NotificationPreferences, actual.NotificationPreferences);
@@ -144,6 +146,31 @@ public sealed class AppPreferencesStoreTests
     }
 
     [TestMethod]
+    public async Task MissingColorThemePreferenceDefaultsToDefault()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName(), "preferences.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        await File.WriteAllTextAsync(
+            path,
+            """
+            {
+              "openMainWindowOnLaunch": true,
+              "gatewayUrl": "ws://127.0.0.1:18789",
+              "chatSessionKey": "main",
+              "theme": "Dark",
+              "accentColor": "Purple",
+              "voiceControlsEnabled": false,
+              "globalHotkeyEnabled": false
+            }
+            """);
+        var store = new AppPreferencesStore(path);
+
+        var actual = await store.LoadAsync();
+
+        Assert.AreEqual(WindowsColorThemePreference.Default, actual.ColorThemePreference);
+    }
+
+    [TestMethod]
     public async Task MissingSessionEventVisibilityDefaultsToAllVisible()
     {
         var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName(), "preferences.json");
@@ -233,6 +260,32 @@ public sealed class AppPreferencesStoreTests
         var actual = await store.LoadAsync();
 
         Assert.AreEqual(WindowsThemePreference.System, actual.ThemePreference);
+    }
+
+    [TestMethod]
+    public async Task UnknownColorThemePreferenceDefaultsToDefault()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName(), "preferences.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        await File.WriteAllTextAsync(
+            path,
+            """
+            {
+              "openMainWindowOnLaunch": true,
+              "gatewayUrl": "ws://127.0.0.1:18789",
+              "chatSessionKey": "main",
+              "theme": "Dark",
+              "accentColor": "Purple",
+              "colorTheme": "Solarized",
+              "voiceControlsEnabled": false,
+              "globalHotkeyEnabled": false
+            }
+            """);
+        var store = new AppPreferencesStore(path);
+
+        var actual = await store.LoadAsync();
+
+        Assert.AreEqual(WindowsColorThemePreference.Default, actual.ColorThemePreference);
     }
 
 }
