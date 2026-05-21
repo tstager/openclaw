@@ -2526,6 +2526,7 @@ public sealed class MainWindow : Window
                 IsChecked = this.sessionEventVisibility.IsVisible(eventType),
                 Tag = eventType,
             };
+            ApplyAccentCheckedState(checkBox);
             AutomationProperties.SetName(checkBox, $"Show {eventType} events");
             checkBox.Checked += this.OnSessionEventVisibilityChecked;
             checkBox.Unchecked += this.OnSessionEventVisibilityUnchecked;
@@ -2566,6 +2567,7 @@ public sealed class MainWindow : Window
         {
             foreach (var checkBox in this.chatEventVisibilityControls.Children.OfType<XamlCheckBox>())
             {
+                ApplyAccentCheckedState(checkBox);
                 if (checkBox.Tag is string eventType)
                 {
                     checkBox.IsChecked = this.sessionEventVisibility.IsVisible(eventType);
@@ -2576,6 +2578,19 @@ public sealed class MainWindow : Window
         {
             this.updatingSessionEventVisibilityControls = false;
         }
+    }
+
+    private static void ApplyAccentCheckedState(XamlCheckBox checkBox)
+    {
+        checkBox.Resources["CheckBoxCheckBackgroundFillChecked"] = AccentBrush;
+        checkBox.Resources["CheckBoxCheckBackgroundFillCheckedPointerOver"] = AccentBrush;
+        checkBox.Resources["CheckBoxCheckBackgroundFillCheckedPressed"] = AccentBrush;
+        checkBox.Resources["CheckBoxCheckBackgroundStrokeChecked"] = AccentBrush;
+        checkBox.Resources["CheckBoxCheckBackgroundStrokeCheckedPointerOver"] = AccentBrush;
+        checkBox.Resources["CheckBoxCheckBackgroundStrokeCheckedPressed"] = AccentBrush;
+        checkBox.Resources["CheckBoxCheckGlyphForegroundChecked"] = AccentTextBrush;
+        checkBox.Resources["CheckBoxCheckGlyphForegroundCheckedPointerOver"] = AccentTextBrush;
+        checkBox.Resources["CheckBoxCheckGlyphForegroundCheckedPressed"] = AccentTextBrush;
     }
 
     private async Task SetSessionEventVisibilityOrReportAsync(string eventType, bool visible)
