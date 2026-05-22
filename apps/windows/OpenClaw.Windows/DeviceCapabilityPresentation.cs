@@ -47,8 +47,11 @@ public sealed record DeviceCapabilityPresentation(
         return capability switch
         {
             "Screen" => "Confirm a primary display is attached and accessible.",
+            "Screen recording" => "Reduce the requested duration or frame rate and confirm the primary display remains available.",
             "Camera" => "Check Windows camera privacy settings and connect a camera.",
             "Microphone" => "Check Windows microphone privacy settings and connect an audio input.",
+            "Browser proxy" => "Start the gateway, keep browser routing enabled, and leave unsafe URL blocking turned on.",
+            "System speech" => "Install at least one Windows voice package or repair the Speech runtime.",
             "Notifications" => "Confirm the tray host is running and Windows notifications are enabled.",
             "Hotkeys" => "Disable conflicting shortcuts or save the hotkey toggle again.",
             "Overlays" => "Confirm desktop windowing is available for the current Windows session.",

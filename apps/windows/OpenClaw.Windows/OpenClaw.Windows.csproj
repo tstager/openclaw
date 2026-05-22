@@ -3,6 +3,7 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.19041.0</TargetPlatformMinVersion>
+    <DefaultLanguage>en-us</DefaultLanguage>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <UseWinUI>true</UseWinUI>
@@ -24,5 +25,6 @@
   <ItemGroup>
     <AppxManifest Include="Package.appxmanifest" />
     <Content Include="Assets\*.png" />
+    <PRIResource Include="Strings\**\*.resw" />
   </ItemGroup>
 </Project>

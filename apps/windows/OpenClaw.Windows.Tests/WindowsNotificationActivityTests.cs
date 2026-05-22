@@ -31,4 +31,28 @@ public sealed class WindowsNotificationActivityTests
         Assert.AreEqual("Third", log.Entries[0].Title);
         Assert.AreEqual("Second", log.Entries[1].Title);
     }
+
+    [TestMethod]
+    public void Add_NormalizesDestinationCategoryAndKind()
+    {
+        var log = new WindowsNotificationActivityLog();
+
+        var entry = log.Add(" approvals ", "Approval", "One pending.", " Operator ", WindowsNotificationKind.Approval);
+
+        Assert.AreEqual(WindowsNavigationDestination.Approvals, entry.Destination);
+        Assert.AreEqual(WindowsNotificationCategories.Operator, entry.Category);
+        Assert.AreEqual(WindowsNotificationKind.Approval, entry.Kind);
+    }
+
+    [TestMethod]
+    public void Clear_RemovesEntries()
+    {
+        var log = new WindowsNotificationActivityLog();
+        log.Add(WindowsNavigationDestination.Home, "First", "first");
+
+        log.Clear();
+
+        Assert.HasCount(0, log.Entries);
+        Assert.IsNull(log.Latest);
+    }
 }

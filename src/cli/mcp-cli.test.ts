@@ -20,6 +20,10 @@ const mocks = vi.hoisted(() => {
   return {
     runtime,
     serveOpenClawChannelMcp: vi.fn(),
+    ensureMcpLoopbackServer: vi.fn(),
+    closeMcpLoopbackServer: vi.fn(),
+    getActiveMcpLoopbackRuntime: vi.fn(),
+    createUserFacingMcpLoopbackServerDetails: vi.fn(),
   };
 });
 
@@ -27,6 +31,10 @@ const defaultRuntime = mocks.runtime;
 const mockLog = defaultRuntime.log;
 const mockError = defaultRuntime.error;
 const serveOpenClawChannelMcp = mocks.serveOpenClawChannelMcp;
+const ensureMcpLoopbackServer = mocks.ensureMcpLoopbackServer;
+const closeMcpLoopbackServer = mocks.closeMcpLoopbackServer;
+const getActiveMcpLoopbackRuntime = mocks.getActiveMcpLoopbackRuntime;
+const createUserFacingMcpLoopbackServerDetails = mocks.createUserFacingMcpLoopbackServerDetails;
 
 vi.mock("../runtime.js", () => ({
   defaultRuntime: mocks.runtime,
@@ -34,6 +42,13 @@ vi.mock("../runtime.js", () => ({
 
 vi.mock("../mcp/channel-server.js", () => ({
   serveOpenClawChannelMcp: mocks.serveOpenClawChannelMcp,
+}));
+
+vi.mock("../gateway/mcp-http.js", () => ({
+  ensureMcpLoopbackServer: mocks.ensureMcpLoopbackServer,
+  closeMcpLoopbackServer: mocks.closeMcpLoopbackServer,
+  getActiveMcpLoopbackRuntime: mocks.getActiveMcpLoopbackRuntime,
+  createUserFacingMcpLoopbackServerDetails: mocks.createUserFacingMcpLoopbackServerDetails,
 }));
 
 const tempDirs: string[] = [];
@@ -72,6 +87,28 @@ describe("mcp cli", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    ensureMcpLoopbackServer.mockResolvedValue({ port: 23119 });
+    closeMcpLoopbackServer.mockResolvedValue(undefined);
+    getActiveMcpLoopbackRuntime.mockReturnValue({
+      port: 23119,
+      ownerToken: "owner-token",
+      nonOwnerToken: "non-owner-token",
+    });
+    createUserFacingMcpLoopbackServerDetails.mockReturnValue({
+      port: 23119,
+      url: "http://127.0.0.1:23119/mcp",
+      token: "owner-token",
+      tokenEnvVar: "OPENCLAW_MCP_TOKEN",
+      config: {
+        mcpServers: {
+          openclaw: {
+            type: "http",
+            url: "http://127.0.0.1:23119/mcp",
+            headers: { Authorization: "Bearer ${OPENCLAW_MCP_TOKEN}" },
+          },
+        },
+      },
+    });
   });
 
   afterEach(async () => {
@@ -135,6 +172,90 @@ describe("mcp cli", () => {
         claudeChannelMode: "on",
         verbose: true,
       });
+    });
+  });
+
+  it("starts the local MCP HTTP server and reports connection details", async () => {
+    await withTempHome("openclaw-cli-mcp-home-", async () => {
+      const onceSpy = vi.spyOn(process, "once").mockImplementation(((
+        event: string,
+        listener: () => void,
+      ) => {
+        if (event === "SIGINT") {
+          queueMicrotask(listener);
+        }
+        return process;
+      }) as typeof process.once);
+
+      await runMcpCommand(["mcp", "serve-http", "--port", "23119"]);
+
+      expect(ensureMcpLoopbackServer).toHaveBeenCalledWith(23119);
+      expect(createUserFacingMcpLoopbackServerDetails).toHaveBeenCalledWith({
+        port: 23119,
+        ownerToken: "owner-token",
+        nonOwnerToken: "non-owner-token",
+      });
+      expect(closeMcpLoopbackServer).toHaveBeenCalledTimes(1);
+      expect(mockLog.mock.calls.map(([line]) => line)).toEqual([
+        "Local MCP HTTP server: http://127.0.0.1:23119/mcp",
+        "Bearer token (OPENCLAW_MCP_TOKEN): owner-token",
+        "Treat this token like local shell access. Run openclaw mcp serve-http --json for a ready-to-paste client config.",
+        "Press Ctrl+C to stop.",
+      ]);
+      expect(onceSpy).toHaveBeenCalledWith("SIGINT", expect.any(Function));
+      expect(onceSpy).toHaveBeenCalledWith("SIGTERM", expect.any(Function));
+    });
+  });
+
+  it("prints machine-readable startup info for the local MCP HTTP server", async () => {
+    await withTempHome("openclaw-cli-mcp-home-", async () => {
+      vi.spyOn(process, "once").mockImplementation(((event: string, listener: () => void) => {
+        if (event === "SIGINT") {
+          queueMicrotask(listener);
+        }
+        return process;
+      }) as typeof process.once);
+
+      await runMcpCommand(["mcp", "serve-http", "--json"]);
+
+      expect(ensureMcpLoopbackServer).toHaveBeenCalledWith(0);
+      expect(JSON.parse(lastLogLine())).toEqual({
+        port: 23119,
+        url: "http://127.0.0.1:23119/mcp",
+        token: "owner-token",
+        tokenEnvVar: "OPENCLAW_MCP_TOKEN",
+        config: {
+          mcpServers: {
+            openclaw: {
+              type: "http",
+              url: "http://127.0.0.1:23119/mcp",
+              headers: { Authorization: "Bearer ${OPENCLAW_MCP_TOKEN}" },
+            },
+          },
+        },
+      });
+    });
+  });
+
+  it("fails when the local MCP HTTP port is invalid", async () => {
+    await withTempHome("openclaw-cli-mcp-home-", async () => {
+      await expect(runMcpCommand(["mcp", "serve-http", "--port", "nope"])).rejects.toThrow(
+        "__exit__:1",
+      );
+      expect(lastErrorLine()).toBe(
+        "MCP HTTP server failed to start: Invalid --port. Use a port number from 1 to 65535, for example 18789.",
+      );
+    });
+  });
+
+  it("fails when the local MCP HTTP port exceeds the TCP range", async () => {
+    await withTempHome("openclaw-cli-mcp-home-", async () => {
+      await expect(runMcpCommand(["mcp", "serve-http", "--port", "65536"])).rejects.toThrow(
+        "__exit__:1",
+      );
+      expect(lastErrorLine()).toBe(
+        "MCP HTTP server failed to start: Invalid --port. Use a port number from 1 to 65535, for example 18789.",
+      );
     });
   });
 });

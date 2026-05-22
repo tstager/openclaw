@@ -4,6 +4,8 @@ type McpLoopbackRuntime = {
   nonOwnerToken: string;
 };
 
+export const MCP_LOOPBACK_TOKEN_ENV_VAR = "OPENCLAW_MCP_TOKEN";
+
 let activeRuntime: McpLoopbackRuntime | undefined;
 
 export function getActiveMcpLoopbackRuntime(): McpLoopbackRuntime | undefined {
@@ -27,6 +29,26 @@ export function clearActiveMcpLoopbackRuntimeByOwnerToken(ownerToken: string): v
   }
 }
 
+export function createUserFacingMcpLoopbackServerDetails(runtime: McpLoopbackRuntime) {
+  return {
+    port: runtime.port,
+    url: `http://127.0.0.1:${runtime.port}/mcp`,
+    token: resolveMcpLoopbackBearerToken(runtime, true),
+    tokenEnvVar: MCP_LOOPBACK_TOKEN_ENV_VAR,
+    config: {
+      mcpServers: {
+        openclaw: {
+          type: "http",
+          url: `http://127.0.0.1:${runtime.port}/mcp`,
+          headers: {
+            Authorization: `Bearer \${${MCP_LOOPBACK_TOKEN_ENV_VAR}}`,
+          },
+        },
+      },
+    },
+  };
+}
+
 export function createMcpLoopbackServerConfig(port: number) {
   return {
     mcpServers: {
@@ -34,7 +56,7 @@ export function createMcpLoopbackServerConfig(port: number) {
         type: "http",
         url: `http://127.0.0.1:${port}/mcp`,
         headers: {
-          Authorization: "Bearer ${OPENCLAW_MCP_TOKEN}",
+          Authorization: `Bearer \${${MCP_LOOPBACK_TOKEN_ENV_VAR}}`,
           "x-session-key": "${OPENCLAW_MCP_SESSION_KEY}",
           "x-openclaw-agent-id": "${OPENCLAW_MCP_AGENT_ID}",
           "x-openclaw-account-id": "${OPENCLAW_MCP_ACCOUNT_ID}",

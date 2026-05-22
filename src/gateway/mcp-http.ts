@@ -22,6 +22,7 @@ import {
 import { McpLoopbackToolCache } from "./mcp-http.runtime.js";
 
 export {
+  createUserFacingMcpLoopbackServerDetails,
   createMcpLoopbackServerConfig,
   getActiveMcpLoopbackRuntime,
   resolveMcpLoopbackBearerToken,
@@ -34,6 +35,14 @@ type McpLoopbackServer = {
 
 let activeMcpLoopbackServer: McpLoopbackServer | undefined;
 let activeMcpLoopbackServerPromise: Promise<McpLoopbackServer> | null = null;
+
+function assertRequestedLoopbackPort(server: McpLoopbackServer, requestedPort: number): void {
+  if (requestedPort > 0 && server.port !== requestedPort) {
+    throw new Error(
+      `Local MCP HTTP server is already running on port ${server.port}. Stop it before requesting port ${requestedPort}.`,
+    );
+  }
+}
 
 function shouldLogMcpLoopbackTraffic(): boolean {
   return (
@@ -218,6 +227,7 @@ export async function startMcpLoopbackServer(port = 0): Promise<{
 
 export async function ensureMcpLoopbackServer(port = 0): Promise<McpLoopbackServer> {
   if (activeMcpLoopbackServer) {
+    assertRequestedLoopbackPort(activeMcpLoopbackServer, port);
     return activeMcpLoopbackServer;
   }
   if (!activeMcpLoopbackServerPromise) {
@@ -230,7 +240,9 @@ export async function ensureMcpLoopbackServer(port = 0): Promise<McpLoopbackServ
         activeMcpLoopbackServerPromise = null;
       });
   }
-  return activeMcpLoopbackServerPromise;
+  const server = await activeMcpLoopbackServerPromise;
+  assertRequestedLoopbackPort(server, port);
+  return server;
 }
 
 export async function closeMcpLoopbackServer(): Promise<void> {

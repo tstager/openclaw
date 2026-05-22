@@ -16,6 +16,8 @@ public sealed record AppStartupSummary(
 /// </summary>
 public sealed record WindowsCompanionState
 {
+    public required IWindowsStringLocalizer Localizer { get; init; }
+
     public required AppStartupSummary Summary { get; init; }
 
     public required GatewayCompanionController Gateway { get; init; }
@@ -34,6 +36,8 @@ public sealed record WindowsCompanionState
 
     public required WindowsNotificationActivityLog Notifications { get; init; }
 
+    public required WindowsNotificationHistoryStore NotificationHistory { get; init; }
+
     public required WindowsActivationRelay Activation { get; init; }
 
     public required WindowsSshTunnelService Tunnel { get; init; }
@@ -47,6 +51,12 @@ public sealed record WindowsCompanionState
     public required WindowsUrlRiskEvaluator UrlRisk { get; init; }
 
     public required WindowsSecretRedactor SecretRedactor { get; init; }
+
+    public required WindowsBrowserProxyCapabilityService BrowserProxy { get; init; }
+
+    public required WindowsSystemTextToSpeechService TextToSpeech { get; init; }
+
+    public required WindowsOperationalSupportSummaryBuilder OperationalSupport { get; init; }
 }
 
 /// <summary>
@@ -57,10 +67,11 @@ public static class AppBootstrap
     /// <summary>
     /// Collects product, protocol, and native host capability metadata for display and diagnostics.
     /// </summary>
-    public static AppStartupSummary CreateStartupSummary()
+    public static AppStartupSummary CreateStartupSummary(IWindowsStringLocalizer? localizer = null)
     {
+        localizer ??= new WindowsStringLocalizer();
         return new AppStartupSummary(
-            AppName: "OpenClaw",
+            AppName: localizer.Get("Shell.AppTitle", "OpenClaw"),
             GatewayProtocolVersion: GatewayProtocol.Version,
             HostCapabilities: WindowsHostCapabilityProbe.Current);
     }
@@ -70,6 +81,7 @@ public static class AppBootstrap
     /// </summary>
     public static WindowsCompanionState CreateAppState()
     {
+        var localizer = new WindowsStringLocalizer();
         var companionRoot = System.IO.Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "OpenClaw",
@@ -81,15 +93,17 @@ public static class AppBootstrap
         var gateway = new GatewayCompanionController(commandRunner, preferences);
         return new WindowsCompanionState
         {
-            Summary = CreateStartupSummary(),
+            Localizer = localizer,
+            Summary = CreateStartupSummary(localizer),
             Gateway = gateway,
             Realtime = new GatewayRealtimeClient(preferences, deviceIdentityStore),
             CanvasNode = new WindowsCanvasNodeClient(preferences, deviceIdentityStore),
             DeviceCapabilities = new WindowsDeviceCapabilityService(),
             OnboardingChecks = new OnboardingCheckService(commandRunner, preferences),
             Preferences = preferences,
-            Navigation = new WindowsNavigationService(),
+            Navigation = new WindowsNavigationService(localizer),
             Notifications = new WindowsNotificationActivityLog(),
+            NotificationHistory = new WindowsNotificationHistoryStore(System.IO.Path.Combine(companionRoot, "notification-history.json")),
             Activation = new WindowsActivationRelay("OpenClaw.Windows.Companion.Activation"),
             Tunnel = new WindowsSshTunnelService(),
             Topology = new WindowsPortTopologyService(),
@@ -97,6 +111,9 @@ public static class AppBootstrap
             ActivityHistory = new WindowsActivityHistoryStore(System.IO.Path.Combine(companionRoot, "activity-history.json")),
             UrlRisk = new WindowsUrlRiskEvaluator(),
             SecretRedactor = new WindowsSecretRedactor(),
+            BrowserProxy = new WindowsBrowserProxyCapabilityService(),
+            TextToSpeech = new WindowsSystemTextToSpeechService(),
+            OperationalSupport = new WindowsOperationalSupportSummaryBuilder(),
         };
     }
 }

@@ -59,17 +59,20 @@ public sealed class WindowsCompanionCoordinatorTests
         var store = new AppPreferencesStore(Path.Combine(Path.GetTempPath(), Path.GetRandomFileName(), "preferences.json"));
         var gateway = new GatewayCompanionController(runner, store);
         var root = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        var localizer = new WindowsStringLocalizer(_ => null);
         var state = new WindowsCompanionState
         {
-            Summary = AppBootstrap.CreateStartupSummary(),
+            Localizer = localizer,
+            Summary = AppBootstrap.CreateStartupSummary(localizer),
             Gateway = gateway,
             Realtime = new GatewayRealtimeClient(store),
             CanvasNode = new WindowsCanvasNodeClient(store, new DeviceIdentityStore(new InMemoryAppCredentialStore())),
             DeviceCapabilities = new WindowsDeviceCapabilityService(),
             OnboardingChecks = new OnboardingCheckService(runner, store),
             Preferences = store,
-            Navigation = new WindowsNavigationService(),
+            Navigation = new WindowsNavigationService(localizer),
             Notifications = new WindowsNotificationActivityLog(),
+            NotificationHistory = new WindowsNotificationHistoryStore(Path.Combine(root, "notification-history.json")),
             Activation = new WindowsActivationRelay("test-activation"),
             Tunnel = new WindowsSshTunnelService(),
             Topology = new WindowsPortTopologyService(),
@@ -77,7 +80,26 @@ public sealed class WindowsCompanionCoordinatorTests
             ActivityHistory = new WindowsActivityHistoryStore(Path.Combine(root, "activity-history.json")),
             UrlRisk = new WindowsUrlRiskEvaluator(),
             SecretRedactor = new WindowsSecretRedactor(),
+            BrowserProxy = new WindowsBrowserProxyCapabilityService(),
+            TextToSpeech = new WindowsSystemTextToSpeechService(Path.Combine(root, "speech"), new FakeWindowsTextToSpeechRuntime()),
+            OperationalSupport = new WindowsOperationalSupportSummaryBuilder(),
         };
         return new WindowsCompanionCoordinator(state);
+    }
+
+    private sealed class FakeWindowsTextToSpeechRuntime : IWindowsTextToSpeechRuntime
+    {
+        public IReadOnlyList<WindowsTextToSpeechVoice> GetInstalledVoices()
+        {
+            return [new WindowsTextToSpeechVoice("default", "Default", "en-US", "Female", true)];
+        }
+
+        public Task<WindowsTextToSpeechSynthesis> SynthesizeAsync(
+            string text,
+            string? voiceId,
+            CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new WindowsTextToSpeechSynthesis("audio/wav", [1, 2, 3]));
+        }
     }
 }
