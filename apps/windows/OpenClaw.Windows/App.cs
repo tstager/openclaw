@@ -10,10 +10,13 @@ namespace OpenClaw.Windows;
 public sealed partial class App : XamlApplication, IDisposable
 {
     private const string SingleInstanceMutexName = "OpenClaw.Windows.Companion";
+    private const string ActivationPipeName = "OpenClaw.Windows.Companion.Activation";
 
     private WindowsTrayHost? trayHost;
+    private WindowsCompanionState? appState;
     private MainWindow? window;
     private System.Threading.Mutex? singleInstanceMutex;
+    private WindowsActivationRequest? pendingActivationRequest;
 
     public App()
     {
@@ -31,18 +34,26 @@ public sealed partial class App : XamlApplication, IDisposable
     {
         try
         {
+            var activationRequest = WindowsActivationRouter.ParseLaunchArguments(args.Arguments);
             this.singleInstanceMutex = new System.Threading.Mutex(true, SingleInstanceMutexName, out var createdNew);
             if (!createdNew)
             {
+                if (activationRequest is not null)
+                {
+                    using var relay = new WindowsActivationRelay(ActivationPipeName);
+                    await relay.ForwardAsync(args.Arguments);
+                }
                 this.singleInstanceMutex.Dispose();
                 this.singleInstanceMutex = null;
                 Exit();
                 return;
             }
 
-            var appState = AppBootstrap.CreateAppState();
-            var preferences = await appState.Preferences.LoadAsync();
-            this.window = new MainWindow(appState);
+            this.appState = AppBootstrap.CreateAppState();
+            var preferences = await this.appState.Preferences.LoadAsync();
+            this.window = new MainWindow(this.appState);
+            this.appState.Activation.RequestReceived += this.OnActivationRequestReceivedAsync;
+            this.appState.Activation.Start();
             this.window.ApplyAppearancePreferences(
                 preferences.ThemePreference,
                 preferences.AccentColorPreference,
@@ -89,10 +100,22 @@ public sealed partial class App : XamlApplication, IDisposable
             {
                 this.trayHost?.Dispose();
                 this.trayHost = null;
+                this.appState?.Activation.Dispose();
             };
-            if (preferences.OpenMainWindowOnLaunch)
+            if (preferences.OpenMainWindowOnLaunch || activationRequest is not null)
             {
                 this.window.ShowShell();
+            }
+
+            if (activationRequest is not null)
+            {
+                await this.ActivateWindowRequestAsync(activationRequest);
+            }
+            else if (this.pendingActivationRequest is not null)
+            {
+                var pending = this.pendingActivationRequest;
+                this.pendingActivationRequest = null;
+                await this.ActivateWindowRequestAsync(pending);
             }
         }
         catch (Exception ex)
@@ -110,7 +133,48 @@ public sealed partial class App : XamlApplication, IDisposable
     {
         this.trayHost?.Dispose();
         this.trayHost = null;
+        this.appState?.Activation.Dispose();
+        this.appState = null;
         this.ReleaseSingleInstanceMutex();
+    }
+
+    private Task OnActivationRequestReceivedAsync(WindowsActivationRequest request)
+    {
+        if (this.window is null)
+        {
+            this.pendingActivationRequest = request;
+            return Task.CompletedTask;
+        }
+
+        return this.ActivateWindowRequestAsync(request);
+    }
+
+    private Task ActivateWindowRequestAsync(WindowsActivationRequest request)
+    {
+        if (this.window is null)
+        {
+            this.pendingActivationRequest = request;
+            return Task.CompletedTask;
+        }
+
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (!this.window.DispatcherQueue.TryEnqueue(async () =>
+            {
+                try
+                {
+                    await this.window.HandleActivationAsync(request);
+                    completion.SetResult();
+                }
+                catch (Exception ex)
+                {
+                    completion.SetException(ex);
+                }
+            }))
+        {
+            completion.SetException(new InvalidOperationException("Unable to dispatch activation to the main window."));
+        }
+
+        return completion.Task;
     }
 
     private void ReleaseSingleInstanceMutex()

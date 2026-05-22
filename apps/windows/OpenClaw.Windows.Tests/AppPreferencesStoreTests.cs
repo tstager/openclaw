@@ -27,6 +27,21 @@ public sealed class AppPreferencesStoreTests
                 PairingAlerts: true,
                 GatewayHealthAlerts: false,
                 DevicePermissionAlerts: true),
+            Topology = new WindowsTopologyPreferences(
+                AutoStartTunnel: true,
+                SshHost: "trent@example.com",
+                RemoteHost: "127.0.0.1",
+                LocalPort: 28789,
+                RemotePort: 18789),
+            Diagnostics = new WindowsDiagnosticsPreferences(
+                StructuredDiagnosticsEnabled: true,
+                StructuredDiagnosticsPath: @"C:\logs\windows.jsonl",
+                ActivityRetentionCount: 250),
+            Policy = new WindowsPolicyPreferences(
+                ApprovalPolicy: WindowsApprovalPolicyPreference.AllowSafeCommands,
+                BlockUnsafeUrls: true,
+                RedactSensitiveContent: true,
+                RememberedAllowedCommands: ["pnpm test"]),
             LastStatus = "running",
             LastStatusCheckedAt = DateTimeOffset.Parse("2026-04-27T12:00:00Z", CultureInfo.InvariantCulture),
             SessionEventVisibility = SessionEventVisibility.ChatOnly(AppPreferences.Default.SessionEventVisibility)
@@ -47,6 +62,14 @@ public sealed class AppPreferencesStoreTests
         Assert.AreEqual(expected.VoiceControlsEnabled, actual.VoiceControlsEnabled);
         Assert.AreEqual(expected.GlobalHotkeyEnabled, actual.GlobalHotkeyEnabled);
         Assert.AreEqual(expected.NotificationPreferences, actual.NotificationPreferences);
+        Assert.AreEqual(expected.Topology, actual.Topology);
+        Assert.AreEqual(expected.Diagnostics, actual.Diagnostics);
+        CollectionAssert.AreEqual(
+            expected.Policy.RememberedAllowedCommands.ToArray(),
+            actual.Policy.RememberedAllowedCommands.ToArray());
+        Assert.AreEqual(expected.Policy.ApprovalPolicy, actual.Policy.ApprovalPolicy);
+        Assert.AreEqual(expected.Policy.BlockUnsafeUrls, actual.Policy.BlockUnsafeUrls);
+        Assert.AreEqual(expected.Policy.RedactSensitiveContent, actual.Policy.RedactSensitiveContent);
         Assert.IsFalse(actual.SessionEventVisibility.IsVisible("tick"));
         Assert.IsFalse(actual.SessionEventVisibility.IsVisible("custom.event"));
         Assert.IsTrue(actual.SessionEventVisibility.IsVisible("chat"));
@@ -286,6 +309,37 @@ public sealed class AppPreferencesStoreTests
         var actual = await store.LoadAsync();
 
         Assert.AreEqual(WindowsColorThemePreference.Default, actual.ColorThemePreference);
+    }
+
+    [TestMethod]
+    public async Task MissingNestedPreferencesDefaultToCurrentDefaults()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName(), "preferences.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        await File.WriteAllTextAsync(
+            path,
+            """
+            {
+              "openMainWindowOnLaunch": true,
+              "gatewayUrl": "ws://127.0.0.1:18789",
+              "chatSessionKey": "main",
+              "theme": "Dark",
+              "accentColor": "Purple",
+              "colorTheme": "Forest",
+              "voiceControlsEnabled": false,
+              "globalHotkeyEnabled": false
+            }
+            """);
+        var store = new AppPreferencesStore(path);
+
+        var actual = await store.LoadAsync();
+
+        Assert.AreEqual(WindowsTopologyPreferences.Default, actual.Topology);
+        Assert.AreEqual(WindowsDiagnosticsPreferences.Default, actual.Diagnostics);
+        Assert.AreEqual(WindowsPolicyPreferences.Default.ApprovalPolicy, actual.Policy.ApprovalPolicy);
+        Assert.IsTrue(actual.Policy.BlockUnsafeUrls);
+        Assert.IsTrue(actual.Policy.RedactSensitiveContent);
+        Assert.IsEmpty(actual.Policy.RememberedAllowedCommands);
     }
 
 }

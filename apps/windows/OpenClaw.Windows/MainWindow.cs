@@ -61,6 +61,8 @@ public sealed class MainWindow : Window
     private readonly StackPanel onboardingList = new() { Spacing = 6 };
     private readonly StackPanel homeOperatorRows = new() { Spacing = 8 };
     private readonly StackPanel chatMessages = new() { Spacing = 8 };
+    private readonly StackPanel logsActivityRows = new() { Spacing = 8 };
+    private readonly StackPanel topologyRows = new() { Spacing = 8 };
     private readonly TextBlock chatStateText = new();
     private readonly TextBlock chatSessionText = new();
     private readonly TextBlock chatEmptyText = new();
@@ -70,6 +72,8 @@ public sealed class MainWindow : Window
     private readonly List<GatewayRealtimeEvent> chatRealtimeEvents = [];
     private string? chatEventVisibilityControlSignature;
     private bool updatingSessionEventVisibilityControls;
+    private ScrollViewer? chatTranscriptScrollViewer;
+    private bool chatScrollToBottomRequested;
     private readonly XamlButton chatRefreshButton = new();
     private readonly XamlButton chatSendButton = new();
     private readonly TextBlock canvasStatusText = new();
@@ -108,27 +112,43 @@ public sealed class MainWindow : Window
     private DateTimeOffset? lastGatewayStatusCheckedAt;
     private readonly TextBlock settingsText = new();
     private readonly StackPanel settingsStorageRows = new() { Spacing = 10 };
+    private readonly TextBlock topologySummaryText = new();
+    private readonly TextBlock tunnelStatusText = new();
     private readonly XamlCheckBox openMainWindowOnLaunchInput = new();
     private readonly XamlCheckBox approvalAlertsInput = new();
     private readonly XamlCheckBox pairingAlertsInput = new();
     private readonly XamlCheckBox gatewayHealthAlertsInput = new();
     private readonly XamlCheckBox devicePermissionAlertsInput = new();
+    private readonly XamlCheckBox tunnelAutoStartInput = new();
+    private readonly XamlCheckBox structuredDiagnosticsEnabledInput = new();
+    private readonly XamlCheckBox blockUnsafeUrlsInput = new();
+    private readonly XamlCheckBox redactSensitiveContentInput = new();
     private readonly XamlCheckBox canvasNodeEnabledInput = new();
     private readonly XamlCheckBox settingsVoiceControlsInput = new();
     private readonly XamlCheckBox settingsGlobalHotkeyInput = new();
     private readonly XamlComboBox themePreferenceInput = new();
     private readonly XamlComboBox accentColorInput = new();
     private readonly XamlComboBox colorThemeInput = new();
+    private readonly XamlComboBox approvalPolicyInput = new();
     private readonly XamlTextBox chatInput = new() { AcceptsReturn = true, Height = 88, TextWrapping = TextWrapping.Wrap };
     private readonly XamlTextBox gatewayUrlInput = new();
     private readonly XamlPasswordBox gatewayTokenInput = new();
     private readonly XamlTextBox chatSessionInput = new();
+    private readonly XamlTextBox tunnelHostInput = new();
+    private readonly XamlTextBox tunnelRemoteHostInput = new();
+    private readonly XamlTextBox tunnelLocalPortInput = new();
+    private readonly XamlTextBox tunnelRemotePortInput = new();
+    private readonly XamlTextBox diagnosticsPathInput = new();
+    private readonly XamlTextBox activityRetentionCountInput = new();
     private bool openMainWindowOnLaunch = AppPreferences.Default.OpenMainWindowOnLaunch;
     private WindowsThemePreference themePreference = AppPreferences.Default.ThemePreference;
     private WindowsAccentColorPreference accentColorPreference = AppPreferences.Default.AccentColorPreference;
     private WindowsColorThemePreference colorThemePreference = AppPreferences.Default.ColorThemePreference;
     private SessionEventVisibilityPreferences sessionEventVisibility = AppPreferences.Default.SessionEventVisibility;
     private WindowsNotificationPreferences notificationPreferences = WindowsNotificationPreferences.Default;
+    private WindowsTopologyPreferences topologyPreferences = AppPreferences.Default.Topology;
+    private WindowsDiagnosticsPreferences diagnosticsPreferences = AppPreferences.Default.Diagnostics;
+    private WindowsPolicyPreferences policyPreferences = AppPreferences.Default.Policy;
     private bool canvasNodeEnabled = AppPreferences.Default.CanvasNodeEnabled;
     private bool voiceControlsEnabled;
     private bool globalHotkeyEnabled;
@@ -164,6 +184,7 @@ public sealed class MainWindow : Window
         this.appState.CanvasNode.StateChanged += this.OnCanvasNodeStateChanged;
         this.appState.CanvasNode.CanvasSurfaceUrlChanged += this.OnCanvasSurfaceUrlChanged;
         this.appState.CanvasNode.InvokeAsync = this.HandleCanvasInvokeAsync;
+        this.appState.Tunnel.StatusChanged += this.OnTunnelStatusChanged;
         this.Closed += this.OnClosed;
         this.AppWindow.Closing += this.OnAppWindowClosing;
         this.Content = this.BuildContent();
@@ -363,6 +384,15 @@ public sealed class MainWindow : Window
             },
         };
 
+        root.Children.Add(this.BuildPageHeader(title));
+
+        Grid.SetRow(content, 1);
+        root.Children.Add(content);
+        return root;
+    }
+
+    private UIElement BuildPageHeader(string title)
+    {
         var header = new StackPanel { Spacing = 4 };
         header.Children.Add(new TextBlock
         {
@@ -375,11 +405,7 @@ public sealed class MainWindow : Window
             Text = $"Gateway protocol {this.appState.Summary.GatewayProtocolVersion}",
             Opacity = 0.72,
         });
-        root.Children.Add(header);
-
-        Grid.SetRow(content, 1);
-        root.Children.Add(content);
-        return root;
+        return header;
     }
 
     private static NavigationViewItem CreateNavigationItem(string label, string tag, string glyph)
@@ -454,7 +480,7 @@ public sealed class MainWindow : Window
         page = tag switch
         {
             WindowsNavigationDestination.Home => this.BuildPage(WindowsNavigationService.PageTitle(tag), Scrollable(this.BuildHomeDashboardPanel())),
-            WindowsNavigationDestination.Chat => this.BuildPage(WindowsNavigationService.PageTitle(tag), Scrollable(this.BuildChatPanel())),
+            WindowsNavigationDestination.Chat => this.BuildChatPage(),
             WindowsNavigationDestination.Canvas => this.BuildPage(WindowsNavigationService.PageTitle(tag), this.BuildCanvasPanel()),
             WindowsNavigationDestination.Sessions => this.BuildPage(WindowsNavigationService.PageTitle(tag), Scrollable(this.BuildSessionsPanel())),
             WindowsNavigationDestination.Approvals => this.BuildPage(WindowsNavigationService.PageTitle(tag), Scrollable(this.BuildApprovalsPanel())),
@@ -647,9 +673,52 @@ public sealed class MainWindow : Window
         return new CornerRadius(8);
     }
 
-    private UIElement BuildChatPanel()
+    private UIElement BuildChatPage()
     {
-        var panel = new StackPanel { Spacing = 16 };
+        var root = new Grid
+        {
+            Background = AppBackgroundBrush,
+            Padding = new Thickness(24),
+            RowDefinitions =
+            {
+                new RowDefinition { Height = GridLength.Auto },
+                new RowDefinition { Height = new GridLength(1, GridUnitType.Star) },
+            },
+        };
+        root.Children.Add(this.BuildPageHeader("Chat"));
+
+        var layout = new Grid
+        {
+            MaxWidth = 840,
+            HorizontalAlignment = XamlHorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Stretch,
+            RowSpacing = 12,
+            RowDefinitions =
+            {
+                new RowDefinition { Height = GridLength.Auto },
+                new RowDefinition { Height = GridLength.Auto },
+                new RowDefinition { Height = new GridLength(1, GridUnitType.Star) },
+                new RowDefinition { Height = GridLength.Auto },
+            },
+        };
+        layout.Children.Add(this.BuildChatHeader());
+        var statusBar = this.BuildChatStatusBar();
+        Grid.SetRow(statusBar, 1);
+        layout.Children.Add(statusBar);
+        var transcriptHost = this.BuildChatTranscriptHost();
+        Grid.SetRow(transcriptHost, 2);
+        layout.Children.Add(transcriptHost);
+        var composer = this.BuildChatComposer();
+        Grid.SetRow(composer, 3);
+        layout.Children.Add(composer);
+        Grid.SetRow(layout, 1);
+        root.Children.Add(layout);
+        this.RenderChatWorkspace();
+        return root;
+    }
+
+    private FrameworkElement BuildChatHeader()
+    {
         this.chatStateText.TextWrapping = TextWrapping.Wrap;
         this.chatStateText.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
         this.chatSessionText.TextWrapping = TextWrapping.Wrap;
@@ -673,7 +742,7 @@ public sealed class MainWindow : Window
         headerText.Children.Add(new TextBlock
         {
             Text = "Conversation",
-            FontSize = 20,
+            FontSize = 22,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
         });
         headerText.Children.Add(this.chatSessionText);
@@ -685,44 +754,116 @@ public sealed class MainWindow : Window
         this.chatRefreshButton.Command = this.CreateCommand(async () => await this.RefreshChatAsync());
         AutomationProperties.SetName(this.chatRefreshButton, "Refresh session messages");
         buttons.Children.Add(this.chatRefreshButton);
-        this.chatSendButton.Content = "Send";
-        this.chatSendButton.AccessKey = "S";
-        this.chatSendButton.Command = this.CreateCommand(async () => await this.SendChatAsync());
-        this.chatSendButton.KeyboardAccelerators.Add(new KeyboardAccelerator
-        {
-            Key = VirtualKey.Enter,
-            Modifiers = VirtualKeyModifiers.Control,
-        });
-        AutomationProperties.SetName(this.chatSendButton, "Send message");
-        buttons.Children.Add(this.chatSendButton);
         Grid.SetColumn(buttons, 1);
         header.Children.Add(buttons);
-        panel.Children.Add(header);
+        return header;
+    }
 
-        panel.Children.Add(BuildDashboardCard("Session state", this.chatStateText));
-
-        var conversation = new Border
+    private FrameworkElement BuildChatStatusBar()
+    {
+        var hint = new TextBlock
         {
-            Padding = new Thickness(16),
-            MinHeight = 320,
+            Text = "Ctrl+Enter to send",
+            Foreground = ResourceBrush("TextFillColorSecondaryBrush"),
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        Grid.SetColumn(hint, 1);
+        return new Border
+        {
+            Padding = new Thickness(14, 10, 14, 10),
+            Background = ResourceBrush("LayerFillColorDefaultBrush"),
+            BorderBrush = ResourceBrush("CardStrokeColorDefaultBrush"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = ResourceCornerRadius("OverlayCornerRadius"),
+            Child = new Grid
+            {
+                ColumnSpacing = 12,
+                ColumnDefinitions =
+                {
+                    new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) },
+                    new ColumnDefinition { Width = GridLength.Auto },
+                },
+                Children =
+                {
+                    this.chatStateText,
+                    hint,
+                },
+            },
+        };
+    }
+
+    private FrameworkElement BuildChatTranscriptHost()
+    {
+        var transcriptBody = new StackPanel
+        {
+            Spacing = 12,
+            Children =
+            {
+                this.chatEmptyText,
+                this.chatMessages,
+            },
+        };
+        this.chatTranscriptScrollViewer = new ScrollViewer
+        {
+            Content = transcriptBody,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            VerticalAlignment = VerticalAlignment.Stretch,
+        };
+
+        return new Border
+        {
+            Padding = new Thickness(18),
             Background = ResourceBrush("CardBackgroundFillColorDefaultBrush"),
             BorderBrush = ResourceBrush("CardStrokeColorDefaultBrush"),
             BorderThickness = new Thickness(1),
             CornerRadius = ResourceCornerRadius("OverlayCornerRadius"),
-            Child = new StackPanel
+            Child = this.chatTranscriptScrollViewer,
+        };
+    }
+
+    private FrameworkElement BuildChatComposer()
+    {
+        this.chatSendButton.Content = "Send";
+        this.chatSendButton.AccessKey = "S";
+        this.chatSendButton.Command = this.CreateCommand(async () => await this.SendChatAsync());
+        if (this.chatSendButton.KeyboardAccelerators.Count == 0)
+        {
+            this.chatSendButton.KeyboardAccelerators.Add(new KeyboardAccelerator
             {
-                Spacing = 12,
-                Children =
-                {
-                    this.chatEmptyText,
-                    this.chatMessages,
-                },
+                Key = VirtualKey.Enter,
+                Modifiers = VirtualKeyModifiers.Control,
+            });
+        }
+        AutomationProperties.SetName(this.chatSendButton, "Send message");
+        var composerButtons = new StackPanel
+        {
+            Orientation = XamlOrientation.Horizontal,
+            Spacing = 8,
+            HorizontalAlignment = XamlHorizontalAlignment.Right,
+            Children =
+            {
+                this.chatSendButton,
             },
         };
-        panel.Children.Add(conversation);
-        panel.Children.Add(BuildDashboardCard("Composer", this.chatInput));
-        this.RenderChatWorkspace();
-        return panel;
+
+        var body = new StackPanel { Spacing = 10 };
+        body.Children.Add(new TextBlock
+        {
+            Text = "Compose",
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+        });
+        body.Children.Add(this.chatInput);
+        body.Children.Add(composerButtons);
+        return new Border
+        {
+            Padding = new Thickness(18),
+            Background = ResourceBrush("LayerFillColorDefaultBrush"),
+            BorderBrush = ResourceBrush("CardStrokeColorDefaultBrush"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = ResourceCornerRadius("OverlayCornerRadius"),
+            Child = body,
+        };
     }
 
     private FrameworkElement BuildCanvasPanel()
@@ -973,6 +1114,19 @@ public sealed class MainWindow : Window
         AutomationProperties.SetName(this.gatewayTokenInput, "Gateway token");
         this.chatSessionInput.PlaceholderText = AppPreferences.Default.ChatSessionKey;
         AutomationProperties.SetName(this.chatSessionInput, "Chat session");
+        this.tunnelHostInput.PlaceholderText = "user@example.com";
+        AutomationProperties.SetName(this.tunnelHostInput, "SSH host");
+        this.tunnelRemoteHostInput.PlaceholderText = AppPreferences.Default.Topology.RemoteHost;
+        AutomationProperties.SetName(this.tunnelRemoteHostInput, "SSH remote host");
+        this.tunnelLocalPortInput.PlaceholderText = AppPreferences.Default.Topology.LocalPort.ToString(CultureInfo.InvariantCulture);
+        AutomationProperties.SetName(this.tunnelLocalPortInput, "SSH local port");
+        this.tunnelRemotePortInput.PlaceholderText = AppPreferences.Default.Topology.RemotePort.ToString(CultureInfo.InvariantCulture);
+        AutomationProperties.SetName(this.tunnelRemotePortInput, "SSH remote port");
+        this.diagnosticsPathInput.PlaceholderText = this.appState.Diagnostics.DefaultPath;
+        AutomationProperties.SetName(this.diagnosticsPathInput, "Structured diagnostics path");
+        this.activityRetentionCountInput.PlaceholderText =
+            AppPreferences.Default.Diagnostics.ActivityRetentionCount.ToString(CultureInfo.InvariantCulture);
+        AutomationProperties.SetName(this.activityRetentionCountInput, "Activity retention count");
         this.themePreferenceInput.SelectionChanged -= this.OnThemePreferenceSelectionChanged;
         this.themePreferenceInput.Items.Clear();
         this.themePreferenceInput.Items.Add(CreateThemePreferenceItem("System", WindowsThemePreference.System));
@@ -984,8 +1138,22 @@ public sealed class MainWindow : Window
         this.PopulateAppearancePreviewItems(this.ResolveCurrentBrushTheme());
         AutomationProperties.SetName(this.accentColorInput, "Accent color");
         AutomationProperties.SetName(this.colorThemeInput, "Color theme");
+        this.approvalPolicyInput.Items.Clear();
+        this.approvalPolicyInput.Items.Add(CreateApprovalPolicyItem(
+            "Ask every time",
+            WindowsApprovalPolicyPreference.AskEveryTime));
+        this.approvalPolicyInput.Items.Add(CreateApprovalPolicyItem(
+            "Allow safe commands automatically",
+            WindowsApprovalPolicyPreference.AllowSafeCommands));
+        this.approvalPolicyInput.Items.Add(CreateApprovalPolicyItem(
+            "Deny risky commands automatically",
+            WindowsApprovalPolicyPreference.DenyRiskyCommands));
+        this.SelectApprovalPolicy(this.policyPreferences.ApprovalPolicy);
+        AutomationProperties.SetName(this.approvalPolicyInput, "Approval policy");
         this.settingsText.TextWrapping = TextWrapping.Wrap;
         this.settingsText.Foreground = ResourceBrush("TextFillColorSecondaryBrush");
+        this.topologySummaryText.TextWrapping = TextWrapping.Wrap;
+        this.tunnelStatusText.TextWrapping = TextWrapping.Wrap;
 
         ConfigureSettingsToggle(
             this.openMainWindowOnLaunchInput,
@@ -1007,6 +1175,22 @@ public sealed class MainWindow : Window
             this.devicePermissionAlertsInput,
             "Device permission alerts",
             value => this.notificationPreferences = this.notificationPreferences with { DevicePermissionAlerts = value });
+        ConfigureSettingsToggle(
+            this.tunnelAutoStartInput,
+            "Auto-start SSH tunnel",
+            value => this.topologyPreferences = this.topologyPreferences with { AutoStartTunnel = value });
+        ConfigureSettingsToggle(
+            this.structuredDiagnosticsEnabledInput,
+            "Write structured diagnostics",
+            value => this.diagnosticsPreferences = this.diagnosticsPreferences with { StructuredDiagnosticsEnabled = value });
+        ConfigureSettingsToggle(
+            this.blockUnsafeUrlsInput,
+            "Block unsafe URLs",
+            value => this.policyPreferences = this.policyPreferences with { BlockUnsafeUrls = value });
+        ConfigureSettingsToggle(
+            this.redactSensitiveContentInput,
+            "Redact sensitive content before saving diagnostics",
+            value => this.policyPreferences = this.policyPreferences with { RedactSensitiveContent = value });
         ConfigureSettingsToggle(
             this.settingsVoiceControlsInput,
             "Enable voice controls",
@@ -1037,6 +1221,31 @@ public sealed class MainWindow : Window
             this.pairingAlertsInput,
             this.gatewayHealthAlertsInput,
             this.devicePermissionAlertsInput)));
+        panel.Children.Add(BuildDashboardCard("Topology and Tunnels", BuildSettingsSection(
+            BuildSettingsField("SSH host", "Destination passed to the local ssh client.", this.tunnelHostInput),
+            BuildSettingsField("Remote host", "Host forwarded by the tunnel after ssh connects.", this.tunnelRemoteHostInput),
+            BuildSettingsField("Local port", "Local listener used for forwarded traffic.", this.tunnelLocalPortInput),
+            BuildSettingsField("Remote port", "Remote port forwarded through the SSH tunnel.", this.tunnelRemotePortInput),
+            this.tunnelAutoStartInput,
+            this.topologySummaryText,
+            this.topologyRows,
+            BuildSettingsSection(
+                this.BuildSettingsActionButton("Start tunnel", () => this.RunTunnelFromSettingsAsync()),
+                this.BuildSettingsActionButton("Stop tunnel", () =>
+                {
+                    this.appState.Tunnel.Stop();
+                    return this.RefreshTopologyAsync();
+                }),
+                this.BuildSettingsActionButton("Refresh topology", () => this.RefreshTopologyAsync())))));
+        panel.Children.Add(BuildDashboardCard("Diagnostics and History", BuildSettingsSection(
+            this.structuredDiagnosticsEnabledInput,
+            BuildSettingsField("Diagnostics path", "JSONL diagnostics file written by the Windows companion.", this.diagnosticsPathInput),
+            BuildSettingsField("History retention", "Maximum number of persisted activity rows kept locally.", this.activityRetentionCountInput),
+            this.tunnelStatusText)));
+        panel.Children.Add(BuildDashboardCard("Approval Policy", BuildSettingsSection(
+            BuildSettingsField("Default policy", "Local auto-resolution rules for gateway execution approvals.", this.approvalPolicyInput),
+            this.blockUnsafeUrlsInput,
+            this.redactSensitiveContentInput)));
         panel.Children.Add(BuildDashboardCard("Devices", BuildSettingsSection(
             this.canvasNodeEnabledInput,
             this.settingsVoiceControlsInput,
@@ -1085,6 +1294,15 @@ public sealed class MainWindow : Window
         {
             Content = label,
             Tag = preference,
+        };
+    }
+
+    private static XamlComboBoxItem CreateApprovalPolicyItem(string label, WindowsApprovalPolicyPreference policy)
+    {
+        return new XamlComboBoxItem
+        {
+            Content = label,
+            Tag = policy,
         };
     }
 
@@ -1203,6 +1421,15 @@ public sealed class MainWindow : Window
         return row;
     }
 
+    private XamlButton BuildSettingsActionButton(string label, Func<Task> execute)
+    {
+        return new XamlButton
+        {
+            Content = label,
+            Command = this.CreateCommand(execute),
+        };
+    }
+
     private static void ConfigureSettingsToggle(XamlCheckBox toggle, string label, Action<bool> update)
     {
         toggle.Content = label;
@@ -1317,6 +1544,18 @@ public sealed class MainWindow : Window
             if (item.Tag is WindowsColorThemePreference itemPreference && itemPreference == preference)
             {
                 this.colorThemeInput.SelectedItem = item;
+                return;
+            }
+        }
+    }
+
+    private void SelectApprovalPolicy(WindowsApprovalPolicyPreference preference)
+    {
+        foreach (var item in this.approvalPolicyInput.Items.OfType<XamlComboBoxItem>())
+        {
+            if (item.Tag is WindowsApprovalPolicyPreference itemPreference && itemPreference == preference)
+            {
+                this.approvalPolicyInput.SelectedItem = item;
                 return;
             }
         }
@@ -1482,6 +1721,7 @@ public sealed class MainWindow : Window
         panel.Children.Add(buttons);
         panel.Children.Add(BuildDashboardCard("Diagnostics", this.logsDiagnosticsRows));
         panel.Children.Add(BuildDashboardCard("Locations", this.logsLocationCards));
+        panel.Children.Add(BuildDashboardCard("Recent activity history", this.logsActivityRows));
         panel.Children.Add(BuildDashboardCard("Gateway events", this.BuildChatEventVisibilityPanel()));
         panel.Children.Add(BuildDashboardCard("Filtered gateway events", this.chatEventMessages));
         panel.Children.Add(BuildDashboardCard("Raw log preview", this.rawLogsText));
@@ -1549,6 +1789,11 @@ public sealed class MainWindow : Window
             this.RenderSessions();
             this.RenderLogsDiagnostics();
             this.RenderChatWorkspace();
+            _ = this.RecordActivityAsync(
+                "realtime",
+                $"Realtime {state}",
+                string.IsNullOrWhiteSpace(reason) ? $"Gateway realtime state changed to {state}." : reason,
+                WindowsNavigationDestination.Home);
         });
     }
 
@@ -1561,6 +1806,15 @@ public sealed class MainWindow : Window
             SessionEventVisibility.AddBounded(this.chatRealtimeEvents, @event);
             this.sessionEventVisibility = this.sessionEventVisibility.WithObservedEvents(this.chatRealtimeEvents);
             this.RenderLogsDiagnostics();
+            if (!string.Equals(@event.Name, "tick", StringComparison.OrdinalIgnoreCase))
+            {
+                _ = this.RecordActivityAsync(
+                    "event",
+                    $"Gateway event {@event.Name}",
+                    $"Received gateway event {@event.Name}.",
+                    WindowsNavigationDestination.Logs,
+                    @event.Payload?.ToString());
+            }
         });
     }
 
@@ -1583,6 +1837,28 @@ public sealed class MainWindow : Window
             }
             this.RenderCanvasState();
             this.RenderDeviceCapabilityCards();
+            _ = this.RecordActivityAsync(
+                "canvas",
+                $"Canvas node {state}",
+                string.IsNullOrWhiteSpace(reason) ? $"Canvas node state changed to {state}." : reason,
+                WindowsNavigationDestination.Canvas);
+        });
+    }
+
+    private void OnTunnelStatusChanged(WindowsSshTunnelStatus status)
+    {
+        _ = this.DispatcherQueue.TryEnqueue(async () =>
+        {
+            this.tunnelStatusText.Text = status.LastError is { Length: > 0 } error
+                ? $"Tunnel: {status.Summary}\n{error}"
+                : $"Tunnel: {status.Summary}";
+            var preferences = await this.appState.Preferences.LoadAsync();
+            this.RenderTopologySnapshot(preferences);
+            await this.RecordActivityAsync(
+                "tunnel",
+                status.Running ? "SSH tunnel started" : "SSH tunnel updated",
+                status.LastError ?? status.Summary,
+                WindowsNavigationDestination.Settings);
         });
     }
 
@@ -1629,6 +1905,25 @@ public sealed class MainWindow : Window
             return;
         }
 
+        if (this.policyPreferences.BlockUnsafeUrls)
+        {
+            var evaluation = this.appState.UrlRisk.Evaluate(a2uiUrl);
+            if (!evaluation.Allowed)
+            {
+                this.canvasStatusText.Text = "Blocked Canvas navigation";
+                this.canvasDetailText.Text = evaluation.Reason ?? a2uiUrl;
+                await this.RecordActivityAsync(
+                    "canvas",
+                    "Canvas navigation blocked",
+                    this.canvasDetailText.Text,
+                    WindowsNavigationDestination.Canvas,
+                    a2uiUrl);
+                return;
+            }
+
+            a2uiUrl = evaluation.NormalizedUrl ?? a2uiUrl;
+        }
+
         this.canvasTrustedA2UIUrl = a2uiUrl;
         if (string.Equals(this.canvasNavigationTargetUrl, a2uiUrl, StringComparison.Ordinal) ||
             string.Equals(this.canvasLoadedA2UIUrl, a2uiUrl, StringComparison.Ordinal))
@@ -1663,6 +1958,25 @@ public sealed class MainWindow : Window
             args.Cancel = true;
             this.ResetCanvasNavigationState();
             return;
+        }
+
+        if (this.policyPreferences.BlockUnsafeUrls)
+        {
+            var evaluation = this.appState.UrlRisk.Evaluate(args.Uri);
+            if (!evaluation.Allowed)
+            {
+                args.Cancel = true;
+                this.canvasActiveNavigationId = null;
+                this.canvasStatusText.Text = "Blocked Canvas navigation";
+                this.canvasDetailText.Text = evaluation.Reason ?? args.Uri;
+                _ = this.RecordActivityAsync(
+                    "canvas",
+                    "Canvas navigation blocked",
+                    this.canvasDetailText.Text,
+                    WindowsNavigationDestination.Canvas,
+                    args.Uri);
+                return;
+            }
         }
 
         if (WindowsCanvasA2UIUrl.IsTrustedA2UIUrl(args.Uri, this.canvasTrustedA2UIUrl))
@@ -1820,6 +2134,19 @@ public sealed class MainWindow : Window
         {
             await this.RefreshCanvasA2UIAsync(forceRefresh: false);
             return WindowsCanvasInvokeResponse.Success("""{"status":"shown"}""");
+        }
+
+        if (this.policyPreferences.BlockUnsafeUrls)
+        {
+            var evaluation = this.appState.UrlRisk.Evaluate(target);
+            if (!evaluation.Allowed)
+            {
+                return WindowsCanvasInvokeResponse.Failure(
+                    "INVALID_REQUEST",
+                    evaluation.Reason ?? "The requested Canvas URL was blocked by policy.");
+            }
+
+            target = evaluation.NormalizedUrl ?? target;
         }
 
         if (WindowsCanvasA2UIUrl.IsTrustedA2UIUrl(target, this.canvasTrustedA2UIUrl))
@@ -2144,6 +2471,7 @@ public sealed class MainWindow : Window
         this.appState.CanvasNode.StateChanged -= this.OnCanvasNodeStateChanged;
         this.appState.CanvasNode.CanvasSurfaceUrlChanged -= this.OnCanvasSurfaceUrlChanged;
         this.appState.CanvasNode.InvokeAsync = null;
+        this.appState.Tunnel.StatusChanged -= this.OnTunnelStatusChanged;
         if (this.canvasWebView?.CoreWebView2 is not null)
         {
             this.canvasWebView.CoreWebView2.WebMessageReceived -= this.OnCanvasWebMessageReceived;
@@ -2151,6 +2479,7 @@ public sealed class MainWindow : Window
         this.canvasWebView?.Close();
         this.hotkeyService?.Dispose();
         this.overlayWindow?.Close();
+        this.appState.Tunnel.Dispose();
         try
         {
             await this.appState.CanvasNode.DisposeAsync();
@@ -2201,26 +2530,43 @@ public sealed class MainWindow : Window
                 preferences.ColorThemePreference);
             this.sessionEventVisibility = preferences.SessionEventVisibility.WithObservedEvents(this.chatRealtimeEvents);
             this.notificationPreferences = preferences.NotificationPreferences;
+            this.topologyPreferences = preferences.Topology;
+            this.diagnosticsPreferences = preferences.Diagnostics;
+            this.policyPreferences = preferences.Policy;
             this.canvasNodeEnabled = preferences.CanvasNodeEnabled;
             this.voiceControlsEnabled = preferences.VoiceControlsEnabled;
             this.globalHotkeyEnabled = preferences.GlobalHotkeyEnabled;
+            this.tunnelHostInput.Text = preferences.Topology.SshHost;
+            this.tunnelRemoteHostInput.Text = preferences.Topology.RemoteHost;
+            this.tunnelLocalPortInput.Text = preferences.Topology.LocalPort.ToString(CultureInfo.InvariantCulture);
+            this.tunnelRemotePortInput.Text = preferences.Topology.RemotePort.ToString(CultureInfo.InvariantCulture);
+            this.diagnosticsPathInput.Text = preferences.Diagnostics.StructuredDiagnosticsPath;
+            this.activityRetentionCountInput.Text = preferences.Diagnostics.ActivityRetentionCount.ToString(CultureInfo.InvariantCulture);
             this.openMainWindowOnLaunchInput.IsChecked = preferences.OpenMainWindowOnLaunch;
             this.PopulateAppearancePreviewItems(this.ResolveCurrentBrushTheme());
             this.SelectThemePreference(preferences.ThemePreference);
             this.SelectAccentColor(preferences.AccentColorPreference);
             this.SelectColorTheme(preferences.ColorThemePreference);
+            this.SelectApprovalPolicy(preferences.Policy.ApprovalPolicy);
             this.approvalAlertsInput.IsChecked = preferences.NotificationPreferences.ApprovalAlerts;
             this.pairingAlertsInput.IsChecked = preferences.NotificationPreferences.PairingAlerts;
             this.gatewayHealthAlertsInput.IsChecked = preferences.NotificationPreferences.GatewayHealthAlerts;
             this.devicePermissionAlertsInput.IsChecked = preferences.NotificationPreferences.DevicePermissionAlerts;
+            this.tunnelAutoStartInput.IsChecked = preferences.Topology.AutoStartTunnel;
+            this.structuredDiagnosticsEnabledInput.IsChecked = preferences.Diagnostics.StructuredDiagnosticsEnabled;
+            this.blockUnsafeUrlsInput.IsChecked = preferences.Policy.BlockUnsafeUrls;
+            this.redactSensitiveContentInput.IsChecked = preferences.Policy.RedactSensitiveContent;
             this.canvasNodeEnabledInput.IsChecked = preferences.CanvasNodeEnabled;
             this.settingsVoiceControlsInput.IsChecked = preferences.VoiceControlsEnabled;
             this.settingsGlobalHotkeyInput.IsChecked = preferences.GlobalHotkeyEnabled;
+            await this.appState.Tunnel.ApplyPreferencesAsync(preferences.Topology);
             this.RenderHomeDashboard();
             this.RenderSettingsSummary(preferences);
             this.RenderSettingsStorage();
             this.RenderLogsDiagnostics();
+            this.RenderTopologySnapshot(preferences);
             this.RenderCanvasState();
+            this.RenderActivityHistory();
             await this.RefreshDeviceCapabilitiesAsync();
             if (this.appState.Realtime.State == GatewayRealtimeState.Connected)
             {
@@ -2242,6 +2588,7 @@ public sealed class MainWindow : Window
     {
         await this.SaveSettingsAsync();
         await this.appState.Realtime.ReconnectAsync();
+        await this.RecordActivityAsync("gateway", "Realtime connected", "Connected the Windows companion realtime channel.");
         await this.ConnectCanvasNodeAsync();
         await this.RefreshChatAsync();
         await this.RefreshSessionsAsync();
@@ -2281,6 +2628,7 @@ public sealed class MainWindow : Window
             var preferences = await this.appState.Preferences.LoadAsync();
             var messages = await this.appState.Realtime.LoadChatHistoryAsync(preferences.ChatSessionKey);
             this.chatState.ApplyMessages(messages, this.appState.Realtime.State);
+            this.chatScrollToBottomRequested = true;
             this.RenderChatWorkspace(preferences.ChatSessionKey);
         }
         catch (Exception ex)
@@ -2322,6 +2670,7 @@ public sealed class MainWindow : Window
             var preferences = await this.appState.Preferences.LoadAsync();
             await this.appState.Realtime.SendChatAsync(preferences.ChatSessionKey, message);
             this.chatInput.Text = "";
+            await this.RecordActivityAsync("chat", "Chat message sent", $"Sent a message to session {preferences.ChatSessionKey}.", WindowsNavigationDestination.Chat, message);
             await this.RefreshChatAsync();
         }
         catch (Exception ex)
@@ -2343,6 +2692,10 @@ public sealed class MainWindow : Window
         this.logsDiagnosticsRows.Children.Add(BuildDashboardRow("Gateway", summary.GatewayStatus));
         this.logsDiagnosticsRows.Children.Add(BuildDashboardRow("Last error", summary.LastError));
         this.logsDiagnosticsRows.Children.Add(BuildDashboardRow("Last refresh", summary.LastRefresh));
+        this.logsDiagnosticsRows.Children.Add(BuildDashboardRow(
+            "Structured diagnostics",
+            this.appState.Diagnostics.ResolvePath(this.diagnosticsPreferences.StructuredDiagnosticsPath)));
+        this.logsDiagnosticsRows.Children.Add(BuildDashboardRow("Activity history", this.appState.ActivityHistory.Path));
 
         this.logsLocationCards.Children.Clear();
         this.logsLocationCards.Children.Add(this.BuildLogLocationCard(
@@ -2362,9 +2715,12 @@ public sealed class MainWindow : Window
         this.logsText.Text =
             $"App logs: {summary.AppLogPath}\n" +
             $"Gateway logs: {summary.GatewayLogPath}\n" +
+            $"Structured diagnostics: {this.appState.Diagnostics.ResolvePath(this.diagnosticsPreferences.StructuredDiagnosticsPath)}\n" +
+            $"Activity history: {this.appState.ActivityHistory.Path}\n" +
             $"Gateway status: {summary.GatewayStatus}\n" +
             $"Last error: {summary.LastError}\n" +
             $"Last refresh: {summary.LastRefresh}";
+        this.RenderActivityHistory();
         this.RenderGatewayEvents();
     }
 
@@ -2503,12 +2859,11 @@ public sealed class MainWindow : Window
 
     private void RenderChatWorkspace(string? sessionKey = null)
     {
-        var activeSession = string.IsNullOrWhiteSpace(sessionKey)
-            ? string.IsNullOrWhiteSpace(this.chatSessionInput.Text)
-                ? AppPreferences.Default.ChatSessionKey
-                : this.chatSessionInput.Text.Trim()
-            : sessionKey;
-        this.chatSessionText.Text = $"Session: {activeSession}";
+        var activeSession = this.GetActiveChatSessionKey(sessionKey);
+        this.chatSessionText.Text =
+            this.chatState.LastLoadedAt is { } lastLoadedAt
+                ? $"Session {activeSession} · updated {lastLoadedAt.ToLocalTime():g}"
+                : $"Session {activeSession}";
         this.chatStateText.Text = $"{this.chatState.Status}: {this.chatState.StatusDetail ?? "No detail available."}";
         this.chatStateText.Foreground = this.chatState.Status switch
         {
@@ -2526,11 +2881,26 @@ public sealed class MainWindow : Window
             this.chatState.Messages.Count == 0
                 ? Visibility.Visible
                 : Visibility.Collapsed;
+        var priorOffset = this.chatTranscriptScrollViewer?.VerticalOffset;
         this.chatMessages.Children.Clear();
         foreach (var message in this.chatState.Messages)
         {
             this.chatMessages.Children.Add(BuildChatMessageRow(message));
         }
+
+        _ = this.DispatcherQueue.TryEnqueue(() =>
+        {
+            if (this.chatTranscriptScrollViewer is null)
+            {
+                return;
+            }
+
+            var targetOffset = this.chatScrollToBottomRequested
+                ? this.chatTranscriptScrollViewer.ScrollableHeight
+                : Math.Min(priorOffset ?? 0, this.chatTranscriptScrollViewer.ScrollableHeight);
+            this.chatTranscriptScrollViewer.ChangeView(null, targetOffset, null, true);
+            this.chatScrollToBottomRequested = false;
+        });
     }
 
     private void RenderGatewayEvents()
@@ -2679,28 +3049,44 @@ public sealed class MainWindow : Window
     private static UIElement BuildChatMessageRow(ChatMessage message)
     {
         var role = string.IsNullOrWhiteSpace(message.Role) ? "message" : message.Role.Trim();
-        var body = new StackPanel { Spacing = 4 };
-        body.Children.Add(new TextBlock
+        var isUser = string.Equals(role, "user", StringComparison.OrdinalIgnoreCase);
+        var wrapper = new StackPanel
         {
-            Text = role,
+            Spacing = 6,
+            HorizontalAlignment = isUser ? XamlHorizontalAlignment.Right : XamlHorizontalAlignment.Left,
+            MaxWidth = 680,
+        };
+        wrapper.Children.Add(new TextBlock
+        {
+            Text = role.ToUpperInvariant(),
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
             Foreground = ResourceBrush("TextFillColorSecondaryBrush"),
         });
-        body.Children.Add(new TextBlock
+        wrapper.Children.Add(new Border
         {
-            Text = message.Text,
-            TextWrapping = TextWrapping.Wrap,
-        });
-
-        return new Border
-        {
-            Padding = new Thickness(12),
-            Background = ResourceBrush("CardBackgroundFillColorDefaultBrush"),
+            Padding = new Thickness(14, 12, 14, 12),
+            Background = isUser
+                ? new SolidColorBrush(AccentBrush.Color) { Opacity = 0.18 }
+                : ResourceBrush("CardBackgroundFillColorDefaultBrush"),
             BorderBrush = ResourceBrush("CardStrokeColorDefaultBrush"),
             BorderThickness = new Thickness(1),
-            CornerRadius = ResourceCornerRadius("OverlayCornerRadius"),
-            Child = body,
-        };
+            CornerRadius = new CornerRadius(16),
+            Child = new TextBlock
+            {
+                Text = message.Text,
+                TextWrapping = TextWrapping.Wrap,
+            },
+        });
+        return wrapper;
+    }
+
+    private string GetActiveChatSessionKey(string? sessionKey = null)
+    {
+        return string.IsNullOrWhiteSpace(sessionKey)
+            ? string.IsNullOrWhiteSpace(this.chatSessionInput.Text)
+                ? AppPreferences.Default.ChatSessionKey
+                : this.chatSessionInput.Text.Trim()
+            : sessionKey.Trim();
     }
 
     private static UIElement BuildChatEventRow(GatewayRealtimeEvent @event)
@@ -2797,6 +3183,7 @@ public sealed class MainWindow : Window
         await this.appState.Preferences.UpdateAsync(current => current with { ChatSessionKey = normalized });
         this.chatSessionInput.Text = normalized;
         this.RenderSessions();
+        await this.RecordActivityAsync("chat", "Chat session selected", $"Selected chat session {normalized}.", WindowsNavigationDestination.Chat);
         await this.RefreshChatAsync();
         this.ShowDestination(WindowsNavigationDestination.Chat);
     }
@@ -2814,6 +3201,10 @@ public sealed class MainWindow : Window
     private async Task RefreshApprovalsAsync()
     {
         this.latestApprovals = await this.appState.Realtime.ListApprovalsAsync();
+        if (await this.ApplyApprovalPolicyAsync())
+        {
+            this.latestApprovals = await this.appState.Realtime.ListApprovalsAsync();
+        }
         this.approvalsLoaded = true;
         if (this.notificationPreferences.ApprovalAlerts &&
             this.latestApprovals.Count > 0 &&
@@ -2880,34 +3271,116 @@ public sealed class MainWindow : Window
         {
             body.Children.Add(BuildWorkflowMetadata("Session", approval.SessionKey));
         }
+        body.Children.Add(BuildWorkflowMetadata(
+            "Risk",
+            WindowsApprovalPolicyEvaluator.IsRisky(approval.Command) ? "risky" : "safe"));
 
         var buttons = new StackPanel { Orientation = XamlOrientation.Horizontal, Spacing = 8 };
         var allowButton = new XamlButton
         {
             Content = "Allow once",
             AccessKey = "A",
-            Command = this.CreateCommand(async () =>
-            {
-                await this.appState.Realtime.ResolveApprovalAsync(approval.Id, "allow-once");
-                await this.RefreshApprovalsAsync();
-            }),
+            Command = this.CreateCommand(async () => await this.ResolveApprovalWithHistoryAsync(
+                approval,
+                "allow-once",
+                "Approval allowed once")),
         };
         AutomationProperties.SetName(allowButton, $"Allow approval {approval.Id} once");
         buttons.Children.Add(allowButton);
+        if (this.policyPreferences.ApprovalPolicy == WindowsApprovalPolicyPreference.AskEveryTime)
+        {
+            var rememberButton = new XamlButton
+            {
+                Content = "Allow && remember",
+                Command = this.CreateCommand(async () => await this.RememberApprovalAndAllowAsync(approval)),
+            };
+            AutomationProperties.SetName(rememberButton, $"Allow approval {approval.Id} and remember it");
+            buttons.Children.Add(rememberButton);
+        }
         var denyButton = new XamlButton
         {
             Content = "Deny",
             AccessKey = "D",
-            Command = this.CreateCommand(async () =>
-            {
-                await this.appState.Realtime.ResolveApprovalAsync(approval.Id, "deny");
-                await this.RefreshApprovalsAsync();
-            }),
+            Command = this.CreateCommand(async () => await this.ResolveApprovalWithHistoryAsync(
+                approval,
+                "deny",
+                "Approval denied")),
         };
         AutomationProperties.SetName(denyButton, $"Deny approval {approval.Id}");
         buttons.Children.Add(denyButton);
         body.Children.Add(buttons);
         return BuildDashboardCard(null, body);
+    }
+
+    private async Task<bool> ApplyApprovalPolicyAsync()
+    {
+        var handledAny = false;
+        foreach (var approval in this.latestApprovals.ToArray())
+        {
+            if (WindowsApprovalPolicyEvaluator.ShouldAutoAllow(this.policyPreferences, approval.Command))
+            {
+                await this.ResolveApprovalWithHistoryAsync(
+                    approval,
+                    "allow-once",
+                    "Approval auto-allowed",
+                    refreshAfter: false);
+                handledAny = true;
+                continue;
+            }
+
+            if (WindowsApprovalPolicyEvaluator.ShouldAutoDeny(this.policyPreferences, approval.Command))
+            {
+                await this.ResolveApprovalWithHistoryAsync(
+                    approval,
+                    "deny",
+                    "Approval auto-denied",
+                    refreshAfter: false);
+                handledAny = true;
+            }
+        }
+
+        return handledAny;
+    }
+
+    private async Task RememberApprovalAndAllowAsync(PendingApproval approval)
+    {
+        if (string.IsNullOrWhiteSpace(approval.Command))
+        {
+            await this.ResolveApprovalWithHistoryAsync(approval, "allow-once", "Approval allowed once");
+            return;
+        }
+
+        var updated = await this.appState.Preferences.UpdateAsync(current => current with
+        {
+            Policy = current.Policy with
+            {
+                RememberedAllowedCommands = current.Policy.RememberedAllowedCommands
+                    .Append(approval.Command.Trim())
+                    .Distinct(StringComparer.Ordinal)
+                    .ToArray(),
+            },
+        });
+        this.policyPreferences = updated.Policy;
+        await this.ResolveApprovalWithHistoryAsync(approval, "allow-once", "Approval allowed and remembered");
+    }
+
+    private async Task ResolveApprovalWithHistoryAsync(
+        PendingApproval approval,
+        string decision,
+        string title,
+        bool refreshAfter = true)
+    {
+        await this.appState.Realtime.ResolveApprovalAsync(approval.Id, decision);
+        await this.RecordActivityAsync(
+            "approval",
+            title,
+            string.IsNullOrWhiteSpace(approval.Command) ? approval.Id : approval.Command,
+            WindowsNavigationDestination.Approvals,
+            approval.Command);
+        if (refreshAfter)
+        {
+            await this.RefreshApprovalsAsync();
+        }
     }
 
     private async Task RefreshPairingAsync()
@@ -3045,6 +3518,15 @@ public sealed class MainWindow : Window
             $"Canvas node: {preferences.CanvasNodeEnabled}\n" +
             $"Voice controls: {preferences.VoiceControlsEnabled}\n" +
             $"Global hotkey: {preferences.GlobalHotkeyEnabled}\n" +
+            $"Approval policy: {preferences.Policy.ApprovalPolicy}\n" +
+            $"Unsafe URLs blocked: {preferences.Policy.BlockUnsafeUrls}\n" +
+            $"Redaction enabled: {preferences.Policy.RedactSensitiveContent}\n" +
+            $"Remembered approvals: {preferences.Policy.RememberedAllowedCommands.Count}\n" +
+            $"Tunnel auto-start: {preferences.Topology.AutoStartTunnel}\n" +
+            $"Tunnel host: {preferences.Topology.SshHost}\n" +
+            $"Tunnel route: localhost:{preferences.Topology.LocalPort} -> {preferences.Topology.RemoteHost}:{preferences.Topology.RemotePort}\n" +
+            $"Structured diagnostics: {preferences.Diagnostics.StructuredDiagnosticsEnabled}\n" +
+            $"History retention: {preferences.Diagnostics.ActivityRetentionCount}\n" +
             $"Approval alerts: {preferences.NotificationPreferences.ApprovalAlerts}\n" +
             $"Pairing alerts: {preferences.NotificationPreferences.PairingAlerts}\n" +
             $"Gateway health alerts: {preferences.NotificationPreferences.GatewayHealthAlerts}\n" +
@@ -3057,6 +3539,10 @@ public sealed class MainWindow : Window
         this.settingsStorageRows.Children.Add(BuildDashboardRow("Preferences", this.appState.Preferences.Path));
         this.settingsStorageRows.Children.Add(BuildDashboardRow("App crash log", CrashLog.Path));
         this.settingsStorageRows.Children.Add(BuildDashboardRow("Gateway log", this.coordinator.LogPath ?? "unknown"));
+        this.settingsStorageRows.Children.Add(BuildDashboardRow("Activity history", this.appState.ActivityHistory.Path));
+        this.settingsStorageRows.Children.Add(BuildDashboardRow(
+            "Structured diagnostics",
+            this.appState.Diagnostics.ResolvePath(this.diagnosticsPreferences.StructuredDiagnosticsPath)));
         this.settingsStorageRows.Children.Add(BuildReservedSettingsRow(
             "Minimize to tray",
             "Reserved",
@@ -3067,8 +3553,129 @@ public sealed class MainWindow : Window
             "Future app-local tray action selection."));
     }
 
+    private void RenderTopologySnapshot(AppPreferences preferences)
+    {
+        var snapshot = this.appState.Topology.CreateSnapshot(
+            preferences,
+            this.coordinator.GatewayStatus,
+            this.appState.CanvasNode.A2UIHostUrl,
+            this.appState.Tunnel.Status);
+        this.topologySummaryText.Text = snapshot.TunnelSummary;
+        this.tunnelStatusText.Text = this.appState.Tunnel.Status.LastError is { Length: > 0 } error
+            ? $"Tunnel: {this.appState.Tunnel.Status.Summary}\n{error}"
+            : $"Tunnel: {this.appState.Tunnel.Status.Summary}";
+        this.topologyRows.Children.Clear();
+        foreach (var diagnostic in snapshot.Diagnostics)
+        {
+            this.topologyRows.Children.Add(BuildDashboardRow(
+                diagnostic.Label,
+                $"{diagnostic.Endpoint} ({diagnostic.State})"));
+            this.topologyRows.Children.Add(new TextBlock
+            {
+                Text = diagnostic.Detail,
+                TextWrapping = TextWrapping.Wrap,
+                Foreground = ResourceBrush("TextFillColorSecondaryBrush"),
+            });
+        }
+    }
+
+    private void RenderActivityHistory()
+    {
+        this.logsActivityRows.Children.Clear();
+        var entries = this.appState.ActivityHistory.Entries.Take(8).ToArray();
+        if (entries.Length == 0)
+        {
+            this.logsActivityRows.Children.Add(BuildDashboardRow("Latest", "No activity recorded yet."));
+            return;
+        }
+
+        this.homeActivityText.Text = string.Join(
+            Environment.NewLine,
+            entries.Take(3).Select(entry =>
+                $"{entry.CreatedAt.ToLocalTime():g} {entry.Title}: {entry.Detail}"));
+        foreach (var entry in entries)
+        {
+            this.logsActivityRows.Children.Add(BuildDashboardRow(
+                entry.CreatedAt.ToLocalTime().ToString("g", CultureInfo.CurrentCulture),
+                $"{entry.Title}: {entry.Detail}"));
+        }
+    }
+
+    private async Task RecordActivityAsync(
+        string category,
+        string title,
+        string detail,
+        string? destination = null,
+        string? raw = null)
+    {
+        try
+        {
+            var preferences = await this.appState.Preferences.LoadAsync();
+            var storedDetail = preferences.Policy.RedactSensitiveContent
+                ? this.appState.SecretRedactor.Redact(detail)
+                : detail;
+            var storedRaw = preferences.Policy.RedactSensitiveContent
+                ? this.appState.SecretRedactor.Redact(raw)
+                : raw;
+            await this.appState.ActivityHistory.AddAsync(
+                category,
+                title,
+                storedDetail,
+                destination,
+                preferences.Diagnostics.ActivityRetentionCount);
+            if (preferences.Diagnostics.StructuredDiagnosticsEnabled)
+            {
+                await this.appState.Diagnostics.WriteAsync(
+                    this.appState.Diagnostics.ResolvePath(preferences.Diagnostics.StructuredDiagnosticsPath),
+                    new WindowsDiagnosticEntry(
+                        DateTimeOffset.Now,
+                        category,
+                        title,
+                        storedDetail,
+                        destination,
+                        storedRaw));
+            }
+
+            this.RenderActivityHistory();
+        }
+        catch (Exception ex)
+        {
+            CrashLog.Write(ex);
+        }
+    }
+
     private async Task SaveSettingsAsync()
     {
+        var approvalPolicy = this.approvalPolicyInput.SelectedItem is XamlComboBoxItem
+            {
+                Tag: WindowsApprovalPolicyPreference selectedPolicy,
+            }
+            ? selectedPolicy
+            : WindowsPolicyPreferences.Default.ApprovalPolicy;
+        this.policyPreferences = this.policyPreferences with { ApprovalPolicy = approvalPolicy };
+        this.diagnosticsPreferences = this.diagnosticsPreferences with
+        {
+            StructuredDiagnosticsPath = this.diagnosticsPathInput.Text.Trim(),
+            ActivityRetentionCount = ParsePositiveIntOrDefault(
+                this.activityRetentionCountInput.Text,
+                this.diagnosticsPreferences.ActivityRetentionCount,
+                WindowsDiagnosticsPreferences.Default.ActivityRetentionCount),
+        };
+        this.topologyPreferences = this.topologyPreferences with
+        {
+            SshHost = this.tunnelHostInput.Text.Trim(),
+            RemoteHost = string.IsNullOrWhiteSpace(this.tunnelRemoteHostInput.Text)
+                ? WindowsTopologyPreferences.Default.RemoteHost
+                : this.tunnelRemoteHostInput.Text.Trim(),
+            LocalPort = ParsePositiveIntOrDefault(
+                this.tunnelLocalPortInput.Text,
+                this.topologyPreferences.LocalPort,
+                WindowsTopologyPreferences.Default.LocalPort),
+            RemotePort = ParsePositiveIntOrDefault(
+                this.tunnelRemotePortInput.Text,
+                this.topologyPreferences.RemotePort,
+                WindowsTopologyPreferences.Default.RemotePort),
+        };
         // Persist secrets through AppPreferencesStore so tokens stay in the credential store.
         await this.appState.Preferences.UpdateAsync(current => current with
         {
@@ -3088,8 +3695,74 @@ public sealed class MainWindow : Window
             NotificationPreferences = this.notificationPreferences,
             VoiceControlsEnabled = this.voiceControlsEnabled,
             GlobalHotkeyEnabled = this.globalHotkeyEnabled,
+            Topology = this.topologyPreferences,
+            Diagnostics = this.diagnosticsPreferences,
+            Policy = this.policyPreferences,
         });
+        await this.RecordActivityAsync("settings", "Settings saved", "Updated Windows companion settings.");
         await this.RefreshAllAsync();
+    }
+
+    public async Task HandleActivationAsync(WindowsActivationRequest request)
+    {
+        this.ShowShell();
+        if (!string.IsNullOrWhiteSpace(request.ChatSessionKey))
+        {
+            await this.SelectChatSessionAsync(request.ChatSessionKey);
+        }
+        else
+        {
+            this.ShowDestination(request.Destination);
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.SourceUri))
+        {
+            this.detailText.Text = request.SourceUri;
+        }
+
+        await this.RecordActivityAsync(
+            "activation",
+            "Activation routed",
+            $"Opened {request.Destination} from an activation request.",
+            request.Destination,
+            request.SourceUri);
+    }
+
+    private async Task RunTunnelFromSettingsAsync()
+    {
+        this.topologyPreferences = this.topologyPreferences with
+        {
+            SshHost = this.tunnelHostInput.Text.Trim(),
+            RemoteHost = string.IsNullOrWhiteSpace(this.tunnelRemoteHostInput.Text)
+                ? WindowsTopologyPreferences.Default.RemoteHost
+                : this.tunnelRemoteHostInput.Text.Trim(),
+            LocalPort = ParsePositiveIntOrDefault(
+                this.tunnelLocalPortInput.Text,
+                this.topologyPreferences.LocalPort,
+                WindowsTopologyPreferences.Default.LocalPort),
+            RemotePort = ParsePositiveIntOrDefault(
+                this.tunnelRemotePortInput.Text,
+                this.topologyPreferences.RemotePort,
+                WindowsTopologyPreferences.Default.RemotePort),
+        };
+        await this.appState.Tunnel.StartAsync(this.topologyPreferences);
+        await this.RefreshTopologyAsync();
+    }
+
+    private async Task RefreshTopologyAsync()
+    {
+        var preferences = await this.appState.Preferences.LoadAsync();
+        this.RenderTopologySnapshot(preferences with { Topology = this.topologyPreferences });
+    }
+
+    private static int ParsePositiveIntOrDefault(string? text, int currentValue, int fallbackValue)
+    {
+        if (int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) && value > 0)
+        {
+            return value;
+        }
+
+        return currentValue > 0 ? currentValue : fallbackValue;
     }
 
     private async Task RefreshDeviceCapabilitiesAsync()
@@ -3334,6 +4007,7 @@ public sealed class MainWindow : Window
     {
         this.appState.Notifications.Add(WindowsNavigationService.Normalize(destination), title, message);
         this.RenderNotificationActivity();
+        _ = this.RecordActivityAsync("notification", title, message, destination);
         if (this.trayHost is null)
         {
             this.notificationActionResult = "Tray host is not ready for notifications.";
@@ -3426,6 +4100,7 @@ public sealed class MainWindow : Window
         // Render the immediate action result before the full refresh updates every panel.
         this.homeActivityText.Text = $"{action} started.";
         this.statusText.Text = $"{action} in progress...";
+        await this.RecordActivityAsync("gateway", $"{action} started", $"{action} started.", WindowsNavigationDestination.Home);
         var result = await this.coordinator.RunGatewayActionAsync(action);
         this.RenderStatus(result.Status);
         this.homeActivityText.Text = this.coordinator.LastActivity ?? "";
@@ -3433,6 +4108,11 @@ public sealed class MainWindow : Window
         {
             this.detailText.Text = result.Output;
         }
+        await this.RecordActivityAsync(
+            "gateway",
+            $"{action} {(result.Succeeded ? "completed" : "failed")}",
+            result.Succeeded ? this.coordinator.LastActivity ?? $"{action} completed." : result.Output,
+            WindowsNavigationDestination.Home);
         await this.RefreshAllAsync();
     }
 
