@@ -20,4 +20,18 @@ public sealed class WindowsActivityHistoryStoreTests
         Assert.AreEqual("Third", reloaded.Entries[0].Title);
         Assert.AreEqual("Second", reloaded.Entries[1].Title);
     }
+
+    [TestMethod]
+    public async Task ClearAsync_RemovesPersistedEntries()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName(), "activity-history.json");
+        var store = new WindowsActivityHistoryStore(path);
+        await store.AddAsync("gateway", "First", "one", WindowsNavigationDestination.Home, 5);
+
+        await store.ClearAsync();
+
+        var reloaded = new WindowsActivityHistoryStore(path);
+        Assert.HasCount(0, reloaded.Entries);
+        Assert.IsNull(reloaded.Latest);
+    }
 }

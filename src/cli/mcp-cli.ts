@@ -5,6 +5,12 @@ import {
   setConfiguredMcpServer,
   unsetConfiguredMcpServer,
 } from "../config/mcp-config.js";
+import {
+  closeMcpLoopbackServer,
+  createUserFacingMcpLoopbackServerDetails,
+  ensureMcpLoopbackServer,
+  getActiveMcpLoopbackRuntime,
+} from "../gateway/mcp-http.js";
 import { formatErrorMessage } from "../infra/errors.js";
 import { serveOpenClawChannelMcp } from "../mcp/channel-server.js";
 import { defaultRuntime } from "../runtime.js";
@@ -13,8 +19,10 @@ import {
   normalizeStringifiedOptionalString,
 } from "../shared/string-coerce.js";
 import { formatCliCommand } from "./command-format.js";
+import { formatInvalidPortOption } from "./error-format.js";
 import { resolveGatewayAuthOptions } from "./gateway-secret-options.js";
 import { applyParentDefaultHelpAction } from "./program/parent-default-help.js";
+import { parsePort } from "./shared/parse-port.js";
 
 function fail(message: string): never {
   defaultRuntime.error(message);
@@ -24,6 +32,32 @@ function fail(message: string): never {
 
 function printJson(value: unknown): void {
   defaultRuntime.writeJson(value);
+}
+
+function waitForTerminationSignal(): Promise<void> {
+  return new Promise((resolve) => {
+    let resolved = false;
+    const finish = () => {
+      if (resolved) {
+        return;
+      }
+      resolved = true;
+      resolve();
+    };
+    process.once("SIGINT", finish);
+    process.once("SIGTERM", finish);
+  });
+}
+
+function printMcpHttpServerDetails(
+  details: ReturnType<typeof createUserFacingMcpLoopbackServerDetails>,
+) {
+  defaultRuntime.log(`Local MCP HTTP server: ${details.url}`);
+  defaultRuntime.log(`Bearer token (${details.tokenEnvVar}): ${details.token}`);
+  defaultRuntime.log(
+    `Treat this token like local shell access. Run ${formatCliCommand("openclaw mcp serve-http --json")} for a ready-to-paste client config.`,
+  );
+  defaultRuntime.log("Press Ctrl+C to stop.");
 }
 
 export function registerMcpCli(program: Command) {
@@ -67,6 +101,36 @@ export function registerMcpCli(program: Command) {
         defaultRuntime.error(
           `MCP server failed to start: ${formatErrorMessage(err)}. Run ${formatCliCommand("openclaw mcp list")} to inspect configured servers.`,
         );
+        defaultRuntime.exit(1);
+      }
+    });
+
+  mcp
+    .command("serve-http")
+    .description("Expose the local OpenClaw MCP HTTP server on loopback")
+    .option("--port <port>", "Bind port (defaults to a random loopback port)")
+    .option("--json", "Print machine-readable connection info before waiting", false)
+    .action(async (opts: { port?: string; json?: boolean }) => {
+      try {
+        const port = parsePort(opts.port);
+        if (opts.port !== undefined && port === null) {
+          throw new Error(formatInvalidPortOption("--port"));
+        }
+        await ensureMcpLoopbackServer(port ?? 0);
+        const runtime = getActiveMcpLoopbackRuntime();
+        if (!runtime) {
+          throw new Error("Local MCP HTTP server started without an active runtime");
+        }
+        const details = createUserFacingMcpLoopbackServerDetails(runtime);
+        if (opts.json) {
+          printJson(details);
+        } else {
+          printMcpHttpServerDetails(details);
+        }
+        await waitForTerminationSignal();
+        await closeMcpLoopbackServer();
+      } catch (err) {
+        defaultRuntime.error(`MCP HTTP server failed to start: ${formatErrorMessage(err)}`);
         defaultRuntime.exit(1);
       }
     });

@@ -59,9 +59,13 @@ public sealed class MainWindow : Window
     private readonly TextBlock homeActivityText = new();
     private readonly StackPanel homeNotificationRows = new() { Spacing = 8 };
     private readonly StackPanel onboardingList = new() { Spacing = 6 };
+    private readonly TextBlock onboardingGuidedSummaryText = new();
+    private readonly StackPanel onboardingGuidedActions = new() { Spacing = 8 };
     private readonly StackPanel homeOperatorRows = new() { Spacing = 8 };
     private readonly StackPanel chatMessages = new() { Spacing = 8 };
     private readonly StackPanel logsActivityRows = new() { Spacing = 8 };
+    private readonly StackPanel logsNotificationRows = new() { Spacing = 8 };
+    private readonly TextBlock supportSummaryText = new();
     private readonly StackPanel topologyRows = new() { Spacing = 8 };
     private readonly TextBlock chatStateText = new();
     private readonly TextBlock chatSessionText = new();
@@ -105,6 +109,12 @@ public sealed class MainWindow : Window
     private readonly StackPanel deviceCapabilityCards = new() { Spacing = 12 };
     private readonly StackPanel mediaDevicesList = new() { Spacing = 6 };
     private readonly TextBlock nativeActionsText = new();
+    private readonly XamlTextBox screenRecordingDurationInput = new();
+    private readonly XamlTextBox screenRecordingFramesPerSecondInput = new();
+    private readonly TextBlock screenRecordingPlanText = new();
+    private readonly XamlButton cancelScreenRecordingButton = new();
+    private readonly XamlTextBox textToSpeechInput = new() { AcceptsReturn = true, MinHeight = 88, TextWrapping = TextWrapping.Wrap };
+    private readonly XamlComboBox textToSpeechVoiceInput = new();
     private readonly StackPanel logsDiagnosticsRows = new() { Spacing = 8 };
     private readonly StackPanel logsLocationCards = new() { Spacing = 12 };
     private readonly XamlTextBox rawLogsText = new();
@@ -140,12 +150,15 @@ public sealed class MainWindow : Window
     private readonly XamlTextBox tunnelRemotePortInput = new();
     private readonly XamlTextBox diagnosticsPathInput = new();
     private readonly XamlTextBox activityRetentionCountInput = new();
+    private readonly XamlTextBox notificationHistoryRetentionInput = new();
+    private readonly StackPanel notificationRuleRows = new() { Spacing = 8 };
     private bool openMainWindowOnLaunch = AppPreferences.Default.OpenMainWindowOnLaunch;
     private WindowsThemePreference themePreference = AppPreferences.Default.ThemePreference;
     private WindowsAccentColorPreference accentColorPreference = AppPreferences.Default.AccentColorPreference;
     private WindowsColorThemePreference colorThemePreference = AppPreferences.Default.ColorThemePreference;
     private SessionEventVisibilityPreferences sessionEventVisibility = AppPreferences.Default.SessionEventVisibility;
     private WindowsNotificationPreferences notificationPreferences = WindowsNotificationPreferences.Default;
+    private WindowsNotificationRulePreferences notificationRulePreferences = WindowsNotificationRulePreferences.Default;
     private WindowsTopologyPreferences topologyPreferences = AppPreferences.Default.Topology;
     private WindowsDiagnosticsPreferences diagnosticsPreferences = AppPreferences.Default.Diagnostics;
     private WindowsPolicyPreferences policyPreferences = AppPreferences.Default.Policy;
@@ -155,8 +168,10 @@ public sealed class MainWindow : Window
     private IReadOnlyList<WindowsDevicePermissionStatus> latestDevicePermissionStatuses = [];
     private string mediaDeviceSummary = "Media devices have not been checked yet.";
     private string screenActionResult = "No screen capture run yet.";
+    private string browserProxyActionResult = "Browser proxy guidance has not been checked yet.";
     private string cameraActionResult = "No camera capture run yet.";
     private string microphoneActionResult = "Voice controls have not been saved yet.";
+    private string textToSpeechActionResult = "No speech clip generated yet.";
     private string notificationActionResult = "No notification sent yet.";
     private string hotkeyActionResult = "Global hotkey preference has not been saved yet.";
     private string overlayActionResult = "No overlay shown yet.";
@@ -166,6 +181,18 @@ public sealed class MainWindow : Window
     private NavigationView? navigationView;
     private bool exitRequested;
     private bool shutdownStarted;
+    private CancellationTokenSource? screenRecordingCancellation;
+    private string? latestTextToSpeechPath;
+    private string? latestSupportSummaryArtifactPath;
+    private readonly WindowsNotificationRuleEvaluator notificationRuleEvaluator = new();
+    private readonly WindowsGuidedOnboardingService guidedOnboarding = new();
+    private readonly Dictionary<string, XamlTextBox> notificationRuleCategoryInputs = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, XamlComboBox> notificationRuleDestinationInputs = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, XamlCheckBox> notificationRuleEnabledInputs = new(StringComparer.OrdinalIgnoreCase);
+    private IWindowsStringLocalizer Localizer => this.appState.Localizer;
+    private string S(string resourceKey, string fallback) => this.Localizer.Get(resourceKey, fallback);
+    private string SF(string resourceKey, string fallbackFormat, params object[] arguments) =>
+        this.Localizer.Format(resourceKey, fallbackFormat, arguments);
 
     public MainWindow(WindowsCompanionState appState)
     {
@@ -178,7 +205,7 @@ public sealed class MainWindow : Window
                 return Task.CompletedTask;
             },
             this.ReportCommandError);
-        this.Title = "OpenClaw";
+        this.Title = this.Localizer.Get("Shell.AppTitle", "OpenClaw");
         this.appState.Realtime.StateChanged += this.OnRealtimeStateChanged;
         this.appState.Realtime.EventReceived += this.OnRealtimeEventReceived;
         this.appState.CanvasNode.StateChanged += this.OnCanvasNodeStateChanged;
@@ -321,7 +348,7 @@ public sealed class MainWindow : Window
 
         var navigation = new NavigationView
         {
-            PaneTitle = "OpenClaw",
+            PaneTitle = this.Localizer.Get("Shell.Navigation.PaneTitle", "OpenClaw"),
             IsBackButtonVisible = NavigationViewBackButtonVisible.Collapsed,
             IsSettingsVisible = true,
             OpenPaneLength = 220,
@@ -479,16 +506,16 @@ public sealed class MainWindow : Window
 
         page = tag switch
         {
-            WindowsNavigationDestination.Home => this.BuildPage(WindowsNavigationService.PageTitle(tag), Scrollable(this.BuildHomeDashboardPanel())),
+            WindowsNavigationDestination.Home => this.BuildPage(this.appState.Navigation.PageTitle(tag), Scrollable(this.BuildHomeDashboardPanel())),
             WindowsNavigationDestination.Chat => this.BuildChatPage(),
-            WindowsNavigationDestination.Canvas => this.BuildPage(WindowsNavigationService.PageTitle(tag), this.BuildCanvasPanel()),
-            WindowsNavigationDestination.Sessions => this.BuildPage(WindowsNavigationService.PageTitle(tag), Scrollable(this.BuildSessionsPanel())),
-            WindowsNavigationDestination.Approvals => this.BuildPage(WindowsNavigationService.PageTitle(tag), Scrollable(this.BuildApprovalsPanel())),
-            WindowsNavigationDestination.Pairing => this.BuildPage(WindowsNavigationService.PageTitle(tag), Scrollable(this.BuildPairingPanel())),
-            WindowsNavigationDestination.Devices => this.BuildPage(WindowsNavigationService.PageTitle(tag), Scrollable(this.BuildDevicesPanel())),
-            WindowsNavigationDestination.Logs => this.BuildPage(WindowsNavigationService.PageTitle(tag), Scrollable(this.BuildLogsPanel())),
-            WindowsNavigationDestination.Settings => this.BuildPage(WindowsNavigationService.PageTitle(tag), Scrollable(this.BuildSettingsPanel())),
-            _ => this.BuildPage("Home", Scrollable(this.BuildHomeDashboardPanel())),
+            WindowsNavigationDestination.Canvas => this.BuildPage(this.appState.Navigation.PageTitle(tag), this.BuildCanvasPanel()),
+            WindowsNavigationDestination.Sessions => this.BuildPage(this.appState.Navigation.PageTitle(tag), Scrollable(this.BuildSessionsPanel())),
+            WindowsNavigationDestination.Approvals => this.BuildPage(this.appState.Navigation.PageTitle(tag), Scrollable(this.BuildApprovalsPanel())),
+            WindowsNavigationDestination.Pairing => this.BuildPage(this.appState.Navigation.PageTitle(tag), Scrollable(this.BuildPairingPanel())),
+            WindowsNavigationDestination.Devices => this.BuildPage(this.appState.Navigation.PageTitle(tag), Scrollable(this.BuildDevicesPanel())),
+            WindowsNavigationDestination.Logs => this.BuildPage(this.appState.Navigation.PageTitle(tag), Scrollable(this.BuildLogsPanel())),
+            WindowsNavigationDestination.Settings => this.BuildPage(this.appState.Navigation.PageTitle(tag), Scrollable(this.BuildSettingsPanel())),
+            _ => this.BuildPage(this.appState.Navigation.PageTitle(WindowsNavigationDestination.Home), Scrollable(this.BuildHomeDashboardPanel())),
         };
         this.navigationPages[tag] = page;
         return page;
@@ -526,6 +553,11 @@ public sealed class MainWindow : Window
 
         panel.Children.Add(BuildDashboardCard("Operator workflows", this.homeOperatorRows));
         panel.Children.Add(BuildDashboardCard("Onboarding health", this.onboardingList));
+        this.onboardingGuidedSummaryText.TextWrapping = TextWrapping.Wrap;
+        this.onboardingGuidedSummaryText.Foreground = ResourceBrush("TextFillColorSecondaryBrush");
+        panel.Children.Add(BuildDashboardCard(this.S("Shell.Home.GuidedActions.Title", "Guided next steps"), BuildSettingsSection(
+            this.onboardingGuidedSummaryText,
+            this.onboardingGuidedActions)));
         panel.Children.Add(BuildDashboardCard("Recent activity", this.homeActivityText));
         panel.Children.Add(BuildDashboardCard("Notification activity", this.homeNotificationRows));
         this.RenderHomeDashboard();
@@ -723,11 +755,11 @@ public sealed class MainWindow : Window
         this.chatStateText.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
         this.chatSessionText.TextWrapping = TextWrapping.Wrap;
         this.chatSessionText.Foreground = ResourceBrush("TextFillColorSecondaryBrush");
-        this.chatEmptyText.Text = "No messages in this session yet.";
+        this.chatEmptyText.Text = this.Localizer.Get("Shell.Chat.EmptyState", "No messages in this session yet.");
         this.chatEmptyText.TextWrapping = TextWrapping.Wrap;
         this.chatEmptyText.Foreground = ResourceBrush("TextFillColorSecondaryBrush");
-        this.chatInput.PlaceholderText = "Message the active OpenClaw session";
-        AutomationProperties.SetName(this.chatInput, "Message the active OpenClaw session");
+        this.chatInput.PlaceholderText = this.Localizer.Get("Shell.Chat.Input.Placeholder", "Message the active OpenClaw session");
+        AutomationProperties.SetName(this.chatInput, this.Localizer.Get("Shell.Chat.Input.AutomationName", "Message the active OpenClaw session"));
 
         var header = new Grid
         {
@@ -741,7 +773,7 @@ public sealed class MainWindow : Window
         var headerText = new StackPanel { Spacing = 4 };
         headerText.Children.Add(new TextBlock
         {
-            Text = "Conversation",
+            Text = this.Localizer.Get("Shell.Chat.ConversationTitle", "Conversation"),
             FontSize = 22,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
         });
@@ -749,10 +781,10 @@ public sealed class MainWindow : Window
         header.Children.Add(headerText);
 
         var buttons = new StackPanel { Orientation = XamlOrientation.Horizontal, Spacing = 8 };
-        this.chatRefreshButton.Content = "Refresh";
+        this.chatRefreshButton.Content = this.Localizer.Get("Shell.Chat.RefreshButtonLabel", "Refresh");
         this.chatRefreshButton.AccessKey = "R";
         this.chatRefreshButton.Command = this.CreateCommand(async () => await this.RefreshChatAsync());
-        AutomationProperties.SetName(this.chatRefreshButton, "Refresh session messages");
+        AutomationProperties.SetName(this.chatRefreshButton, this.Localizer.Get("Shell.Chat.RefreshButtonAutomationName", "Refresh session messages"));
         buttons.Children.Add(this.chatRefreshButton);
         Grid.SetColumn(buttons, 1);
         header.Children.Add(buttons);
@@ -763,7 +795,7 @@ public sealed class MainWindow : Window
     {
         var hint = new TextBlock
         {
-            Text = "Ctrl+Enter to send",
+            Text = this.Localizer.Get("Shell.Chat.SendHint", "Ctrl+Enter to send"),
             Foreground = ResourceBrush("TextFillColorSecondaryBrush"),
             VerticalAlignment = VerticalAlignment.Center,
         };
@@ -1077,6 +1109,27 @@ public sealed class MainWindow : Window
     private UIElement BuildDevicesPanel()
     {
         var panel = new StackPanel { Spacing = 16 };
+        this.screenRecordingDurationInput.PlaceholderText = WindowsScreenRecordingOptions.Default.Duration.TotalSeconds.ToString(CultureInfo.InvariantCulture);
+        this.screenRecordingFramesPerSecondInput.PlaceholderText = WindowsScreenRecordingOptions.Default.FramesPerSecond.ToString(CultureInfo.InvariantCulture);
+        AutomationProperties.SetName(this.screenRecordingDurationInput, this.S("Shell.Devices.ScreenRecording.Duration.AutomationName", "Screen recording duration in seconds"));
+        AutomationProperties.SetName(this.screenRecordingFramesPerSecondInput, this.S("Shell.Devices.ScreenRecording.Fps.AutomationName", "Screen recording frames per second"));
+        this.screenRecordingPlanText.TextWrapping = TextWrapping.Wrap;
+        this.screenRecordingPlanText.Foreground = ResourceBrush("TextFillColorSecondaryBrush");
+        this.screenRecordingDurationInput.TextChanged -= this.OnScreenRecordingSettingsChanged;
+        this.screenRecordingFramesPerSecondInput.TextChanged -= this.OnScreenRecordingSettingsChanged;
+        this.screenRecordingDurationInput.TextChanged += this.OnScreenRecordingSettingsChanged;
+        this.screenRecordingFramesPerSecondInput.TextChanged += this.OnScreenRecordingSettingsChanged;
+        this.cancelScreenRecordingButton.Content = this.S("Shell.Devices.ScreenRecording.CancelButton", "Cancel");
+        this.cancelScreenRecordingButton.Command = this.CreateCommand(() =>
+        {
+            this.CancelScreenRecording();
+            return Task.CompletedTask;
+        });
+        this.textToSpeechInput.PlaceholderText = this.S(
+            "Shell.Devices.SystemSpeech.Input.Placeholder",
+            "Enter a short OpenClaw response to save as a Windows speech clip.");
+        AutomationProperties.SetName(this.textToSpeechInput, this.S("Shell.Devices.SystemSpeech.Input.AutomationName", "Speech clip text"));
+        AutomationProperties.SetName(this.textToSpeechVoiceInput, this.S("Shell.Devices.SystemSpeech.Voice.AutomationName", "Windows speech voice"));
         panel.Children.Add(new TextBlock
         {
             Text = "Windows capabilities",
@@ -1095,6 +1148,7 @@ public sealed class MainWindow : Window
         panel.Children.Add(this.deviceCapabilityCards);
         panel.Children.Add(this.mediaDevicesList);
         panel.Children.Add(this.nativeActionsText);
+        this.UpdateScreenRecordingPlanPreview();
         this.RenderDeviceCapabilityCards();
         return panel;
     }
@@ -1127,6 +1181,11 @@ public sealed class MainWindow : Window
         this.activityRetentionCountInput.PlaceholderText =
             AppPreferences.Default.Diagnostics.ActivityRetentionCount.ToString(CultureInfo.InvariantCulture);
         AutomationProperties.SetName(this.activityRetentionCountInput, "Activity retention count");
+        this.notificationHistoryRetentionInput.PlaceholderText =
+            WindowsNotificationRulePreferences.Default.HistoryRetentionCount.ToString(CultureInfo.InvariantCulture);
+        AutomationProperties.SetName(this.notificationHistoryRetentionInput, this.S(
+            "Shell.Settings.NotificationRules.Retention.AutomationName",
+            "Notification history retention count"));
         this.themePreferenceInput.SelectionChanged -= this.OnThemePreferenceSelectionChanged;
         this.themePreferenceInput.Items.Clear();
         this.themePreferenceInput.Items.Add(CreateThemePreferenceItem("System", WindowsThemePreference.System));
@@ -1154,6 +1213,9 @@ public sealed class MainWindow : Window
         this.settingsText.Foreground = ResourceBrush("TextFillColorSecondaryBrush");
         this.topologySummaryText.TextWrapping = TextWrapping.Wrap;
         this.tunnelStatusText.TextWrapping = TextWrapping.Wrap;
+        this.supportSummaryText.TextWrapping = TextWrapping.Wrap;
+        this.supportSummaryText.Foreground = ResourceBrush("TextFillColorSecondaryBrush");
+        this.PopulateNotificationRuleEditor(this.notificationRulePreferences);
 
         ConfigureSettingsToggle(
             this.openMainWindowOnLaunchInput,
@@ -1220,7 +1282,14 @@ public sealed class MainWindow : Window
             this.approvalAlertsInput,
             this.pairingAlertsInput,
             this.gatewayHealthAlertsInput,
-            this.devicePermissionAlertsInput)));
+            this.devicePermissionAlertsInput,
+            BuildSettingsField(
+                this.S("Shell.Settings.NotificationRules.Retention.Label", "Notification history retention"),
+                this.S(
+                    "Shell.Settings.NotificationRules.Retention.Detail",
+                    "Maximum number of persisted notification entries kept locally."),
+                this.notificationHistoryRetentionInput),
+            this.BuildNotificationRuleEditor())));
         panel.Children.Add(BuildDashboardCard("Topology and Tunnels", BuildSettingsSection(
             BuildSettingsField("SSH host", "Destination passed to the local ssh client.", this.tunnelHostInput),
             BuildSettingsField("Remote host", "Host forwarded by the tunnel after ssh connects.", this.tunnelRemoteHostInput),
@@ -1250,6 +1319,10 @@ public sealed class MainWindow : Window
             this.canvasNodeEnabledInput,
             this.settingsVoiceControlsInput,
             this.settingsGlobalHotkeyInput)));
+        panel.Children.Add(BuildDashboardCard(this.S("Shell.Settings.RuntimeFeatures.Title", "Runtime feature storage"), BuildSettingsSection(
+            BuildDashboardRow(this.S("Shell.Settings.RuntimeFeatures.Captures", "Captures"), this.appState.DeviceCapabilities.CaptureRoot),
+            BuildDashboardRow(this.S("Shell.Settings.RuntimeFeatures.Speech", "Speech clips"), this.appState.TextToSpeech.OutputRoot),
+            BuildDashboardRow(this.S("Shell.Settings.RuntimeFeatures.BrowserProxy", "Browser proxy"), this.browserProxyActionResult))));
         panel.Children.Add(BuildDashboardCard("Storage and Logs", this.settingsStorageRows));
         panel.Children.Add(BuildDashboardCard("About", BuildSettingsSection(
             BuildDashboardRow("Product", "OpenClaw Windows companion"),
@@ -1430,6 +1503,166 @@ public sealed class MainWindow : Window
         };
     }
 
+    private UIElement BuildNotificationRuleEditor()
+    {
+        var actions = new StackPanel { Orientation = XamlOrientation.Horizontal, Spacing = 8 };
+        actions.Children.Add(this.BuildSettingsActionButton(
+            this.S("Shell.Settings.NotificationRules.ResetButton", "Reset rules"),
+            () =>
+            {
+                this.notificationRulePreferences = WindowsNotificationRulePreferences.Default;
+                this.PopulateNotificationRuleEditor(this.notificationRulePreferences);
+                return Task.CompletedTask;
+            }));
+        return BuildSettingsSection(
+            new TextBlock
+            {
+                Text = this.S(
+                    "Shell.Settings.NotificationRules.Description",
+                    "Edit the stored category and deep-link destination used when companion notifications are saved."),
+                TextWrapping = TextWrapping.Wrap,
+                Foreground = ResourceBrush("TextFillColorSecondaryBrush"),
+            },
+            actions,
+            this.notificationRuleRows);
+    }
+
+    private void PopulateNotificationRuleEditor(WindowsNotificationRulePreferences preferences)
+    {
+        this.notificationRulePreferences = WindowsNotificationRuleEvaluator.NormalizePreferences(preferences);
+        this.notificationHistoryRetentionInput.Text = this.notificationRulePreferences.HistoryRetentionCount.ToString(CultureInfo.InvariantCulture);
+        this.notificationRuleRows.Children.Clear();
+        this.notificationRuleCategoryInputs.Clear();
+        this.notificationRuleDestinationInputs.Clear();
+        this.notificationRuleEnabledInputs.Clear();
+        foreach (var rule in this.notificationRulePreferences.Rules.OrderBy(static rule => rule.Kind))
+        {
+            var categoryInput = new XamlTextBox { Text = rule.Category };
+            var destinationInput = this.CreateNotificationDestinationInput(rule.Destination);
+            var enabledInput = new XamlCheckBox
+            {
+                Content = this.S("Shell.Settings.NotificationRules.EnabledLabel", "Enabled"),
+                IsChecked = rule.Enabled,
+            };
+            ApplyAccentCheckedState(enabledInput);
+            AutomationProperties.SetName(enabledInput, this.SF(
+                "Shell.Settings.NotificationRules.Enabled.AutomationName",
+                "Enable {0} notification rule",
+                rule.Kind));
+
+            this.notificationRuleCategoryInputs[rule.Id] = categoryInput;
+            this.notificationRuleDestinationInputs[rule.Id] = destinationInput;
+            this.notificationRuleEnabledInputs[rule.Id] = enabledInput;
+            this.notificationRuleRows.Children.Add(BuildDashboardCard(
+                null,
+                BuildSettingsSection(
+                    BuildDashboardRow(
+                        this.S("Shell.Settings.NotificationRules.KindLabel", "Notification"),
+                        this.NotificationKindLabel(rule.Kind)),
+                    enabledInput,
+                    BuildSettingsField(
+                        this.S("Shell.Settings.NotificationRules.CategoryLabel", "Category"),
+                        this.S(
+                            "Shell.Settings.NotificationRules.CategoryDetail",
+                            "Stored label used when the notification is copied into history."),
+                        categoryInput),
+                    BuildSettingsField(
+                        this.S("Shell.Settings.NotificationRules.DestinationLabel", "Destination"),
+                        this.S(
+                            "Shell.Settings.NotificationRules.DestinationDetail",
+                            "Page opened when the notification is selected from history or the tray."),
+                        destinationInput))));
+        }
+    }
+
+    private XamlComboBox CreateNotificationDestinationInput(string destination)
+    {
+        var comboBox = new XamlComboBox();
+        foreach (var knownDestination in GetNotificationDestinations())
+        {
+            comboBox.Items.Add(new XamlComboBoxItem
+            {
+                Content = this.appState.Navigation.PageTitle(knownDestination),
+                Tag = knownDestination,
+            });
+        }
+
+        this.SelectNotificationDestination(comboBox, destination);
+        AutomationProperties.SetName(comboBox, this.S(
+            "Shell.Settings.NotificationRules.Destination.AutomationName",
+            "Notification destination"));
+        return comboBox;
+    }
+
+    private void SelectNotificationDestination(XamlComboBox comboBox, string destination)
+    {
+        var normalized = WindowsNavigationService.Normalize(destination);
+        foreach (var item in comboBox.Items.OfType<XamlComboBoxItem>())
+        {
+            if (item.Tag is string itemDestination &&
+                string.Equals(itemDestination, normalized, StringComparison.Ordinal))
+            {
+                comboBox.SelectedItem = item;
+                return;
+            }
+        }
+    }
+
+    private static IReadOnlyList<string> GetNotificationDestinations()
+    {
+        return
+        [
+            WindowsNavigationDestination.Home,
+            WindowsNavigationDestination.Approvals,
+            WindowsNavigationDestination.Pairing,
+            WindowsNavigationDestination.Devices,
+            WindowsNavigationDestination.Logs,
+            WindowsNavigationDestination.Settings,
+        ];
+    }
+
+    private string NotificationKindLabel(WindowsNotificationKind kind)
+    {
+        return kind switch
+        {
+            WindowsNotificationKind.Approval => this.S("Shell.Settings.NotificationRules.Kind.Approval", "Approval"),
+            WindowsNotificationKind.Pairing => this.S("Shell.Settings.NotificationRules.Kind.Pairing", "Pairing"),
+            WindowsNotificationKind.GatewayHealth => this.S("Shell.Settings.NotificationRules.Kind.GatewayHealth", "Gateway health"),
+            WindowsNotificationKind.DevicePermission => this.S("Shell.Settings.NotificationRules.Kind.DevicePermission", "Device permission"),
+            _ => this.S("Shell.Settings.NotificationRules.Kind.General", "General"),
+        };
+    }
+
+    private WindowsNotificationRulePreferences CollectNotificationRulePreferences()
+    {
+        var rules = this.notificationRulePreferences.Rules
+            .Select(rule =>
+            {
+                var destination = this.notificationRuleDestinationInputs.TryGetValue(rule.Id, out var destinationInput) &&
+                    destinationInput.SelectedItem is XamlComboBoxItem { Tag: string selectedDestination }
+                    ? selectedDestination
+                    : rule.Destination;
+                var category = this.notificationRuleCategoryInputs.TryGetValue(rule.Id, out var categoryInput)
+                    ? categoryInput.Text
+                    : rule.Category;
+                var enabled = this.notificationRuleEnabledInputs.TryGetValue(rule.Id, out var enabledInput) &&
+                    enabledInput.IsChecked == true;
+                return rule with
+                {
+                    Category = category,
+                    Destination = destination,
+                    Enabled = enabled,
+                };
+            })
+            .ToArray();
+        return WindowsNotificationRuleEvaluator.NormalizePreferences(new WindowsNotificationRulePreferences(
+            ParsePositiveIntOrDefault(
+                this.notificationHistoryRetentionInput.Text,
+                this.notificationRulePreferences.HistoryRetentionCount,
+                WindowsNotificationRulePreferences.Default.HistoryRetentionCount),
+            rules));
+    }
+
     private static void ConfigureSettingsToggle(XamlCheckBox toggle, string label, Action<bool> update)
     {
         toggle.Content = label;
@@ -1511,6 +1744,11 @@ public sealed class MainWindow : Window
         {
             this.ApplyColorThemePreference(preference);
         }
+    }
+
+    private void OnScreenRecordingSettingsChanged(object sender, TextChangedEventArgs args)
+    {
+        this.UpdateScreenRecordingPlanPreview();
     }
 
     private void SelectThemePreference(WindowsThemePreference preference)
@@ -1721,12 +1959,56 @@ public sealed class MainWindow : Window
         panel.Children.Add(buttons);
         panel.Children.Add(BuildDashboardCard("Diagnostics", this.logsDiagnosticsRows));
         panel.Children.Add(BuildDashboardCard("Locations", this.logsLocationCards));
-        panel.Children.Add(BuildDashboardCard("Recent activity history", this.logsActivityRows));
+        panel.Children.Add(this.BuildActivityHistoryCard());
+        panel.Children.Add(this.BuildNotificationHistoryCard());
+        panel.Children.Add(this.BuildSupportSummaryCard());
         panel.Children.Add(BuildDashboardCard("Gateway events", this.BuildChatEventVisibilityPanel()));
         panel.Children.Add(BuildDashboardCard("Filtered gateway events", this.chatEventMessages));
         panel.Children.Add(BuildDashboardCard("Raw log preview", this.rawLogsText));
         this.RenderLogsDiagnostics();
         return panel;
+    }
+
+    private UIElement BuildActivityHistoryCard()
+    {
+        var actions = new StackPanel { Orientation = XamlOrientation.Horizontal, Spacing = 8 };
+        actions.Children.Add(this.BuildSettingsActionButton(
+            this.S("Shell.Logs.Activity.CopyButton", "Copy activity"),
+            () => this.CopyActivityHistoryAsync()));
+        actions.Children.Add(this.BuildSettingsActionButton(
+            this.S("Shell.Logs.Activity.ClearButton", "Clear activity"),
+            () => this.ClearActivityHistoryAsync()));
+        return BuildDashboardCard(
+            this.S("Shell.Logs.Activity.Title", "Recent activity history"),
+            BuildSettingsSection(actions, this.logsActivityRows));
+    }
+
+    private UIElement BuildNotificationHistoryCard()
+    {
+        var actions = new StackPanel { Orientation = XamlOrientation.Horizontal, Spacing = 8 };
+        actions.Children.Add(this.BuildSettingsActionButton(
+            this.S("Shell.Logs.Notifications.CopyButton", "Copy notifications"),
+            () => this.CopyNotificationHistoryAsync()));
+        actions.Children.Add(this.BuildSettingsActionButton(
+            this.S("Shell.Logs.Notifications.ClearButton", "Clear notifications"),
+            () => this.ClearNotificationHistoryAsync()));
+        return BuildDashboardCard(
+            this.S("Shell.Logs.Notifications.Title", "Notification history"),
+            BuildSettingsSection(actions, this.logsNotificationRows));
+    }
+
+    private UIElement BuildSupportSummaryCard()
+    {
+        var actions = new StackPanel { Orientation = XamlOrientation.Horizontal, Spacing = 8 };
+        actions.Children.Add(this.BuildSettingsActionButton(
+            this.S("Shell.Logs.Support.CopyButton", "Copy support summary"),
+            () => this.CopySupportSummaryAsync()));
+        actions.Children.Add(this.BuildSettingsActionButton(
+            this.S("Shell.Logs.Support.SaveButton", "Save support artifact"),
+            () => this.SaveSupportSummaryArtifactAsync()));
+        return BuildDashboardCard(
+            this.S("Shell.Logs.Support.Title", "Support summary"),
+            BuildSettingsSection(actions, this.supportSummaryText));
     }
 
     private XamlButton ActionButton(string label, GatewayCliAction action)
@@ -2479,6 +2761,9 @@ public sealed class MainWindow : Window
         this.canvasWebView?.Close();
         this.hotkeyService?.Dispose();
         this.overlayWindow?.Close();
+        this.screenRecordingCancellation?.Cancel();
+        this.screenRecordingCancellation?.Dispose();
+        this.screenRecordingCancellation = null;
         this.appState.Tunnel.Dispose();
         try
         {
@@ -2530,6 +2815,7 @@ public sealed class MainWindow : Window
                 preferences.ColorThemePreference);
             this.sessionEventVisibility = preferences.SessionEventVisibility.WithObservedEvents(this.chatRealtimeEvents);
             this.notificationPreferences = preferences.NotificationPreferences;
+            this.notificationRulePreferences = WindowsNotificationRuleEvaluator.NormalizePreferences(preferences.NotificationRules);
             this.topologyPreferences = preferences.Topology;
             this.diagnosticsPreferences = preferences.Diagnostics;
             this.policyPreferences = preferences.Policy;
@@ -2552,6 +2838,7 @@ public sealed class MainWindow : Window
             this.pairingAlertsInput.IsChecked = preferences.NotificationPreferences.PairingAlerts;
             this.gatewayHealthAlertsInput.IsChecked = preferences.NotificationPreferences.GatewayHealthAlerts;
             this.devicePermissionAlertsInput.IsChecked = preferences.NotificationPreferences.DevicePermissionAlerts;
+            this.PopulateNotificationRuleEditor(this.notificationRulePreferences);
             this.tunnelAutoStartInput.IsChecked = preferences.Topology.AutoStartTunnel;
             this.structuredDiagnosticsEnabledInput.IsChecked = preferences.Diagnostics.StructuredDiagnosticsEnabled;
             this.blockUnsafeUrlsInput.IsChecked = preferences.Policy.BlockUnsafeUrls;
@@ -2567,6 +2854,7 @@ public sealed class MainWindow : Window
             this.RenderTopologySnapshot(preferences);
             this.RenderCanvasState();
             this.RenderActivityHistory();
+            this.RenderNotificationActivity();
             await this.RefreshDeviceCapabilitiesAsync();
             if (this.appState.Realtime.State == GatewayRealtimeState.Connected)
             {
@@ -2696,6 +2984,7 @@ public sealed class MainWindow : Window
             "Structured diagnostics",
             this.appState.Diagnostics.ResolvePath(this.diagnosticsPreferences.StructuredDiagnosticsPath)));
         this.logsDiagnosticsRows.Children.Add(BuildDashboardRow("Activity history", this.appState.ActivityHistory.Path));
+        this.logsDiagnosticsRows.Children.Add(BuildDashboardRow("Notification history", this.appState.NotificationHistory.Path));
 
         this.logsLocationCards.Children.Clear();
         this.logsLocationCards.Children.Add(this.BuildLogLocationCard(
@@ -2717,10 +3006,13 @@ public sealed class MainWindow : Window
             $"Gateway logs: {summary.GatewayLogPath}\n" +
             $"Structured diagnostics: {this.appState.Diagnostics.ResolvePath(this.diagnosticsPreferences.StructuredDiagnosticsPath)}\n" +
             $"Activity history: {this.appState.ActivityHistory.Path}\n" +
+            $"Notification history: {this.appState.NotificationHistory.Path}\n" +
             $"Gateway status: {summary.GatewayStatus}\n" +
             $"Last error: {summary.LastError}\n" +
             $"Last refresh: {summary.LastRefresh}";
         this.RenderActivityHistory();
+        this.RenderNotificationHistory();
+        this.RenderSupportSummarySnapshot();
         this.RenderGatewayEvents();
     }
 
@@ -3213,7 +3505,8 @@ public sealed class MainWindow : Window
             this.ShowNotification(
                 WindowsNavigationDestination.Approvals,
                 "OpenClaw approval",
-                $"{this.latestApprovals.Count} approval request{Plural(this.latestApprovals.Count)} pending.");
+                $"{this.latestApprovals.Count} approval request{Plural(this.latestApprovals.Count)} pending.",
+                WindowsNotificationKind.Approval);
         }
         this.lastNotifiedApprovalCount = this.latestApprovals.Count;
         this.RenderApprovals();
@@ -3405,7 +3698,8 @@ public sealed class MainWindow : Window
             this.ShowNotification(
                 WindowsNavigationDestination.Pairing,
                 "OpenClaw pairing",
-                $"{this.latestPairingRequests.Count} pairing request{Plural(this.latestPairingRequests.Count)} pending.");
+                $"{this.latestPairingRequests.Count} pairing request{Plural(this.latestPairingRequests.Count)} pending.",
+                WindowsNotificationKind.Pairing);
         }
         this.lastNotifiedPairingCount = this.latestPairingRequests.Count;
         this.RenderPairing();
@@ -3527,10 +3821,12 @@ public sealed class MainWindow : Window
             $"Tunnel route: localhost:{preferences.Topology.LocalPort} -> {preferences.Topology.RemoteHost}:{preferences.Topology.RemotePort}\n" +
             $"Structured diagnostics: {preferences.Diagnostics.StructuredDiagnosticsEnabled}\n" +
             $"History retention: {preferences.Diagnostics.ActivityRetentionCount}\n" +
+            $"Notification retention: {preferences.NotificationRules.HistoryRetentionCount}\n" +
             $"Approval alerts: {preferences.NotificationPreferences.ApprovalAlerts}\n" +
             $"Pairing alerts: {preferences.NotificationPreferences.PairingAlerts}\n" +
             $"Gateway health alerts: {preferences.NotificationPreferences.GatewayHealthAlerts}\n" +
-            $"Device permission alerts: {preferences.NotificationPreferences.DevicePermissionAlerts}";
+            $"Device permission alerts: {preferences.NotificationPreferences.DevicePermissionAlerts}\n" +
+            $"Notification rules: {preferences.NotificationRules.Rules.Count}";
     }
 
     private void RenderSettingsStorage()
@@ -3540,9 +3836,16 @@ public sealed class MainWindow : Window
         this.settingsStorageRows.Children.Add(BuildDashboardRow("App crash log", CrashLog.Path));
         this.settingsStorageRows.Children.Add(BuildDashboardRow("Gateway log", this.coordinator.LogPath ?? "unknown"));
         this.settingsStorageRows.Children.Add(BuildDashboardRow("Activity history", this.appState.ActivityHistory.Path));
+        this.settingsStorageRows.Children.Add(BuildDashboardRow("Notification history", this.appState.NotificationHistory.Path));
         this.settingsStorageRows.Children.Add(BuildDashboardRow(
             "Structured diagnostics",
             this.appState.Diagnostics.ResolvePath(this.diagnosticsPreferences.StructuredDiagnosticsPath)));
+        this.settingsStorageRows.Children.Add(BuildDashboardRow("Captures", this.appState.DeviceCapabilities.CaptureRoot));
+        this.settingsStorageRows.Children.Add(BuildDashboardRow("Speech clips", this.appState.TextToSpeech.OutputRoot));
+        if (!string.IsNullOrWhiteSpace(this.latestSupportSummaryArtifactPath))
+        {
+            this.settingsStorageRows.Children.Add(BuildDashboardRow("Latest support artifact", this.latestSupportSummaryArtifactPath));
+        }
         this.settingsStorageRows.Children.Add(BuildReservedSettingsRow(
             "Minimize to tray",
             "Reserved",
@@ -3595,10 +3898,145 @@ public sealed class MainWindow : Window
                 $"{entry.CreatedAt.ToLocalTime():g} {entry.Title}: {entry.Detail}"));
         foreach (var entry in entries)
         {
-            this.logsActivityRows.Children.Add(BuildDashboardRow(
-                entry.CreatedAt.ToLocalTime().ToString("g", CultureInfo.CurrentCulture),
-                $"{entry.Title}: {entry.Detail}"));
+            this.logsActivityRows.Children.Add(BuildDashboardCard(
+                null,
+                BuildSettingsSection(
+                    BuildDashboardRow(
+                        entry.CreatedAt.ToLocalTime().ToString("g", CultureInfo.CurrentCulture),
+                        $"{entry.Category}: {entry.Title}"),
+                    BuildDashboardRow("Destination", entry.Destination ?? "none"),
+                    new TextBlock
+                    {
+                        Text = entry.Detail,
+                        TextWrapping = TextWrapping.Wrap,
+                        Foreground = ResourceBrush("TextFillColorSecondaryBrush"),
+                    })));
         }
+    }
+
+    private void RenderNotificationHistory()
+    {
+        this.logsNotificationRows.Children.Clear();
+        var entries = this.appState.NotificationHistory.Entries.Take(8).ToArray();
+        if (entries.Length == 0)
+        {
+            this.logsNotificationRows.Children.Add(BuildDashboardRow(
+                this.S("Shell.Logs.Notifications.EmptyLabel", "Latest"),
+                this.S("Shell.Logs.Notifications.EmptyValue", "No notification history saved yet.")));
+            return;
+        }
+
+        foreach (var entry in entries)
+        {
+            this.logsNotificationRows.Children.Add(BuildDashboardCard(
+                null,
+                BuildSettingsSection(
+                    BuildDashboardRow(
+                        entry.CreatedAt.ToLocalTime().ToString("g", CultureInfo.CurrentCulture),
+                        $"{entry.Kind}: {entry.Title}"),
+                    BuildDashboardRow("Category", entry.Category),
+                    BuildDashboardRow("Destination", entry.Destination),
+                    new TextBlock
+                    {
+                        Text = entry.Message,
+                        TextWrapping = TextWrapping.Wrap,
+                        Foreground = ResourceBrush("TextFillColorSecondaryBrush"),
+                    })));
+        }
+    }
+
+    private void RenderSupportSummarySnapshot()
+    {
+        var summary = this.BuildOperationalSupportSummary(this.LoadCurrentShellPreferences());
+        this.supportSummaryText.Text =
+            $"{summary.GeneratedAt.ToLocalTime():g}\n" +
+            $"{summary.GatewayUrl}\n" +
+            this.SF(
+                "Shell.Logs.Support.SnapshotCounts",
+                "{0} activity item(s), {1} notification item(s), {2} rule(s).",
+                summary.RecentActivity.Count,
+                summary.RecentNotifications.Count,
+                summary.NotificationRules.Count);
+    }
+
+    private WindowsOperationalSupportSummary BuildOperationalSupportSummary(AppPreferences preferences)
+    {
+        return this.appState.OperationalSupport.Build(
+            preferences,
+            this.appState.Diagnostics,
+            this.appState.ActivityHistory,
+            this.appState.NotificationHistory);
+    }
+
+    private async Task CopyActivityHistoryAsync()
+    {
+        var text = this.appState.ActivityHistory.Entries.Count == 0
+            ? this.S("Shell.Logs.Activity.EmptyValue", "No activity recorded yet.")
+            : string.Join(
+                Environment.NewLine,
+                this.appState.ActivityHistory.Entries.Select(entry =>
+                    $"[{entry.CreatedAt:O}] {entry.Category}: {entry.Title} ({entry.Destination ?? "none"}) - {entry.Detail}"));
+        CopyTextToClipboard(text);
+        this.rawLogsText.Text = text;
+        await this.RecordActivityAsync("logs", "Activity history copied", "Copied activity history to the clipboard.", WindowsNavigationDestination.Logs);
+    }
+
+    private async Task ClearActivityHistoryAsync()
+    {
+        await this.appState.ActivityHistory.ClearAsync();
+        this.homeActivityText.Text = this.S("Shell.Logs.Activity.EmptyValue", "No activity recorded yet.");
+        this.RenderActivityHistory();
+        this.RenderLogsDiagnostics();
+    }
+
+    private async Task CopyNotificationHistoryAsync()
+    {
+        var text = this.appState.NotificationHistory.Entries.Count == 0
+            ? this.S("Shell.Logs.Notifications.EmptyValue", "No notification history saved yet.")
+            : string.Join(
+                Environment.NewLine,
+                this.appState.NotificationHistory.Entries.Select(entry =>
+                    $"[{entry.CreatedAt:O}] {entry.Kind}/{entry.Category}: {entry.Title} ({entry.Destination}) - {entry.Message}"));
+        CopyTextToClipboard(text);
+        this.rawLogsText.Text = text;
+        await this.RecordActivityAsync("logs", "Notification history copied", "Copied notification history to the clipboard.", WindowsNavigationDestination.Logs);
+    }
+
+    private async Task ClearNotificationHistoryAsync()
+    {
+        this.appState.Notifications.Clear();
+        await this.appState.NotificationHistory.ClearAsync();
+        this.RenderNotificationActivity();
+        this.RenderNotificationHistory();
+        this.RenderLogsDiagnostics();
+    }
+
+    private async Task CopySupportSummaryAsync()
+    {
+        var summary = this.BuildOperationalSupportSummary(this.LoadCurrentShellPreferences());
+        var text = summary.ToPlainText();
+        CopyTextToClipboard(text);
+        this.rawLogsText.Text = text;
+        this.supportSummaryText.Text = text;
+        await this.RecordActivityAsync("logs", "Support summary copied", "Copied the operational support summary.", WindowsNavigationDestination.Logs);
+    }
+
+    private async Task SaveSupportSummaryArtifactAsync()
+    {
+        var summary = this.BuildOperationalSupportSummary(this.LoadCurrentShellPreferences());
+        var directory = Path.GetDirectoryName(this.appState.NotificationHistory.Path) ??
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var artifactPath = Path.Combine(directory, $"support-summary-{DateTimeOffset.Now:yyyyMMdd-HHmmss}.json");
+        await this.appState.OperationalSupport.WriteArtifactAsync(artifactPath, summary);
+        this.latestSupportSummaryArtifactPath = artifactPath;
+        this.supportSummaryText.Text = this.SF(
+            "Shell.Logs.Support.ArtifactSaved",
+            "Saved support artifact to {0}.",
+            artifactPath);
+        this.rawLogsText.Text = summary.ToPlainText();
+        this.RenderSettingsStorage();
+        WindowsShell.OpenFileInExplorer(artifactPath);
+        await this.RecordActivityAsync("logs", "Support artifact saved", this.supportSummaryText.Text, WindowsNavigationDestination.Logs, artifactPath);
     }
 
     private async Task RecordActivityAsync(
@@ -3653,6 +4091,7 @@ public sealed class MainWindow : Window
             ? selectedPolicy
             : WindowsPolicyPreferences.Default.ApprovalPolicy;
         this.policyPreferences = this.policyPreferences with { ApprovalPolicy = approvalPolicy };
+        this.notificationRulePreferences = this.CollectNotificationRulePreferences();
         this.diagnosticsPreferences = this.diagnosticsPreferences with
         {
             StructuredDiagnosticsPath = this.diagnosticsPathInput.Text.Trim(),
@@ -3693,6 +4132,7 @@ public sealed class MainWindow : Window
             CanvasNodeEnabled = this.canvasNodeEnabled,
             SessionEventVisibility = this.sessionEventVisibility.WithObservedEvents(this.chatRealtimeEvents),
             NotificationPreferences = this.notificationPreferences,
+            NotificationRules = this.notificationRulePreferences,
             VoiceControlsEnabled = this.voiceControlsEnabled,
             GlobalHotkeyEnabled = this.globalHotkeyEnabled,
             Topology = this.topologyPreferences,
@@ -3769,6 +4209,7 @@ public sealed class MainWindow : Window
     {
         var preferences = await this.appState.Preferences.LoadAsync();
         this.notificationPreferences = preferences.NotificationPreferences;
+        this.notificationRulePreferences = WindowsNotificationRuleEvaluator.NormalizePreferences(preferences.NotificationRules);
         this.canvasNodeEnabled = preferences.CanvasNodeEnabled;
         this.voiceControlsEnabled = preferences.VoiceControlsEnabled;
         this.globalHotkeyEnabled = preferences.GlobalHotkeyEnabled;
@@ -3780,6 +4221,8 @@ public sealed class MainWindow : Window
         this.settingsVoiceControlsInput.IsChecked = preferences.VoiceControlsEnabled;
         this.settingsGlobalHotkeyInput.IsChecked = preferences.GlobalHotkeyEnabled;
         this.SyncHotkeyRegistration(preferences.GlobalHotkeyEnabled);
+        this.PopulateTextToSpeechVoices();
+        this.browserProxyActionResult = this.appState.BrowserProxy.CreateStatus(preferences, this.coordinator.GatewayStatus).Detail;
         this.latestDevicePermissionStatuses = WindowsDeviceCapabilityService.GetPermissionStatus();
         var unavailableCapabilities = this.latestDevicePermissionStatuses
             .Where(status => string.Equals(status.State, "Unavailable", StringComparison.OrdinalIgnoreCase))
@@ -3793,7 +4236,8 @@ public sealed class MainWindow : Window
             this.ShowNotification(
                 WindowsNavigationDestination.Devices,
                 "OpenClaw device permissions",
-                $"Unavailable: {string.Join(", ", unavailableCapabilities)}.");
+                $"Unavailable: {string.Join(", ", unavailableCapabilities)}.",
+                WindowsNotificationKind.DevicePermission);
         }
         this.lastNotifiedDevicePermissionFailures = deviceFailureSignature;
 
@@ -3845,8 +4289,12 @@ public sealed class MainWindow : Window
             DeviceCapabilityPresentation.Create("Screen", this.latestDevicePermissionStatuses, this.screenActionResult),
             [
                 this.DeviceActionButton("Screen", "Capture primary screen", async () => await this.CaptureScreenAsync()),
-                this.DeviceActionButton("Record", "Record screen frame sequence", async () => await this.CaptureScreenFramesAsync()),
+                this.DeviceActionButton(
+                    this.S("Shell.Devices.ScreenRecording.StartButton", "Record"),
+                    this.S("Shell.Devices.ScreenRecording.StartAutomationName", "Start bounded screen recording"),
+                    async () => await this.CaptureScreenRecordingAsync()),
             ]));
+        this.deviceCapabilityCards.Children.Add(this.BuildScreenRecordingCard());
         this.deviceCapabilityCards.Children.Add(this.BuildDeviceCapabilityCard(
             DeviceCapabilityPresentation.Create("Camera", this.latestDevicePermissionStatuses, this.cameraActionResult),
             [this.DeviceActionButton("Camera", "Capture camera photo", async () => await this.CaptureCameraPhotoAsync())]));
@@ -3872,6 +4320,8 @@ public sealed class MainWindow : Window
                     "Windows companion notifications are available.");
                 return Task.CompletedTask;
             })]));
+        this.deviceCapabilityCards.Children.Add(this.BuildBrowserProxyCapabilityCard());
+        this.deviceCapabilityCards.Children.Add(this.BuildSystemSpeechCapabilityCard());
         this.deviceCapabilityCards.Children.Add(this.BuildDeviceCapabilityCard(
             DeviceCapabilityPresentation.Create("Overlays", this.latestDevicePermissionStatuses, this.overlayActionResult),
             [this.DeviceActionButton("Overlay", "Show test overlay", () =>
@@ -3881,26 +4331,157 @@ public sealed class MainWindow : Window
             })]));
     }
 
-    private UIElement BuildDeviceCapabilityCard(
-        DeviceCapabilityPresentation presentation,
-        IEnumerable<UIElement> actions)
+    private UIElement BuildScreenRecordingCard()
     {
-        var body = new StackPanel { Spacing = 10 };
-        body.Children.Add(new TextBlock
+        var presentation = DeviceCapabilityPresentation.Create("Screen recording", this.latestDevicePermissionStatuses, this.screenActionResult);
+        this.UpdateScreenRecordingPlanPreview();
+        var actions = new StackPanel { Orientation = XamlOrientation.Horizontal, Spacing = 8 };
+        actions.Children.Add(this.cancelScreenRecordingButton);
+        actions.Children.Add(this.DeviceActionButton(
+            this.S("Shell.Devices.ScreenRecording.OpenFolderButton", "Open captures"),
+            this.S("Shell.Devices.ScreenRecording.OpenFolderAutomationName", "Open capture output folder"),
+            () =>
+            {
+                WindowsShell.OpenFileInExplorer(this.appState.DeviceCapabilities.CaptureRoot);
+                return Task.CompletedTask;
+            }));
+
+        return BuildDashboardCard(
+            null,
+            BuildSettingsSection(
+                this.BuildDeviceCapabilitySummary(presentation),
+                BuildSettingsField(
+                    this.S("Shell.Devices.ScreenRecording.DurationLabel", "Duration (seconds)"),
+                    this.S(
+                        "Shell.Devices.ScreenRecording.DurationDetail",
+                        "Values are bounded to short captures so the WinUI shell stays responsive."),
+                    this.screenRecordingDurationInput),
+                BuildSettingsField(
+                    this.S("Shell.Devices.ScreenRecording.FpsLabel", "Frames per second"),
+                    this.S(
+                        "Shell.Devices.ScreenRecording.FpsDetail",
+                        "Higher frame rates are clamped to the Windows companion recording limit."),
+                    this.screenRecordingFramesPerSecondInput),
+                this.screenRecordingPlanText,
+                actions));
+    }
+
+    private UIElement BuildBrowserProxyCapabilityCard()
+    {
+        var preferences = this.LoadCurrentShellPreferences();
+        var status = this.appState.BrowserProxy.CreateStatus(preferences, this.coordinator.GatewayStatus);
+        var presentation = DeviceCapabilityPresentation.Create("Browser proxy", this.latestDevicePermissionStatuses, this.browserProxyActionResult);
+        var actions = new StackPanel { Orientation = XamlOrientation.Horizontal, Spacing = 8 };
+        actions.Children.Add(this.DeviceActionButton(
+            this.S("Shell.Devices.BrowserProxy.SettingsButton", "Open settings"),
+            this.S("Shell.Devices.BrowserProxy.SettingsAutomationName", "Open browser proxy settings"),
+            () =>
+            {
+                this.ShowDestination(WindowsNavigationDestination.Settings);
+                return Task.CompletedTask;
+            }));
+        actions.Children.Add(this.DeviceActionButton(
+            this.S("Shell.Devices.BrowserProxy.DashboardButton", "Open dashboard"),
+            this.S("Shell.Devices.BrowserProxy.DashboardAutomationName", "Open gateway dashboard"),
+            async () => await this.OpenUriWithPolicyAsync(this.coordinator.GatewayStatus?.DashboardUrl, WindowsNavigationDestination.Home)));
+
+        return BuildDashboardCard(
+            null,
+            BuildSettingsSection(
+                this.BuildDeviceCapabilitySummary(presentation),
+                BuildDashboardRow(this.S("Shell.Devices.BrowserProxy.StateLabel", "Readiness"), status.State),
+                BuildDashboardRow(this.S("Shell.Devices.BrowserProxy.GatewayLabel", "Gateway origin"), status.GatewayOrigin ?? "unknown"),
+                BuildDashboardRow(this.S("Shell.Devices.BrowserProxy.PolicyLabel", "Unsafe URL policy"), preferences.Policy.BlockUnsafeUrls.ToString()),
+                new TextBlock
+                {
+                    Text = status.Detail,
+                    TextWrapping = TextWrapping.Wrap,
+                    Foreground = ResourceBrush("TextFillColorSecondaryBrush"),
+                },
+                new TextBlock
+                {
+                    Text = status.RepairGuidance,
+                    TextWrapping = TextWrapping.Wrap,
+                    Foreground = ResourceBrush("TextFillColorSecondaryBrush"),
+                },
+                actions));
+    }
+
+    private UIElement BuildSystemSpeechCapabilityCard()
+    {
+        var presentation = DeviceCapabilityPresentation.Create("System speech", this.latestDevicePermissionStatuses, this.textToSpeechActionResult);
+        var status = this.appState.TextToSpeech.GetStatus();
+        var actions = new StackPanel { Orientation = XamlOrientation.Horizontal, Spacing = 8 };
+        actions.Children.Add(this.DeviceActionButton(
+            this.S("Shell.Devices.SystemSpeech.SaveButton", "Save clip"),
+            this.S("Shell.Devices.SystemSpeech.SaveAutomationName", "Save a Windows speech clip"),
+            async () => await this.SynthesizeSpeechAsync()));
+        actions.Children.Add(this.DeviceActionButton(
+            this.S("Shell.Devices.SystemSpeech.RevealButton", "Reveal clip"),
+            this.S("Shell.Devices.SystemSpeech.RevealAutomationName", "Reveal the latest Windows speech clip"),
+            () =>
+            {
+                if (!string.IsNullOrWhiteSpace(this.latestTextToSpeechPath))
+                {
+                    WindowsShell.OpenFileInExplorer(this.latestTextToSpeechPath);
+                }
+                else
+                {
+                    WindowsShell.OpenFileInExplorer(this.appState.TextToSpeech.OutputRoot);
+                }
+
+                return Task.CompletedTask;
+            }));
+
+        return BuildDashboardCard(
+            null,
+            BuildSettingsSection(
+                this.BuildDeviceCapabilitySummary(presentation),
+                BuildDashboardRow(this.S("Shell.Devices.SystemSpeech.StateLabel", "Provider"), status.State),
+                BuildDashboardRow(this.S("Shell.Devices.SystemSpeech.DefaultVoiceLabel", "Default voice"), status.DefaultVoice ?? "unknown"),
+                BuildDashboardRow(this.S("Shell.Devices.SystemSpeech.VoiceCountLabel", "Installed voices"), status.InstalledVoiceCount.ToString(CultureInfo.InvariantCulture)),
+                BuildSettingsField(
+                    this.S("Shell.Devices.SystemSpeech.VoiceLabel", "Voice"),
+                    this.S(
+                        "Shell.Devices.SystemSpeech.VoiceDetail",
+                        "Speech clips are written to local files. Pick a Windows voice or leave the default selected."),
+                    this.textToSpeechVoiceInput),
+                BuildSettingsField(
+                    this.S("Shell.Devices.SystemSpeech.TextLabel", "Speech text"),
+                    this.S(
+                        "Shell.Devices.SystemSpeech.TextDetail",
+                        "Keep the clip short. The Windows companion saves the synthesized result instead of auto-playing it."),
+                    this.textToSpeechInput),
+                actions));
+    }
+
+    private UIElement BuildDeviceCapabilitySummary(DeviceCapabilityPresentation presentation)
+    {
+        var summary = new StackPanel { Spacing = 10 };
+        summary.Children.Add(new TextBlock
         {
             Text = presentation.Capability,
             FontSize = 16,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
         });
-        body.Children.Add(BuildDashboardRow("Permission", presentation.State));
-        body.Children.Add(BuildDashboardRow("Detail", presentation.Detail));
-        body.Children.Add(BuildDashboardRow("Last action", presentation.LastAction));
-        body.Children.Add(BuildDashboardRow("Repair", presentation.RepairGuidance));
+        summary.Children.Add(BuildDashboardRow("Permission", presentation.State));
+        summary.Children.Add(BuildDashboardRow("Detail", presentation.Detail));
+        summary.Children.Add(BuildDashboardRow("Last action", presentation.LastAction));
+        summary.Children.Add(BuildDashboardRow("Repair", presentation.RepairGuidance));
         if (presentation.Capability is "Camera" or "Microphone")
         {
-            body.Children.Add(BuildDashboardRow("Devices", this.mediaDeviceSummary));
+            summary.Children.Add(BuildDashboardRow("Devices", this.mediaDeviceSummary));
         }
 
+        return summary;
+    }
+
+    private UIElement BuildDeviceCapabilityCard(
+        DeviceCapabilityPresentation presentation,
+        IEnumerable<UIElement> actions)
+    {
+        var body = new StackPanel { Spacing = 10 };
+        body.Children.Add(this.BuildDeviceCapabilitySummary(presentation));
         var buttons = new StackPanel { Orientation = XamlOrientation.Horizontal, Spacing = 8 };
         foreach (var action in actions)
         {
@@ -3940,6 +4521,88 @@ public sealed class MainWindow : Window
         return $"{device.Name} ({state})";
     }
 
+    private AppPreferences LoadCurrentShellPreferences()
+    {
+        return AppPreferences.Default with
+        {
+            GatewayUrl = string.IsNullOrWhiteSpace(this.gatewayUrlInput.Text) ? AppPreferences.Default.GatewayUrl : this.gatewayUrlInput.Text.Trim(),
+            NotificationPreferences = this.notificationPreferences,
+            NotificationRules = this.notificationRulePreferences,
+            Topology = this.topologyPreferences,
+            Diagnostics = this.diagnosticsPreferences,
+            Policy = this.policyPreferences,
+            CanvasNodeEnabled = this.canvasNodeEnabled,
+            VoiceControlsEnabled = this.voiceControlsEnabled,
+            GlobalHotkeyEnabled = this.globalHotkeyEnabled,
+        };
+    }
+
+    private void PopulateTextToSpeechVoices()
+    {
+        var selectedVoiceId = this.textToSpeechVoiceInput.SelectedItem is XamlComboBoxItem { Tag: string currentVoiceId }
+            ? currentVoiceId
+            : null;
+        var voices = this.appState.TextToSpeech.GetAvailableVoices();
+        this.textToSpeechVoiceInput.Items.Clear();
+        foreach (var voice in voices)
+        {
+            this.textToSpeechVoiceInput.Items.Add(new XamlComboBoxItem
+            {
+                Content = $"{voice.DisplayName} ({voice.Language})",
+                Tag = voice.Id,
+            });
+        }
+
+        if (voices.Count == 0)
+        {
+            return;
+        }
+
+        var targetVoiceId = selectedVoiceId ??
+            voices.FirstOrDefault(voice => voice.IsDefault)?.Id ??
+            voices[0].Id;
+        foreach (var item in this.textToSpeechVoiceInput.Items.OfType<XamlComboBoxItem>())
+        {
+            if (item.Tag is string voiceId &&
+                string.Equals(voiceId, targetVoiceId, StringComparison.Ordinal))
+            {
+                this.textToSpeechVoiceInput.SelectedItem = item;
+                return;
+            }
+        }
+    }
+
+    private void UpdateScreenRecordingPlanPreview()
+    {
+        try
+        {
+            var plan = this.appState.DeviceCapabilities.CreateScreenRecordingPlan(this.CreateScreenRecordingOptions());
+            this.screenRecordingPlanText.Text = plan.Summary;
+            this.cancelScreenRecordingButton.IsEnabled = this.screenRecordingCancellation is not null;
+        }
+        catch (Exception ex)
+        {
+            this.screenRecordingPlanText.Text = ex.Message;
+            this.cancelScreenRecordingButton.IsEnabled = this.screenRecordingCancellation is not null;
+        }
+    }
+
+    private WindowsScreenRecordingOptions CreateScreenRecordingOptions()
+    {
+        var durationSeconds = ParsePositiveIntOrDefault(
+            this.screenRecordingDurationInput.Text,
+            (int)WindowsScreenRecordingOptions.Default.Duration.TotalSeconds,
+            (int)WindowsScreenRecordingOptions.Default.Duration.TotalSeconds);
+        var framesPerSecond = ParsePositiveIntOrDefault(
+            this.screenRecordingFramesPerSecondInput.Text,
+            WindowsScreenRecordingOptions.Default.FramesPerSecond,
+            WindowsScreenRecordingOptions.Default.FramesPerSecond);
+        return new WindowsScreenRecordingOptions(
+            Duration: TimeSpan.FromSeconds(durationSeconds),
+            FramesPerSecond: framesPerSecond,
+            Prefix: "recording");
+    }
+
     private async Task SaveDevicePreferencesAsync()
     {
         await this.appState.Preferences.UpdateAsync(current => current with
@@ -3972,20 +4635,56 @@ public sealed class MainWindow : Window
         }
     }
 
-    private async Task CaptureScreenFramesAsync()
+    private async Task CaptureScreenRecordingAsync()
     {
-        this.screenActionResult = "Recording screen frame sequence...";
+        this.screenRecordingCancellation?.Dispose();
+        var cancellation = new CancellationTokenSource();
+        this.screenRecordingCancellation = cancellation;
+        this.screenActionResult = this.S("Shell.Devices.ScreenRecording.Started", "Recording screen capture sequence...");
         this.nativeActionsText.Text = this.screenActionResult;
+        this.UpdateScreenRecordingPlanPreview();
         this.RenderDeviceCapabilityCards();
-        var captures = await Task.Run(() => this.appState.DeviceCapabilities.CaptureScreenFrameSequence());
-        var successful = captures.Where(capture => capture.Succeeded).ToArray();
-        this.screenActionResult = $"Captured {successful.Length} screen frames in {this.appState.DeviceCapabilities.CaptureRoot}";
-        this.nativeActionsText.Text = this.screenActionResult;
-        this.RenderDeviceCapabilityCards();
-        if (successful.Length > 0)
+        try
         {
-            WindowsShell.OpenFileInExplorer(this.appState.DeviceCapabilities.CaptureRoot);
+            var options = this.CreateScreenRecordingOptions();
+            var result = await Task.Run(
+                () => this.appState.DeviceCapabilities.CaptureScreenRecordingAsync(options, cancellation.Token),
+                cancellation.Token);
+            this.screenActionResult = result.Detail;
+            this.nativeActionsText.Text = this.screenActionResult;
+            if (result.Succeeded && !string.IsNullOrWhiteSpace(result.DirectoryPath))
+            {
+                WindowsShell.OpenFileInExplorer(result.DirectoryPath);
+            }
         }
+        catch (OperationCanceledException)
+        {
+            this.screenActionResult = this.S("Shell.Devices.ScreenRecording.Cancelled", "Screen recording cancelled.");
+            this.nativeActionsText.Text = this.screenActionResult;
+        }
+        finally
+        {
+            cancellation.Dispose();
+            if (ReferenceEquals(this.screenRecordingCancellation, cancellation))
+            {
+                this.screenRecordingCancellation = null;
+            }
+            this.UpdateScreenRecordingPlanPreview();
+            this.RenderDeviceCapabilityCards();
+        }
+    }
+
+    private void CancelScreenRecording()
+    {
+        if (this.screenRecordingCancellation is null)
+        {
+            return;
+        }
+
+        this.screenActionResult = this.S("Shell.Devices.ScreenRecording.Cancelling", "Cancelling screen recording...");
+        this.nativeActionsText.Text = this.screenActionResult;
+        this.screenRecordingCancellation.Cancel();
+        this.UpdateScreenRecordingPlanPreview();
     }
 
     private async Task CaptureCameraPhotoAsync()
@@ -4003,10 +4702,78 @@ public sealed class MainWindow : Window
         }
     }
 
-    private void ShowNotification(string destination, string title, string message)
+    private async Task SynthesizeSpeechAsync()
     {
-        this.appState.Notifications.Add(WindowsNavigationService.Normalize(destination), title, message);
+        var text = this.textToSpeechInput.Text.Trim();
+        if (text.Length == 0)
+        {
+            this.textToSpeechActionResult = this.S(
+                "Shell.Devices.SystemSpeech.EmptyText",
+                "Enter speech text before saving a clip.");
+            this.nativeActionsText.Text = this.textToSpeechActionResult;
+            this.RenderDeviceCapabilityCards();
+            return;
+        }
+
+        var voiceId = this.textToSpeechVoiceInput.SelectedItem is XamlComboBoxItem { Tag: string selectedVoiceId }
+            ? selectedVoiceId
+            : null;
+        var result = await this.appState.TextToSpeech.SynthesizeToFileAsync(
+            new WindowsTextToSpeechRequest(text, voiceId, "reply"));
+        this.latestTextToSpeechPath = result.Path;
+        this.textToSpeechActionResult = result.Detail;
+        this.nativeActionsText.Text = this.textToSpeechActionResult;
+        this.RenderDeviceCapabilityCards();
+    }
+
+    private async Task OpenUriWithPolicyAsync(string? target, string destination)
+    {
+        if (string.IsNullOrWhiteSpace(target))
+        {
+            this.browserProxyActionResult = this.S("Shell.Devices.BrowserProxy.NoDashboard", "Gateway dashboard is not available yet.");
+            this.nativeActionsText.Text = this.browserProxyActionResult;
+            this.RenderDeviceCapabilityCards();
+            return;
+        }
+
+        if (this.policyPreferences.BlockUnsafeUrls)
+        {
+            var evaluation = this.appState.UrlRisk.Evaluate(target);
+            if (!evaluation.Allowed)
+            {
+                this.browserProxyActionResult = evaluation.Reason ?? target;
+                this.nativeActionsText.Text = this.browserProxyActionResult;
+                await this.RecordActivityAsync("browser-proxy", "Browser proxy URL blocked", this.browserProxyActionResult, destination, target);
+                this.RenderDeviceCapabilityCards();
+                return;
+            }
+
+            target = evaluation.NormalizedUrl ?? target;
+        }
+
+        await Launcher.LaunchUriAsync(new Uri(target));
+        this.browserProxyActionResult = this.SF(
+            "Shell.Devices.BrowserProxy.OpenedDashboard",
+            "Opened {0}.",
+            target);
+        this.nativeActionsText.Text = this.browserProxyActionResult;
+        await this.RecordActivityAsync("browser-proxy", "Browser proxy dashboard opened", this.browserProxyActionResult, destination, target);
+        this.RenderDeviceCapabilityCards();
+    }
+
+    private void ShowNotification(
+        string destination,
+        string title,
+        string message,
+        WindowsNotificationKind kind = WindowsNotificationKind.Unknown)
+    {
+        var classification = this.notificationRuleEvaluator.Classify(
+            kind,
+            destination,
+            this.notificationRulePreferences.Rules);
+        this.appState.Notifications.Add(classification.Destination, title, message, classification.Category, kind);
         this.RenderNotificationActivity();
+        _ = this.StoreNotificationHistoryAsync(classification, title, message);
         _ = this.RecordActivityAsync("notification", title, message, destination);
         if (this.trayHost is null)
         {
@@ -4020,6 +4787,32 @@ public sealed class MainWindow : Window
         this.notificationActionResult = "Notification sent.";
         this.nativeActionsText.Text = this.notificationActionResult;
         this.RenderDeviceCapabilityCards();
+    }
+
+    private async Task StoreNotificationHistoryAsync(
+        WindowsNotificationClassification classification,
+        string title,
+        string message)
+    {
+        try
+        {
+            await this.appState.NotificationHistory.AddAsync(
+                classification.Destination,
+                title,
+                message,
+                this.notificationRulePreferences.HistoryRetentionCount,
+                classification.Category,
+                classification.Kind);
+            _ = this.DispatcherQueue.TryEnqueue(() =>
+            {
+                this.RenderNotificationActivity();
+                this.RenderLogsDiagnostics();
+            });
+        }
+        catch (Exception ex)
+        {
+            CrashLog.Write(ex);
+        }
     }
 
     private void ShowOverlay(string title, string message)
@@ -4143,7 +4936,8 @@ public sealed class MainWindow : Window
             this.ShowNotification(
                 WindowsNavigationDestination.Home,
                 "OpenClaw Gateway health",
-                $"Gateway is {health}.");
+                $"Gateway is {health}.",
+                WindowsNotificationKind.GatewayHealth);
         }
         this.lastNotifiedGatewayHealth = health;
     }
@@ -4227,13 +5021,14 @@ public sealed class MainWindow : Window
             this.homeActivityText.Text =
                 "Recent activity will show Gateway lifecycle events, realtime events, approvals, and pairing requests as they arrive.";
         }
+        this.RenderGuidedOnboardingActions();
         this.RenderNotificationActivity();
     }
 
     private void RenderNotificationActivity()
     {
         this.homeNotificationRows.Children.Clear();
-        var entries = this.appState.Notifications.Entries;
+        var entries = this.appState.NotificationHistory.Entries;
         if (entries.Count == 0)
         {
             this.homeNotificationRows.Children.Add(BuildDashboardRow("Latest", "No notifications sent yet."));
@@ -4244,7 +5039,72 @@ public sealed class MainWindow : Window
         {
             this.homeNotificationRows.Children.Add(BuildDashboardRow(
                 entry.CreatedAt.ToLocalTime().ToString("g", CultureInfo.CurrentCulture),
-                $"{entry.Title}: {entry.Message}"));
+                $"{entry.Kind}/{entry.Category}: {entry.Title}"));
+        }
+    }
+
+    private void RenderGuidedOnboardingActions()
+    {
+        var browserProxyStatus = this.appState.BrowserProxy.CreateStatus(
+            this.LoadCurrentShellPreferences(),
+            this.coordinator.GatewayStatus);
+        var plan = this.guidedOnboarding.CreatePlan(
+            this.LoadCurrentShellPreferences(),
+            this.coordinator.GatewayStatus,
+            this.coordinator.RealtimeState,
+            this.appState.Tunnel.Status,
+            this.coordinator.OnboardingChecks,
+            browserProxyStatus,
+            this.appState.TextToSpeech.GetStatus());
+        this.onboardingGuidedSummaryText.Text = plan.Summary;
+        this.onboardingGuidedActions.Children.Clear();
+        foreach (var action in plan.Actions)
+        {
+            var button = new XamlButton
+            {
+                Content = action.Title,
+                HorizontalAlignment = XamlHorizontalAlignment.Left,
+                Command = this.CreateCommand(async () => await this.RunGuidedActionAsync(action)),
+            };
+            AutomationProperties.SetName(button, action.Title);
+            this.onboardingGuidedActions.Children.Add(BuildDashboardCard(
+                null,
+                BuildSettingsSection(
+                    button,
+                    new TextBlock
+                    {
+                        Text = action.Detail,
+                        TextWrapping = TextWrapping.Wrap,
+                        Foreground = ResourceBrush("TextFillColorSecondaryBrush"),
+                    },
+                    BuildDashboardRow("Destination", this.appState.Navigation.PageTitle(action.Destination)))));
+        }
+    }
+
+    private async Task RunGuidedActionAsync(WindowsGuidedAction action)
+    {
+        switch (action.Key)
+        {
+            case WindowsGuidedActionKey.InstallGateway:
+                await this.RunGatewayActionAsync(GatewayCliAction.Install);
+                break;
+            case WindowsGuidedActionKey.StartGateway:
+                await this.RunGatewayActionAsync(GatewayCliAction.Start);
+                break;
+            case WindowsGuidedActionKey.ConnectGateway:
+                await this.ConnectRealtimeAsync();
+                break;
+            case WindowsGuidedActionKey.StartTunnel:
+                await this.RunTunnelFromSettingsAsync();
+                break;
+            case WindowsGuidedActionKey.OpenSettings:
+            case WindowsGuidedActionKey.OpenDevices:
+            case WindowsGuidedActionKey.OpenLogs:
+                this.ShowDestination(action.Destination);
+                break;
+            default:
+                this.ShowDestination(action.Destination);
+                break;
         }
     }
 

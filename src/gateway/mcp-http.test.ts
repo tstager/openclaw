@@ -82,6 +82,7 @@ vi.mock("./tool-resolution.js", () => ({
 }));
 
 import {
+  createUserFacingMcpLoopbackServerDetails,
   createMcpLoopbackServerConfig,
   closeMcpLoopbackServer,
   getActiveMcpLoopbackRuntime,
@@ -571,6 +572,25 @@ describe("mcp loopback server", () => {
     expect(getActiveMcpLoopbackRuntime()).toBeUndefined();
   });
 
+  it("rejects a conflicting explicit port when the singleton is already running", async () => {
+    const firstPort = await getFreePortBlockWithPermissionFallback({
+      offsets: [0, 1],
+      fallbackBase: 53_200,
+    });
+    const secondPort = firstPort + 1;
+
+    server = await ensureMcpLoopbackServer(firstPort);
+
+    await expect(ensureMcpLoopbackServer(secondPort)).rejects.toThrow(
+      `Local MCP HTTP server is already running on port ${firstPort}. Stop it before requesting port ${secondPort}.`,
+    );
+    expect(getActiveMcpLoopbackRuntime()?.port).toBe(firstPort);
+
+    await closeMcpLoopbackServer();
+    server = undefined;
+    expect(getActiveMcpLoopbackRuntime()).toBeUndefined();
+  });
+
   it("returns 401 when the bearer token is missing", async () => {
     server = await startMcpLoopbackServer(0);
     const response = await sendRaw({
@@ -692,5 +712,31 @@ describe("createMcpLoopbackServerConfig", () => {
       "${OPENCLAW_MCP_MESSAGE_CHANNEL}",
     );
     expect(config.mcpServers?.openclaw?.headers).not.toHaveProperty("x-openclaw-sender-is-owner");
+  });
+
+  it("builds user-facing startup details with the owner token", () => {
+    const details = createUserFacingMcpLoopbackServerDetails({
+      port: 23119,
+      ownerToken: "owner-token",
+      nonOwnerToken: "non-owner-token",
+    });
+
+    expect(details).toEqual({
+      port: 23119,
+      url: "http://127.0.0.1:23119/mcp",
+      token: "owner-token",
+      tokenEnvVar: "OPENCLAW_MCP_TOKEN",
+      config: {
+        mcpServers: {
+          openclaw: {
+            type: "http",
+            url: "http://127.0.0.1:23119/mcp",
+            headers: {
+              Authorization: "Bearer ${OPENCLAW_MCP_TOKEN}",
+            },
+          },
+        },
+      },
+    });
   });
 });

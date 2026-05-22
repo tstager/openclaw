@@ -27,17 +27,25 @@ public sealed record WindowsNavigationItem(string Label, string Destination, str
 /// </summary>
 public sealed class WindowsNavigationService
 {
-    public IReadOnlyList<WindowsNavigationItem> PrimaryItems { get; } =
-    [
-        new("Home", WindowsNavigationDestination.Home, "\uE80F"),
-        new("Chat", WindowsNavigationDestination.Chat, "\uE8F2"),
-        new("Canvas", WindowsNavigationDestination.Canvas, "\uE7F4"),
-        new("Sessions", WindowsNavigationDestination.Sessions, "\uE8BD"),
-        new("Approvals", WindowsNavigationDestination.Approvals, "\uE73E"),
-        new("Pairing", WindowsNavigationDestination.Pairing, "\uE71B"),
-        new("Devices", WindowsNavigationDestination.Devices, "\uE722"),
-        new("Logs", WindowsNavigationDestination.Logs, "\uE8A5"),
-    ];
+    private readonly IWindowsStringLocalizer localizer;
+
+    public WindowsNavigationService(IWindowsStringLocalizer? localizer = null)
+    {
+        this.localizer = localizer ?? new WindowsStringLocalizer();
+        this.PrimaryItems =
+        [
+            this.CreatePrimaryItem(WindowsNavigationDestination.Home, "\uE80F"),
+            this.CreatePrimaryItem(WindowsNavigationDestination.Chat, "\uE8F2"),
+            this.CreatePrimaryItem(WindowsNavigationDestination.Canvas, "\uE7F4"),
+            this.CreatePrimaryItem(WindowsNavigationDestination.Sessions, "\uE8BD"),
+            this.CreatePrimaryItem(WindowsNavigationDestination.Approvals, "\uE73E"),
+            this.CreatePrimaryItem(WindowsNavigationDestination.Pairing, "\uE71B"),
+            this.CreatePrimaryItem(WindowsNavigationDestination.Devices, "\uE722"),
+            this.CreatePrimaryItem(WindowsNavigationDestination.Logs, "\uE8A5"),
+        ];
+    }
+
+    public IReadOnlyList<WindowsNavigationItem> PrimaryItems { get; }
 
     /// <summary>
     /// Maps unknown, legacy, or alias destinations to the closest supported page.
@@ -63,19 +71,24 @@ public sealed class WindowsNavigationService
     /// <summary>
     /// Returns the visible page heading for a normalized destination.
     /// </summary>
-    public static string PageTitle(string destination)
+    public string PageTitle(string destination)
     {
         return Normalize(destination) switch
         {
-            WindowsNavigationDestination.Chat => "Chat",
-            WindowsNavigationDestination.Canvas => "Canvas",
-            WindowsNavigationDestination.Sessions => "Sessions",
-            WindowsNavigationDestination.Approvals => "Approvals",
-            WindowsNavigationDestination.Pairing => "Pairing",
-            WindowsNavigationDestination.Devices => "Devices",
-            WindowsNavigationDestination.Logs => "Logs",
-            WindowsNavigationDestination.Settings => "Settings",
-            _ => "Home",
+            WindowsNavigationDestination.Chat => this.localizer.Get("Shell.Navigation.Chat", "Chat"),
+            WindowsNavigationDestination.Canvas => this.localizer.Get("Shell.Navigation.Canvas", "Canvas"),
+            WindowsNavigationDestination.Sessions => this.localizer.Get("Shell.Navigation.Sessions", "Sessions"),
+            WindowsNavigationDestination.Approvals => this.localizer.Get("Shell.Navigation.Approvals", "Approvals"),
+            WindowsNavigationDestination.Pairing => this.localizer.Get("Shell.Navigation.Pairing", "Pairing"),
+            WindowsNavigationDestination.Devices => this.localizer.Get("Shell.Navigation.Devices", "Devices"),
+            WindowsNavigationDestination.Logs => this.localizer.Get("Shell.Navigation.Logs", "Logs"),
+            WindowsNavigationDestination.Settings => this.localizer.Get("Shell.Navigation.Settings", "Settings"),
+            _ => this.localizer.Get("Shell.Navigation.Home", "Home"),
         };
+    }
+
+    private WindowsNavigationItem CreatePrimaryItem(string destination, string glyph)
+    {
+        return new WindowsNavigationItem(this.PageTitle(destination), destination, glyph);
     }
 }

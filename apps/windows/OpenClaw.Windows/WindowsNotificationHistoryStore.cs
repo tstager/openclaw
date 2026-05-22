@@ -1,30 +1,26 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace OpenClaw.Windows;
 
 /// <summary>
-/// One persisted operational activity entry shown in logs/history surfaces.
+/// File-backed bounded notification history used by future activity and notifications surfaces.
 /// </summary>
-public sealed record WindowsActivityEntry(
-    DateTimeOffset CreatedAt,
-    string Category,
-    string Title,
-    string Detail,
-    string? Destination);
-
-/// <summary>
-/// File-backed bounded activity history shared by the home, logs, and notification surfaces.
-/// </summary>
-public sealed class WindowsActivityHistoryStore
+public sealed class WindowsNotificationHistoryStore
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         WriteIndented = true,
+        Converters =
+        {
+            new JsonStringEnumConverter(),
+        },
     };
-    private readonly object gate = new();
-    private List<WindowsActivityEntry> entries;
 
-    public WindowsActivityHistoryStore(string path)
+    private readonly object gate = new();
+    private List<WindowsNotificationActivity> entries;
+
+    public WindowsNotificationHistoryStore(string path)
     {
         this.Path = path;
         this.entries = LoadEntries(path);
@@ -32,7 +28,7 @@ public sealed class WindowsActivityHistoryStore
 
     public string Path { get; }
 
-    public IReadOnlyList<WindowsActivityEntry> Entries
+    public IReadOnlyList<WindowsNotificationActivity> Entries
     {
         get
         {
@@ -43,7 +39,7 @@ public sealed class WindowsActivityHistoryStore
         }
     }
 
-    public WindowsActivityEntry? Latest
+    public WindowsNotificationActivity? Latest
     {
         get
         {
@@ -54,22 +50,24 @@ public sealed class WindowsActivityHistoryStore
         }
     }
 
-    public async Task<WindowsActivityEntry> AddAsync(
-        string category,
+    public async Task<WindowsNotificationActivity> AddAsync(
+        string destination,
         string title,
-        string detail,
-        string? destination,
+        string message,
         int capacity,
+        string category = WindowsNotificationCategories.General,
+        WindowsNotificationKind kind = WindowsNotificationKind.Unknown,
         CancellationToken cancellationToken = default)
     {
-        var entry = new WindowsActivityEntry(
+        var entry = new WindowsNotificationActivity(
             DateTimeOffset.Now,
-            category,
+            NormalizeDestination(destination),
             title,
-            detail,
-            string.IsNullOrWhiteSpace(destination) ? null : WindowsNavigationService.Normalize(destination));
+            message,
+            WindowsNotificationCategories.Normalize(category),
+            kind);
 
-        List<WindowsActivityEntry> snapshot;
+        List<WindowsNotificationActivity> snapshot;
         lock (this.gate)
         {
             this.entries.Insert(0, entry);
@@ -95,7 +93,7 @@ public sealed class WindowsActivityHistoryStore
         await SaveEntriesAsync(this.Path, [], cancellationToken);
     }
 
-    private static List<WindowsActivityEntry> LoadEntries(string path)
+    private static List<WindowsNotificationActivity> LoadEntries(string path)
     {
         if (!File.Exists(path))
         {
@@ -105,7 +103,7 @@ public sealed class WindowsActivityHistoryStore
         try
         {
             var json = File.ReadAllText(path);
-            return JsonSerializer.Deserialize<List<WindowsActivityEntry>>(json, JsonOptions) ?? [];
+            return JsonSerializer.Deserialize<List<WindowsNotificationActivity>>(json, JsonOptions) ?? [];
         }
         catch (Exception ex)
         {
@@ -114,9 +112,16 @@ public sealed class WindowsActivityHistoryStore
         }
     }
 
+    private static string NormalizeDestination(string destination)
+    {
+        return string.IsNullOrWhiteSpace(destination)
+            ? WindowsNavigationDestination.Home
+            : WindowsNavigationService.Normalize(destination.Trim());
+    }
+
     private static async Task SaveEntriesAsync(
         string path,
-        IReadOnlyList<WindowsActivityEntry> entries,
+        IReadOnlyList<WindowsNotificationActivity> entries,
         CancellationToken cancellationToken)
     {
         var directory = System.IO.Path.GetDirectoryName(path)!;

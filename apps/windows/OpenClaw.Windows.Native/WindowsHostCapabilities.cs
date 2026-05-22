@@ -7,8 +7,11 @@ public sealed record WindowsHostCapabilities(
     bool SupportsTray,
     bool SupportsToastNotifications,
     bool SupportsScreenCapture,
+    bool SupportsScreenRecording,
     bool SupportsCameraCapture,
     bool SupportsMicrophoneCapture,
+    bool SupportsBrowserProxy,
+    bool SupportsSystemTextToSpeech,
     bool SupportsGlobalHotkeys,
     bool SupportsOverlays);
 
@@ -21,8 +24,11 @@ public static class WindowsHostCapabilityProbe
         SupportsTray: true,
         SupportsToastNotifications: true,
         SupportsScreenCapture: true,
+        SupportsScreenRecording: true,
         SupportsCameraCapture: true,
         SupportsMicrophoneCapture: true,
+        SupportsBrowserProxy: true,
+        SupportsSystemTextToSpeech: true,
         SupportsGlobalHotkeys: true,
         SupportsOverlays: true);
 }

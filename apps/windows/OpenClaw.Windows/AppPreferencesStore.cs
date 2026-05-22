@@ -116,6 +116,7 @@ public sealed record AppPreferences(
     DateTimeOffset? LastStatusCheckedAt,
     SessionEventVisibilityPreferences SessionEventVisibility,
     WindowsNotificationPreferences NotificationPreferences,
+    WindowsNotificationRulePreferences NotificationRules,
     WindowsTopologyPreferences Topology,
     WindowsDiagnosticsPreferences Diagnostics,
     WindowsPolicyPreferences Policy)
@@ -139,6 +140,7 @@ public sealed record AppPreferences(
         LastStatusCheckedAt: null,
         SessionEventVisibility: SessionEventVisibilityPreferences.Default,
         NotificationPreferences: WindowsNotificationPreferences.Default,
+        NotificationRules: WindowsNotificationRulePreferences.Default,
         Topology: WindowsTopologyPreferences.Default,
         Diagnostics: WindowsDiagnosticsPreferences.Default,
         Policy: WindowsPolicyPreferences.Default);
@@ -316,6 +318,7 @@ public sealed class AppPreferencesStore : IDisposable
         Dictionary<string, bool>? SessionEventVisibility,
         string? SessionEventVisibilityPreset,
         WindowsNotificationPreferences? NotificationPreferences,
+        PersistedWindowsNotificationRulePreferences? NotificationRules,
         WindowsTopologyPreferences? Topology,
         WindowsDiagnosticsPreferences? Diagnostics,
         PersistedWindowsPolicyPreferences? Policy)
@@ -340,6 +343,7 @@ public sealed class AppPreferencesStore : IDisposable
                     StringComparer.Ordinal),
                 preferences.SessionEventVisibility.Preset.ToString(),
                 preferences.NotificationPreferences,
+                PersistedWindowsNotificationRulePreferences.From(preferences.NotificationRules),
                 preferences.Topology,
                 preferences.Diagnostics,
                 PersistedWindowsPolicyPreferences.From(preferences.Policy));
@@ -365,6 +369,7 @@ public sealed class AppPreferencesStore : IDisposable
                     this.SessionEventVisibility,
                     ParseSessionEventVisibilityPreset(this.SessionEventVisibilityPreset)),
                 this.NotificationPreferences ?? WindowsNotificationPreferences.Default,
+                this.NotificationRules?.ToPreferences() ?? WindowsNotificationRulePreferences.Default,
                 this.Topology ?? WindowsTopologyPreferences.Default,
                 NormalizeDiagnostics(this.Diagnostics),
                 this.Policy?.ToPolicyPreferences() ?? WindowsPolicyPreferences.Default);
@@ -412,6 +417,68 @@ public sealed class AppPreferencesStore : IDisposable
                     ? WindowsDiagnosticsPreferences.Default.ActivityRetentionCount
                     : diagnostics.ActivityRetentionCount,
             };
+        }
+    }
+
+    /// <summary>
+    /// JSON-safe representation that keeps notification rule enums and defaults backwards compatible.
+    /// </summary>
+    private sealed record PersistedWindowsNotificationRulePreferences(
+        int HistoryRetentionCount,
+        PersistedWindowsNotificationRule[]? Rules)
+    {
+        public static PersistedWindowsNotificationRulePreferences From(WindowsNotificationRulePreferences preferences)
+        {
+            return new PersistedWindowsNotificationRulePreferences(
+                preferences.HistoryRetentionCount,
+                preferences.Rules.Select(PersistedWindowsNotificationRule.From).ToArray());
+        }
+
+        public WindowsNotificationRulePreferences ToPreferences()
+        {
+            return WindowsNotificationRuleEvaluator.NormalizePreferences(new WindowsNotificationRulePreferences(
+                this.HistoryRetentionCount,
+                (this.Rules ?? [])
+                    .Select(static rule => rule.ToRule())
+                    .ToArray()));
+        }
+    }
+
+    /// <summary>
+    /// JSON-safe notification rule representation that stores enum values as readable strings.
+    /// </summary>
+    private sealed record PersistedWindowsNotificationRule(
+        string Id,
+        string? Kind,
+        string? Category,
+        string? Destination,
+        bool Enabled)
+    {
+        public static PersistedWindowsNotificationRule From(WindowsNotificationRule rule)
+        {
+            return new PersistedWindowsNotificationRule(
+                rule.Id,
+                rule.Kind.ToString(),
+                rule.Category,
+                rule.Destination,
+                rule.Enabled);
+        }
+
+        public WindowsNotificationRule ToRule()
+        {
+            return new WindowsNotificationRule(
+                this.Id,
+                ParseNotificationKind(this.Kind),
+                this.Category ?? WindowsNotificationCategories.General,
+                this.Destination ?? WindowsNavigationDestination.Home,
+                this.Enabled);
+        }
+
+        private static WindowsNotificationKind ParseNotificationKind(string? value)
+        {
+            return Enum.TryParse<WindowsNotificationKind>(value, ignoreCase: true, out var kind)
+                ? kind
+                : WindowsNotificationKind.Unknown;
         }
     }
 

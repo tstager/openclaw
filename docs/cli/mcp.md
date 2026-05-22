@@ -3,22 +3,124 @@ summary: "Expose OpenClaw channel conversations over MCP and manage saved MCP se
 read_when:
   - Connecting Codex, Claude Code, or another MCP client to OpenClaw-backed channels
   - Running `openclaw mcp serve`
+  - Running `openclaw mcp serve-http`
   - Managing OpenClaw-saved MCP server definitions
 title: "MCP"
 sidebarTitle: "MCP"
 ---
 
-`openclaw mcp` has two jobs:
+`openclaw mcp` has three jobs:
 
+- run a local loopback MCP HTTP server with `openclaw mcp serve-http`
 - run OpenClaw as an MCP server with `openclaw mcp serve`
 - manage OpenClaw-owned outbound MCP server definitions with `list`, `show`, `set`, and `unset`
 
 In other words:
 
+- `serve-http` is OpenClaw exposing the existing local loopback MCP HTTP runtime for user-facing local clients
 - `serve` is OpenClaw acting as an MCP server
 - `list` / `show` / `set` / `unset` is OpenClaw acting as an MCP client-side registry for other MCP servers its runtimes may consume later
 
 Use [`openclaw acp`](/cli/acp) when OpenClaw should host a coding harness session itself and route that runtime through ACP.
+
+## OpenClaw as a local MCP HTTP server
+
+This is the `openclaw mcp serve-http` path.
+
+Use `serve-http` when a local MCP client should connect to OpenClaw over HTTP on the same machine instead of spawning a stdio bridge process. This command exposes the existing core loopback MCP server on `127.0.0.1` and keeps it alive until you stop the CLI.
+
+Recommended behavior:
+
+- bind only to loopback
+- print the local URL and bearer token on startup
+- default requests with no extra headers to OpenClaw's main session
+- reuse the same scoped loopback tool surface OpenClaw already uses for bundled local MCP runtimes
+
+### Start the server
+
+```bash
+openclaw mcp serve-http
+```
+
+Expected startup output:
+
+```text
+Local MCP HTTP server: http://127.0.0.1:23119/mcp
+Bearer token (OPENCLAW_MCP_TOKEN): <token>
+Treat this token like local shell access. Run openclaw mcp serve-http --json for a ready-to-paste client config.
+Press Ctrl+C to stop.
+```
+
+If your MCP client wants JSON instead of human-readable output, use:
+
+```bash
+openclaw mcp serve-http --json
+```
+
+That prints the connection details plus a ready-to-paste client config object that uses the same loopback server.
+
+### Minimal client config
+
+Most local MCP clients only need the loopback URL and bearer token:
+
+```json
+{
+  "mcpServers": {
+    "openclaw": {
+      "type": "http",
+      "url": "http://127.0.0.1:23119/mcp",
+      "headers": {
+        "Authorization": "Bearer ${OPENCLAW_MCP_TOKEN}"
+      }
+    }
+  }
+}
+```
+
+Set `OPENCLAW_MCP_TOKEN` in the same shell where you launch the MCP client.
+
+### Optional request-scoping headers
+
+The loopback server can scope tools to a specific OpenClaw session or route when the client sends these optional headers:
+
+- `x-session-key`
+- `x-openclaw-account-id`
+- `x-openclaw-message-channel`
+- `x-openclaw-inbound-event-kind`
+
+If you omit them, OpenClaw uses the main session key and the generic loopback scope. The startup `config` JSON intentionally leaves these headers out so copied client configs stay safe-by-default; add only the headers your client actually needs.
+
+### serve-http options
+
+`openclaw mcp serve-http` supports:
+
+<ParamField path="--port" type="number">
+  Bind a specific loopback TCP port. When omitted, OpenClaw picks a free local port.
+</ParamField>
+<ParamField path="--json" type="boolean">
+  Print machine-readable startup details before waiting for shutdown.
+</ParamField>
+
+### serve-http security and trust boundary
+
+- `serve-http` only listens on `127.0.0.1`
+- the startup token is equivalent to local access to this loopback MCP surface
+- browser requests still go through the loopback origin gate before bearer auth
+- the token is printed once on startup, so avoid shared terminals or shell history capture when that would expose local secrets
+
+### serve-http troubleshooting
+
+<AccordionGroup>
+  <Accordion title="The client cannot connect">
+    Confirm that `openclaw mcp serve-http` is still running and that the client is using the exact `http://127.0.0.1:<port>/mcp` URL from startup output.
+  </Accordion>
+  <Accordion title="The client gets 401 unauthorized">
+    The bearer token is missing or wrong. Export the exact startup token into `OPENCLAW_MCP_TOKEN` or copy it into the client's Authorization header.
+  </Accordion>
+  <Accordion title="The client is operating on the wrong session">
+    Add `x-session-key` with the exact OpenClaw session key the client should target. Without it, the loopback server uses the main session.
+  </Accordion>
+</AccordionGroup>
 
 ## OpenClaw as an MCP server
 

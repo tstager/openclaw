@@ -1,0 +1,360 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <data name="Shell.AppTitle" xml:space="preserve">
+    <value>OpenClaw</value>
+  </data>
+  <data name="Shell.Navigation.PaneTitle" xml:space="preserve">
+    <value>OpenClaw</value>
+  </data>
+  <data name="Shell.Navigation.Home" xml:space="preserve">
+    <value>Home</value>
+  </data>
+  <data name="Shell.Navigation.Chat" xml:space="preserve">
+    <value>Chat</value>
+  </data>
+  <data name="Shell.Navigation.Canvas" xml:space="preserve">
+    <value>Canvas</value>
+  </data>
+  <data name="Shell.Navigation.Sessions" xml:space="preserve">
+    <value>Sessions</value>
+  </data>
+  <data name="Shell.Navigation.Approvals" xml:space="preserve">
+    <value>Approvals</value>
+  </data>
+  <data name="Shell.Navigation.Pairing" xml:space="preserve">
+    <value>Pairing</value>
+  </data>
+  <data name="Shell.Navigation.Devices" xml:space="preserve">
+    <value>Devices</value>
+  </data>
+  <data name="Shell.Navigation.Logs" xml:space="preserve">
+    <value>Logs</value>
+  </data>
+  <data name="Shell.Navigation.Settings" xml:space="preserve">
+    <value>Settings</value>
+  </data>
+  <data name="Shell.Chat.ConversationTitle" xml:space="preserve">
+    <value>Conversation</value>
+  </data>
+  <data name="Shell.Chat.EmptyState" xml:space="preserve">
+    <value>No messages in this session yet.</value>
+  </data>
+  <data name="Shell.Chat.Input.Placeholder" xml:space="preserve">
+    <value>Message the active OpenClaw session</value>
+  </data>
+  <data name="Shell.Chat.Input.AutomationName" xml:space="preserve">
+    <value>Message the active OpenClaw session</value>
+  </data>
+  <data name="Shell.Chat.RefreshButtonLabel" xml:space="preserve">
+    <value>Refresh</value>
+  </data>
+  <data name="Shell.Chat.RefreshButtonAutomationName" xml:space="preserve">
+    <value>Refresh session messages</value>
+  </data>
+  <data name="Shell.Chat.SendHint" xml:space="preserve">
+    <value>Ctrl+Enter to send</value>
+  </data>
+  <data name="Shell.Home.GuidedActions.Title" xml:space="preserve">
+    <value>Guided next steps</value>
+  </data>
+  <data name="Shell.Home.GuidedActions.InstallGateway.Title" xml:space="preserve">
+    <value>Install the gateway</value>
+  </data>
+  <data name="Shell.Home.GuidedActions.InstallGateway.Detail" xml:space="preserve">
+    <value>The local gateway service is not installed yet. Install it before pairing or browser routing.</value>
+  </data>
+  <data name="Shell.Home.GuidedActions.StartGateway.Title" xml:space="preserve">
+    <value>Start the gateway</value>
+  </data>
+  <data name="Shell.Home.GuidedActions.StartGateway.Detail" xml:space="preserve">
+    <value>The gateway service is installed but not reachable from the Windows companion.</value>
+  </data>
+  <data name="Shell.Home.GuidedActions.StartTunnel.Title" xml:space="preserve">
+    <value>Start the SSH tunnel</value>
+  </data>
+  <data name="Shell.Home.GuidedActions.StartTunnel.Detail" xml:space="preserve">
+    <value>Saved topology settings expect a local tunnel, but the forwarded listener is not running yet.</value>
+  </data>
+  <data name="Shell.Home.GuidedActions.ConnectGateway.Title" xml:space="preserve">
+    <value>Connect realtime</value>
+  </data>
+  <data name="Shell.Home.GuidedActions.ConnectGateway.Detail" xml:space="preserve">
+    <value>The gateway is reachable. Connect the realtime channel to unlock chat, approvals, and pairing updates.</value>
+  </data>
+  <data name="Shell.Home.GuidedActions.BrowserProxy.Title" xml:space="preserve">
+    <value>Review browser proxy routing</value>
+  </data>
+  <data name="Shell.Home.GuidedActions.SystemSpeech.Title" xml:space="preserve">
+    <value>Check Windows speech voices</value>
+  </data>
+  <data name="Shell.Home.GuidedActions.SystemSpeech.Detail" xml:space="preserve">
+    <value>Install a Windows voice package so the companion can save local speech clips.</value>
+  </data>
+  <data name="Shell.Home.GuidedActions.Failures.Title" xml:space="preserve">
+    <value>Review onboarding failures</value>
+  </data>
+  <data name="Shell.Home.GuidedActions.Failures.Detail" xml:space="preserve">
+    <value>{0} prerequisite check(s) failed. Review diagnostics and local setup details.</value>
+  </data>
+  <data name="Shell.Home.GuidedActions.ValidateFeatures.Title" xml:space="preserve">
+    <value>Review runtime features</value>
+  </data>
+  <data name="Shell.Home.GuidedActions.ValidateFeatures.Detail" xml:space="preserve">
+    <value>Gateway, realtime, and core capabilities look ready. Validate devices, notifications, and speech output.</value>
+  </data>
+  <data name="Shell.Home.GuidedActions.SupportSnapshot.Title" xml:space="preserve">
+    <value>Capture a support snapshot</value>
+  </data>
+  <data name="Shell.Home.GuidedActions.SupportSnapshot.Detail" xml:space="preserve">
+    <value>Copy or save an operational support summary after major setup changes.</value>
+  </data>
+  <data name="Shell.Home.GuidedActions.Summary.Failures" xml:space="preserve">
+    <value>{0} prerequisite check(s) failed. Complete the next guided step before continuing.</value>
+  </data>
+  <data name="Shell.Home.GuidedActions.Summary.ConnectRealtime" xml:space="preserve">
+    <value>The local gateway is ready. Connect realtime next to unlock live operator workflows.</value>
+  </data>
+  <data name="Shell.Home.GuidedActions.Summary.Warnings" xml:space="preserve">
+    <value>{0} setup warning(s) remain. Follow the next recommended action to tighten runtime readiness.</value>
+  </data>
+  <data name="Shell.Home.GuidedActions.Summary.Healthy" xml:space="preserve">
+    <value>Windows companion runtime checks look healthy. Use the actions below to validate feature depth.</value>
+  </data>
+  <data name="Shell.Home.GuidedActions.Summary.Default" xml:space="preserve">
+    <value>Use the next guided action to finish Windows companion setup.</value>
+  </data>
+  <data name="Shell.Devices.ScreenRecording.Duration.AutomationName" xml:space="preserve">
+    <value>Screen recording duration in seconds</value>
+  </data>
+  <data name="Shell.Devices.ScreenRecording.Fps.AutomationName" xml:space="preserve">
+    <value>Screen recording frames per second</value>
+  </data>
+  <data name="Shell.Devices.ScreenRecording.CancelButton" xml:space="preserve">
+    <value>Cancel</value>
+  </data>
+  <data name="Shell.Devices.ScreenRecording.StartButton" xml:space="preserve">
+    <value>Record</value>
+  </data>
+  <data name="Shell.Devices.ScreenRecording.StartAutomationName" xml:space="preserve">
+    <value>Start bounded screen recording</value>
+  </data>
+  <data name="Shell.Devices.ScreenRecording.OpenFolderButton" xml:space="preserve">
+    <value>Open captures</value>
+  </data>
+  <data name="Shell.Devices.ScreenRecording.OpenFolderAutomationName" xml:space="preserve">
+    <value>Open capture output folder</value>
+  </data>
+  <data name="Shell.Devices.ScreenRecording.DurationLabel" xml:space="preserve">
+    <value>Duration (seconds)</value>
+  </data>
+  <data name="Shell.Devices.ScreenRecording.DurationDetail" xml:space="preserve">
+    <value>Values are bounded to short captures so the WinUI shell stays responsive.</value>
+  </data>
+  <data name="Shell.Devices.ScreenRecording.FpsLabel" xml:space="preserve">
+    <value>Frames per second</value>
+  </data>
+  <data name="Shell.Devices.ScreenRecording.FpsDetail" xml:space="preserve">
+    <value>Higher frame rates are clamped to the Windows companion recording limit.</value>
+  </data>
+  <data name="Shell.Devices.ScreenRecording.Started" xml:space="preserve">
+    <value>Recording screen capture sequence...</value>
+  </data>
+  <data name="Shell.Devices.ScreenRecording.Cancelling" xml:space="preserve">
+    <value>Cancelling screen recording...</value>
+  </data>
+  <data name="Shell.Devices.ScreenRecording.Cancelled" xml:space="preserve">
+    <value>Screen recording cancelled.</value>
+  </data>
+  <data name="Shell.Devices.BrowserProxy.SettingsButton" xml:space="preserve">
+    <value>Open settings</value>
+  </data>
+  <data name="Shell.Devices.BrowserProxy.SettingsAutomationName" xml:space="preserve">
+    <value>Open browser proxy settings</value>
+  </data>
+  <data name="Shell.Devices.BrowserProxy.DashboardButton" xml:space="preserve">
+    <value>Open dashboard</value>
+  </data>
+  <data name="Shell.Devices.BrowserProxy.DashboardAutomationName" xml:space="preserve">
+    <value>Open gateway dashboard</value>
+  </data>
+  <data name="Shell.Devices.BrowserProxy.StateLabel" xml:space="preserve">
+    <value>Readiness</value>
+  </data>
+  <data name="Shell.Devices.BrowserProxy.GatewayLabel" xml:space="preserve">
+    <value>Gateway origin</value>
+  </data>
+  <data name="Shell.Devices.BrowserProxy.PolicyLabel" xml:space="preserve">
+    <value>Unsafe URL policy</value>
+  </data>
+  <data name="Shell.Devices.BrowserProxy.NoDashboard" xml:space="preserve">
+    <value>Gateway dashboard is not available yet.</value>
+  </data>
+  <data name="Shell.Devices.BrowserProxy.OpenedDashboard" xml:space="preserve">
+    <value>Opened {0}.</value>
+  </data>
+  <data name="Shell.Devices.SystemSpeech.Input.Placeholder" xml:space="preserve">
+    <value>Enter a short OpenClaw response to save as a Windows speech clip.</value>
+  </data>
+  <data name="Shell.Devices.SystemSpeech.Input.AutomationName" xml:space="preserve">
+    <value>Speech clip text</value>
+  </data>
+  <data name="Shell.Devices.SystemSpeech.Voice.AutomationName" xml:space="preserve">
+    <value>Windows speech voice</value>
+  </data>
+  <data name="Shell.Devices.SystemSpeech.SaveButton" xml:space="preserve">
+    <value>Save clip</value>
+  </data>
+  <data name="Shell.Devices.SystemSpeech.SaveAutomationName" xml:space="preserve">
+    <value>Save a Windows speech clip</value>
+  </data>
+  <data name="Shell.Devices.SystemSpeech.RevealButton" xml:space="preserve">
+    <value>Reveal clip</value>
+  </data>
+  <data name="Shell.Devices.SystemSpeech.RevealAutomationName" xml:space="preserve">
+    <value>Reveal the latest Windows speech clip</value>
+  </data>
+  <data name="Shell.Devices.SystemSpeech.StateLabel" xml:space="preserve">
+    <value>Provider</value>
+  </data>
+  <data name="Shell.Devices.SystemSpeech.DefaultVoiceLabel" xml:space="preserve">
+    <value>Default voice</value>
+  </data>
+  <data name="Shell.Devices.SystemSpeech.VoiceCountLabel" xml:space="preserve">
+    <value>Installed voices</value>
+  </data>
+  <data name="Shell.Devices.SystemSpeech.VoiceLabel" xml:space="preserve">
+    <value>Voice</value>
+  </data>
+  <data name="Shell.Devices.SystemSpeech.VoiceDetail" xml:space="preserve">
+    <value>Speech clips are written to local files. Pick a Windows voice or leave the default selected.</value>
+  </data>
+  <data name="Shell.Devices.SystemSpeech.TextLabel" xml:space="preserve">
+    <value>Speech text</value>
+  </data>
+  <data name="Shell.Devices.SystemSpeech.TextDetail" xml:space="preserve">
+    <value>Keep the clip short. The Windows companion saves the synthesized result instead of auto-playing it.</value>
+  </data>
+  <data name="Shell.Devices.SystemSpeech.EmptyText" xml:space="preserve">
+    <value>Enter speech text before saving a clip.</value>
+  </data>
+  <data name="Shell.Settings.NotificationRules.Retention.AutomationName" xml:space="preserve">
+    <value>Notification history retention count</value>
+  </data>
+  <data name="Shell.Settings.NotificationRules.Retention.Label" xml:space="preserve">
+    <value>Notification history retention</value>
+  </data>
+  <data name="Shell.Settings.NotificationRules.Retention.Detail" xml:space="preserve">
+    <value>Maximum number of persisted notification entries kept locally.</value>
+  </data>
+  <data name="Shell.Settings.NotificationRules.ResetButton" xml:space="preserve">
+    <value>Reset rules</value>
+  </data>
+  <data name="Shell.Settings.NotificationRules.Description" xml:space="preserve">
+    <value>Edit the stored category and deep-link destination used when companion notifications are saved.</value>
+  </data>
+  <data name="Shell.Settings.NotificationRules.EnabledLabel" xml:space="preserve">
+    <value>Enabled</value>
+  </data>
+  <data name="Shell.Settings.NotificationRules.Enabled.AutomationName" xml:space="preserve">
+    <value>Enable {0} notification rule</value>
+  </data>
+  <data name="Shell.Settings.NotificationRules.KindLabel" xml:space="preserve">
+    <value>Notification</value>
+  </data>
+  <data name="Shell.Settings.NotificationRules.CategoryLabel" xml:space="preserve">
+    <value>Category</value>
+  </data>
+  <data name="Shell.Settings.NotificationRules.CategoryDetail" xml:space="preserve">
+    <value>Stored label used when the notification is copied into history.</value>
+  </data>
+  <data name="Shell.Settings.NotificationRules.DestinationLabel" xml:space="preserve">
+    <value>Destination</value>
+  </data>
+  <data name="Shell.Settings.NotificationRules.DestinationDetail" xml:space="preserve">
+    <value>Page opened when the notification is selected from history or the tray.</value>
+  </data>
+  <data name="Shell.Settings.NotificationRules.Destination.AutomationName" xml:space="preserve">
+    <value>Notification destination</value>
+  </data>
+  <data name="Shell.Settings.NotificationRules.Kind.Approval" xml:space="preserve">
+    <value>Approval</value>
+  </data>
+  <data name="Shell.Settings.NotificationRules.Kind.Pairing" xml:space="preserve">
+    <value>Pairing</value>
+  </data>
+  <data name="Shell.Settings.NotificationRules.Kind.GatewayHealth" xml:space="preserve">
+    <value>Gateway health</value>
+  </data>
+  <data name="Shell.Settings.NotificationRules.Kind.DevicePermission" xml:space="preserve">
+    <value>Device permission</value>
+  </data>
+  <data name="Shell.Settings.NotificationRules.Kind.General" xml:space="preserve">
+    <value>General</value>
+  </data>
+  <data name="Shell.Settings.RuntimeFeatures.Title" xml:space="preserve">
+    <value>Runtime feature storage</value>
+  </data>
+  <data name="Shell.Settings.RuntimeFeatures.Captures" xml:space="preserve">
+    <value>Captures</value>
+  </data>
+  <data name="Shell.Settings.RuntimeFeatures.Speech" xml:space="preserve">
+    <value>Speech clips</value>
+  </data>
+  <data name="Shell.Settings.RuntimeFeatures.BrowserProxy" xml:space="preserve">
+    <value>Browser proxy</value>
+  </data>
+  <data name="Shell.Logs.Activity.Title" xml:space="preserve">
+    <value>Recent activity history</value>
+  </data>
+  <data name="Shell.Logs.Activity.CopyButton" xml:space="preserve">
+    <value>Copy activity</value>
+  </data>
+  <data name="Shell.Logs.Activity.ClearButton" xml:space="preserve">
+    <value>Clear activity</value>
+  </data>
+  <data name="Shell.Logs.Activity.EmptyValue" xml:space="preserve">
+    <value>No activity recorded yet.</value>
+  </data>
+  <data name="Shell.Logs.Notifications.Title" xml:space="preserve">
+    <value>Notification history</value>
+  </data>
+  <data name="Shell.Logs.Notifications.CopyButton" xml:space="preserve">
+    <value>Copy notifications</value>
+  </data>
+  <data name="Shell.Logs.Notifications.ClearButton" xml:space="preserve">
+    <value>Clear notifications</value>
+  </data>
+  <data name="Shell.Logs.Notifications.EmptyLabel" xml:space="preserve">
+    <value>Latest</value>
+  </data>
+  <data name="Shell.Logs.Notifications.EmptyValue" xml:space="preserve">
+    <value>No notification history saved yet.</value>
+  </data>
+  <data name="Shell.Logs.Support.Title" xml:space="preserve">
+    <value>Support summary</value>
+  </data>
+  <data name="Shell.Logs.Support.CopyButton" xml:space="preserve">
+    <value>Copy support summary</value>
+  </data>
+  <data name="Shell.Logs.Support.SaveButton" xml:space="preserve">
+    <value>Save support artifact</value>
+  </data>
+  <data name="Shell.Logs.Support.SnapshotCounts" xml:space="preserve">
+    <value>{0} activity item(s), {1} notification item(s), {2} rule(s).</value>
+  </data>
+  <data name="Shell.Logs.Support.ArtifactSaved" xml:space="preserve">
+    <value>Saved support artifact to {0}.</value>
+  </data>
+</root>

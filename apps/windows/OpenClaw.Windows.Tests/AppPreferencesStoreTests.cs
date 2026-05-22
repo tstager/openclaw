@@ -27,6 +27,23 @@ public sealed class AppPreferencesStoreTests
                 PairingAlerts: true,
                 GatewayHealthAlerts: false,
                 DevicePermissionAlerts: true),
+            NotificationRules = new WindowsNotificationRulePreferences(
+                HistoryRetentionCount: 150,
+                Rules:
+                [
+                    new WindowsNotificationRule(
+                        "approval-triage",
+                        WindowsNotificationKind.Approval,
+                        "triage",
+                        WindowsNavigationDestination.Approvals,
+                        true),
+                    new WindowsNotificationRule(
+                        "gateway-status",
+                        WindowsNotificationKind.GatewayHealth,
+                        WindowsNotificationCategories.Gateway,
+                        WindowsNavigationDestination.Logs,
+                        false),
+                ]),
             Topology = new WindowsTopologyPreferences(
                 AutoStartTunnel: true,
                 SshHost: "trent@example.com",
@@ -62,6 +79,10 @@ public sealed class AppPreferencesStoreTests
         Assert.AreEqual(expected.VoiceControlsEnabled, actual.VoiceControlsEnabled);
         Assert.AreEqual(expected.GlobalHotkeyEnabled, actual.GlobalHotkeyEnabled);
         Assert.AreEqual(expected.NotificationPreferences, actual.NotificationPreferences);
+        Assert.AreEqual(expected.NotificationRules.HistoryRetentionCount, actual.NotificationRules.HistoryRetentionCount);
+        Assert.HasCount(2, actual.NotificationRules.Rules);
+        Assert.AreEqual(expected.NotificationRules.Rules[0], actual.NotificationRules.Rules[0]);
+        Assert.AreEqual(expected.NotificationRules.Rules[1], actual.NotificationRules.Rules[1]);
         Assert.AreEqual(expected.Topology, actual.Topology);
         Assert.AreEqual(expected.Diagnostics, actual.Diagnostics);
         CollectionAssert.AreEqual(
@@ -336,10 +357,62 @@ public sealed class AppPreferencesStoreTests
 
         Assert.AreEqual(WindowsTopologyPreferences.Default, actual.Topology);
         Assert.AreEqual(WindowsDiagnosticsPreferences.Default, actual.Diagnostics);
+        Assert.AreEqual(
+            WindowsNotificationRulePreferences.Default.HistoryRetentionCount,
+            actual.NotificationRules.HistoryRetentionCount);
+        CollectionAssert.AreEqual(
+            WindowsNotificationRulePreferences.Default.Rules.ToArray(),
+            actual.NotificationRules.Rules.ToArray());
         Assert.AreEqual(WindowsPolicyPreferences.Default.ApprovalPolicy, actual.Policy.ApprovalPolicy);
         Assert.IsTrue(actual.Policy.BlockUnsafeUrls);
         Assert.IsTrue(actual.Policy.RedactSensitiveContent);
         Assert.IsEmpty(actual.Policy.RememberedAllowedCommands);
+    }
+
+    [TestMethod]
+    public async Task InvalidNotificationRulesNormalizeToSupportedDefaults()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName(), "preferences.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        await File.WriteAllTextAsync(
+            path,
+            """
+            {
+              "openMainWindowOnLaunch": true,
+              "gatewayUrl": "ws://127.0.0.1:18789",
+              "chatSessionKey": "main",
+              "voiceControlsEnabled": false,
+              "globalHotkeyEnabled": false,
+              "notificationRules": {
+                "historyRetentionCount": 0,
+                "rules": [
+                  {
+                    "id": " approval ",
+                    "kind": "Approval",
+                    "category": " Operator ",
+                    "destination": " approvals ",
+                    "enabled": true
+                  },
+                  {
+                    "id": "approval",
+                    "kind": "Nope",
+                    "category": "",
+                    "destination": "",
+                    "enabled": false
+                  }
+                ]
+              }
+            }
+            """);
+        var store = new AppPreferencesStore(path);
+
+        var actual = await store.LoadAsync();
+
+        Assert.AreEqual(WindowsNotificationRulePreferences.Default.HistoryRetentionCount, actual.NotificationRules.HistoryRetentionCount);
+        Assert.HasCount(1, actual.NotificationRules.Rules);
+        Assert.AreEqual("approval", actual.NotificationRules.Rules[0].Id);
+        Assert.AreEqual(WindowsNotificationCategories.Operator, actual.NotificationRules.Rules[0].Category);
+        Assert.AreEqual(WindowsNavigationDestination.Approvals, actual.NotificationRules.Rules[0].Destination);
     }
 
 }

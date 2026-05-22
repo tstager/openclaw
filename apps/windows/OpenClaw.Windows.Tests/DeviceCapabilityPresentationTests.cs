@@ -42,4 +42,15 @@ public sealed class DeviceCapabilityPresentationTests
         Assert.AreEqual("Refresh devices to check notifications support.", presentation.Detail);
         Assert.AreEqual("Confirm the tray host is running and Windows notifications are enabled.", presentation.RepairGuidance);
     }
+
+    [TestMethod]
+    public void BrowserProxyCapabilityShowsGatewayRepairGuidance()
+    {
+        var presentation = DeviceCapabilityPresentation.Create(
+            "Browser proxy",
+            [new WindowsDevicePermissionStatus("Browser proxy", "Requires gateway", "Browser proxy routing depends on a reachable gateway/browser host.")]);
+
+        Assert.AreEqual("Requires gateway", presentation.State);
+        Assert.AreEqual("Start the gateway, keep browser routing enabled, and leave unsafe URL blocking turned on.", presentation.RepairGuidance);
+    }
 }
