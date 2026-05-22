@@ -58,16 +58,26 @@ public sealed class WindowsCompanionCoordinatorTests
     {
         var store = new AppPreferencesStore(Path.Combine(Path.GetTempPath(), Path.GetRandomFileName(), "preferences.json"));
         var gateway = new GatewayCompanionController(runner, store);
-        var state = new WindowsCompanionState(
-            Summary: AppBootstrap.CreateStartupSummary(),
-            Gateway: gateway,
-            Realtime: new GatewayRealtimeClient(store),
-            CanvasNode: new WindowsCanvasNodeClient(store, new DeviceIdentityStore(new InMemoryAppCredentialStore())),
-            DeviceCapabilities: new WindowsDeviceCapabilityService(),
-            OnboardingChecks: new OnboardingCheckService(runner, store),
-            Preferences: store,
-            Navigation: new WindowsNavigationService(),
-            Notifications: new WindowsNotificationActivityLog());
+        var root = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
+        var state = new WindowsCompanionState
+        {
+            Summary = AppBootstrap.CreateStartupSummary(),
+            Gateway = gateway,
+            Realtime = new GatewayRealtimeClient(store),
+            CanvasNode = new WindowsCanvasNodeClient(store, new DeviceIdentityStore(new InMemoryAppCredentialStore())),
+            DeviceCapabilities = new WindowsDeviceCapabilityService(),
+            OnboardingChecks = new OnboardingCheckService(runner, store),
+            Preferences = store,
+            Navigation = new WindowsNavigationService(),
+            Notifications = new WindowsNotificationActivityLog(),
+            Activation = new WindowsActivationRelay("test-activation"),
+            Tunnel = new WindowsSshTunnelService(),
+            Topology = new WindowsPortTopologyService(),
+            Diagnostics = new WindowsStructuredDiagnosticsWriter(Path.Combine(root, "diagnostics.jsonl")),
+            ActivityHistory = new WindowsActivityHistoryStore(Path.Combine(root, "activity-history.json")),
+            UrlRisk = new WindowsUrlRiskEvaluator(),
+            SecretRedactor = new WindowsSecretRedactor(),
+        };
         return new WindowsCompanionCoordinator(state);
     }
 }

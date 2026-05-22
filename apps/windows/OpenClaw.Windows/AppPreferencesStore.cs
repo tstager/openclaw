@@ -40,6 +40,64 @@ public enum WindowsColorThemePreference
 }
 
 /// <summary>
+/// User-selected default behavior for command approval prompts.
+/// </summary>
+public enum WindowsApprovalPolicyPreference
+{
+    AskEveryTime,
+    AllowSafeCommands,
+    DenyRiskyCommands,
+}
+
+/// <summary>
+/// Persisted SSH tunnel and endpoint topology settings.
+/// </summary>
+public sealed record WindowsTopologyPreferences(
+    bool AutoStartTunnel,
+    string SshHost,
+    string RemoteHost,
+    int LocalPort,
+    int RemotePort)
+{
+    public static WindowsTopologyPreferences Default { get; } = new(
+        AutoStartTunnel: false,
+        SshHost: "",
+        RemoteHost: "127.0.0.1",
+        LocalPort: 18789,
+        RemotePort: 18789);
+}
+
+/// <summary>
+/// Persisted diagnostics and local history retention settings.
+/// </summary>
+public sealed record WindowsDiagnosticsPreferences(
+    bool StructuredDiagnosticsEnabled,
+    string StructuredDiagnosticsPath,
+    int ActivityRetentionCount)
+{
+    public static WindowsDiagnosticsPreferences Default { get; } = new(
+        StructuredDiagnosticsEnabled: true,
+        StructuredDiagnosticsPath: "",
+        ActivityRetentionCount: 200);
+}
+
+/// <summary>
+/// Persisted local execution and URL-safety policy settings.
+/// </summary>
+public sealed record WindowsPolicyPreferences(
+    WindowsApprovalPolicyPreference ApprovalPolicy,
+    bool BlockUnsafeUrls,
+    bool RedactSensitiveContent,
+    IReadOnlyList<string> RememberedAllowedCommands)
+{
+    public static WindowsPolicyPreferences Default { get; } = new(
+        ApprovalPolicy: WindowsApprovalPolicyPreference.AskEveryTime,
+        BlockUnsafeUrls: true,
+        RedactSensitiveContent: true,
+        RememberedAllowedCommands: []);
+}
+
+/// <summary>
 /// Non-secret app settings persisted between Windows companion sessions.
 /// </summary>
 public sealed record AppPreferences(
@@ -57,7 +115,10 @@ public sealed record AppPreferences(
     string? LastStatus,
     DateTimeOffset? LastStatusCheckedAt,
     SessionEventVisibilityPreferences SessionEventVisibility,
-    WindowsNotificationPreferences NotificationPreferences)
+    WindowsNotificationPreferences NotificationPreferences,
+    WindowsTopologyPreferences Topology,
+    WindowsDiagnosticsPreferences Diagnostics,
+    WindowsPolicyPreferences Policy)
 {
     /// <summary>
     /// Defaults used for a fresh install and for missing/invalid persisted fields.
@@ -77,7 +138,10 @@ public sealed record AppPreferences(
         LastStatus: null,
         LastStatusCheckedAt: null,
         SessionEventVisibility: SessionEventVisibilityPreferences.Default,
-        NotificationPreferences: WindowsNotificationPreferences.Default);
+        NotificationPreferences: WindowsNotificationPreferences.Default,
+        Topology: WindowsTopologyPreferences.Default,
+        Diagnostics: WindowsDiagnosticsPreferences.Default,
+        Policy: WindowsPolicyPreferences.Default);
 }
 
 /// <summary>
@@ -251,7 +315,10 @@ public sealed class AppPreferencesStore : IDisposable
         DateTimeOffset? LastStatusCheckedAt,
         Dictionary<string, bool>? SessionEventVisibility,
         string? SessionEventVisibilityPreset,
-        WindowsNotificationPreferences? NotificationPreferences)
+        WindowsNotificationPreferences? NotificationPreferences,
+        WindowsTopologyPreferences? Topology,
+        WindowsDiagnosticsPreferences? Diagnostics,
+        PersistedWindowsPolicyPreferences? Policy)
     {
         public static PersistedAppPreferences From(AppPreferences preferences)
         {
@@ -272,7 +339,10 @@ public sealed class AppPreferencesStore : IDisposable
                     static entry => entry.Value,
                     StringComparer.Ordinal),
                 preferences.SessionEventVisibility.Preset.ToString(),
-                preferences.NotificationPreferences);
+                preferences.NotificationPreferences,
+                preferences.Topology,
+                preferences.Diagnostics,
+                PersistedWindowsPolicyPreferences.From(preferences.Policy));
         }
 
         public AppPreferences ToAppPreferences()
@@ -294,7 +364,10 @@ public sealed class AppPreferencesStore : IDisposable
                 SessionEventVisibilityPreferences.From(
                     this.SessionEventVisibility,
                     ParseSessionEventVisibilityPreset(this.SessionEventVisibilityPreset)),
-                this.NotificationPreferences ?? WindowsNotificationPreferences.Default);
+                this.NotificationPreferences ?? WindowsNotificationPreferences.Default,
+                this.Topology ?? WindowsTopologyPreferences.Default,
+                NormalizeDiagnostics(this.Diagnostics),
+                this.Policy?.ToPolicyPreferences() ?? WindowsPolicyPreferences.Default);
         }
 
         private static WindowsThemePreference ParseThemePreference(string? value)
@@ -323,6 +396,61 @@ public sealed class AppPreferencesStore : IDisposable
             return Enum.TryParse<SessionEventVisibilityPreset>(value, ignoreCase: true, out var preset)
                 ? preset
                 : AppPreferences.Default.SessionEventVisibility.Preset;
+        }
+
+        private static WindowsDiagnosticsPreferences NormalizeDiagnostics(WindowsDiagnosticsPreferences? diagnostics)
+        {
+            if (diagnostics is null)
+            {
+                return WindowsDiagnosticsPreferences.Default;
+            }
+
+            return diagnostics with
+            {
+                StructuredDiagnosticsPath = diagnostics.StructuredDiagnosticsPath?.Trim() ?? "",
+                ActivityRetentionCount = diagnostics.ActivityRetentionCount <= 0
+                    ? WindowsDiagnosticsPreferences.Default.ActivityRetentionCount
+                    : diagnostics.ActivityRetentionCount,
+            };
+        }
+    }
+
+    /// <summary>
+    /// JSON-safe representation that preserves backwards-compatible policy parsing.
+    /// </summary>
+    private sealed record PersistedWindowsPolicyPreferences(
+        string? ApprovalPolicy,
+        bool BlockUnsafeUrls,
+        bool RedactSensitiveContent,
+        string[]? RememberedAllowedCommands)
+    {
+        public static PersistedWindowsPolicyPreferences From(WindowsPolicyPreferences preferences)
+        {
+            return new PersistedWindowsPolicyPreferences(
+                preferences.ApprovalPolicy.ToString(),
+                preferences.BlockUnsafeUrls,
+                preferences.RedactSensitiveContent,
+                preferences.RememberedAllowedCommands.ToArray());
+        }
+
+        public WindowsPolicyPreferences ToPolicyPreferences()
+        {
+            return new WindowsPolicyPreferences(
+                ParseApprovalPolicyPreference(this.ApprovalPolicy),
+                this.BlockUnsafeUrls,
+                this.RedactSensitiveContent,
+                (this.RememberedAllowedCommands ?? [])
+                    .Where(static command => !string.IsNullOrWhiteSpace(command))
+                    .Select(static command => command.Trim())
+                    .Distinct(StringComparer.Ordinal)
+                    .ToArray());
+        }
+
+        private static WindowsApprovalPolicyPreference ParseApprovalPolicyPreference(string? value)
+        {
+            return Enum.TryParse<WindowsApprovalPolicyPreference>(value, ignoreCase: true, out var policy)
+                ? policy
+                : WindowsPolicyPreferences.Default.ApprovalPolicy;
         }
     }
 }
