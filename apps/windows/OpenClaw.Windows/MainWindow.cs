@@ -1481,6 +1481,27 @@ public sealed class MainWindow : Window
         return field;
     }
 
+    private static void DetachFromParent(UIElement element)
+    {
+        if (element is not FrameworkElement frameworkElement || frameworkElement.Parent is null)
+        {
+            return;
+        }
+
+        switch (frameworkElement.Parent)
+        {
+            case Panel panel:
+                panel.Children.Remove(element);
+                break;
+            case ContentControl contentControl when ReferenceEquals(contentControl.Content, element):
+                contentControl.Content = null;
+                break;
+            case Border border when ReferenceEquals(border.Child, element):
+                border.Child = null;
+                break;
+        }
+    }
+
     private static UIElement BuildReservedSettingsRow(string label, string state, string detail)
     {
         var row = new StackPanel { Spacing = 2 };
@@ -4334,6 +4355,10 @@ public sealed class MainWindow : Window
     private UIElement BuildScreenRecordingCard()
     {
         var presentation = DeviceCapabilityPresentation.Create("Screen recording", this.latestDevicePermissionStatuses, this.screenActionResult);
+        DetachFromParent(this.screenRecordingDurationInput);
+        DetachFromParent(this.screenRecordingFramesPerSecondInput);
+        DetachFromParent(this.screenRecordingPlanText);
+        DetachFromParent(this.cancelScreenRecordingButton);
         this.UpdateScreenRecordingPlanPreview();
         var actions = new StackPanel { Orientation = XamlOrientation.Horizontal, Spacing = 8 };
         actions.Children.Add(this.cancelScreenRecordingButton);
@@ -4411,6 +4436,8 @@ public sealed class MainWindow : Window
     {
         var presentation = DeviceCapabilityPresentation.Create("System speech", this.latestDevicePermissionStatuses, this.textToSpeechActionResult);
         var status = this.appState.TextToSpeech.GetStatus();
+        DetachFromParent(this.textToSpeechVoiceInput);
+        DetachFromParent(this.textToSpeechInput);
         var actions = new StackPanel { Orientation = XamlOrientation.Horizontal, Spacing = 8 };
         actions.Children.Add(this.DeviceActionButton(
             this.S("Shell.Devices.SystemSpeech.SaveButton", "Save clip"),

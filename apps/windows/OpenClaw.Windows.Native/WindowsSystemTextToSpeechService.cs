@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Windows.Media.SpeechSynthesis;
 using Windows.Storage.Streams;
 
@@ -63,6 +64,7 @@ public interface IWindowsTextToSpeechRuntime
 /// </summary>
 public sealed class WindowsSystemTextToSpeechService
 {
+    private const int MissingWindowsSpeechComponentsHResult = unchecked((int)0x800F1000);
     private readonly IWindowsTextToSpeechRuntime runtime;
 
     public WindowsSystemTextToSpeechService(
@@ -80,7 +82,9 @@ public sealed class WindowsSystemTextToSpeechService
     /// </summary>
     public IReadOnlyList<WindowsTextToSpeechVoice> GetAvailableVoices()
     {
-        return this.runtime.GetInstalledVoices();
+        return this.TryGetAvailableVoices(out var voices, out _)
+            ? voices
+            : [];
     }
 
     /// <summary>
@@ -88,7 +92,15 @@ public sealed class WindowsSystemTextToSpeechService
     /// </summary>
     public WindowsTextToSpeechStatus GetStatus()
     {
-        var voices = this.GetAvailableVoices();
+        if (!this.TryGetAvailableVoices(out var voices, out var unavailableDetail))
+        {
+            return new WindowsTextToSpeechStatus(
+                "Unavailable",
+                unavailableDetail,
+                null,
+                0);
+        }
+
         var defaultVoice = voices.FirstOrDefault(voice => voice.IsDefault) ?? voices.FirstOrDefault();
         return voices.Count == 0
             ? new WindowsTextToSpeechStatus(
@@ -115,7 +127,16 @@ public sealed class WindowsSystemTextToSpeechService
             throw new ArgumentException("Speech text must not be empty.", nameof(request));
         }
 
-        var voices = this.GetAvailableVoices();
+        if (!this.TryGetAvailableVoices(out var voices, out var unavailableDetail))
+        {
+            return new WindowsTextToSpeechResult(
+                false,
+                null,
+                unavailableDetail,
+                "audio/wav",
+                null);
+        }
+
         if (voices.Count == 0)
         {
             return new WindowsTextToSpeechResult(
@@ -137,7 +158,21 @@ public sealed class WindowsSystemTextToSpeechService
                 null);
         }
 
-        var synthesis = await this.runtime.SynthesizeAsync(request.Text, selectedVoice.Id, cancellationToken);
+        WindowsTextToSpeechSynthesis synthesis;
+        try
+        {
+            synthesis = await this.runtime.SynthesizeAsync(request.Text, selectedVoice.Id, cancellationToken);
+        }
+        catch (COMException ex) when (IsMissingWindowsSpeechComponents(ex))
+        {
+            return new WindowsTextToSpeechResult(
+                false,
+                null,
+                MissingWindowsSpeechComponentsDetail,
+                "audio/wav",
+                selectedVoice);
+        }
+
         var extension = FileExtensionFor(synthesis.ContentType);
         Directory.CreateDirectory(this.OutputRoot);
         var path = WindowsDeviceCapabilityService.CreateCapturePath(this.OutputRoot, request.Prefix, extension);
@@ -178,6 +213,28 @@ public sealed class WindowsSystemTextToSpeechService
             _ => "wav",
         };
     }
+
+    private bool TryGetAvailableVoices(out IReadOnlyList<WindowsTextToSpeechVoice> voices, out string unavailableDetail)
+    {
+        try
+        {
+            voices = this.runtime.GetInstalledVoices();
+            unavailableDetail = string.Empty;
+            return true;
+        }
+        catch (COMException ex) when (IsMissingWindowsSpeechComponents(ex))
+        {
+            voices = [];
+            unavailableDetail = MissingWindowsSpeechComponentsDetail;
+            return false;
+        }
+    }
+
+    private static bool IsMissingWindowsSpeechComponents(COMException exception) =>
+        exception.HResult == MissingWindowsSpeechComponentsHResult;
+
+    private const string MissingWindowsSpeechComponentsDetail =
+        "Windows speech components are not installed on this device.";
 
     private sealed class WinRtWindowsTextToSpeechRuntime : IWindowsTextToSpeechRuntime
     {
