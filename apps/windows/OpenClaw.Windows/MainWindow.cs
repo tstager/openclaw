@@ -109,12 +109,12 @@ public sealed class MainWindow : Window
     private readonly StackPanel deviceCapabilityCards = new() { Spacing = 12 };
     private readonly StackPanel mediaDevicesList = new() { Spacing = 6 };
     private readonly TextBlock nativeActionsText = new();
-    private readonly XamlTextBox screenRecordingDurationInput = new();
-    private readonly XamlTextBox screenRecordingFramesPerSecondInput = new();
-    private readonly TextBlock screenRecordingPlanText = new();
-    private readonly XamlButton cancelScreenRecordingButton = new();
-    private readonly XamlTextBox textToSpeechInput = new() { AcceptsReturn = true, MinHeight = 88, TextWrapping = TextWrapping.Wrap };
-    private readonly XamlComboBox textToSpeechVoiceInput = new();
+    private XamlTextBox screenRecordingDurationInput = new();
+    private XamlTextBox screenRecordingFramesPerSecondInput = new();
+    private TextBlock screenRecordingPlanText = new();
+    private XamlButton cancelScreenRecordingButton = new();
+    private XamlTextBox textToSpeechInput = new() { AcceptsReturn = true, MinHeight = 88, TextWrapping = TextWrapping.Wrap };
+    private XamlComboBox textToSpeechVoiceInput = new();
     private readonly StackPanel logsDiagnosticsRows = new() { Spacing = 8 };
     private readonly StackPanel logsLocationCards = new() { Spacing = 12 };
     private readonly XamlTextBox rawLogsText = new();
@@ -1109,27 +1109,6 @@ public sealed class MainWindow : Window
     private UIElement BuildDevicesPanel()
     {
         var panel = new StackPanel { Spacing = 16 };
-        this.screenRecordingDurationInput.PlaceholderText = WindowsScreenRecordingOptions.Default.Duration.TotalSeconds.ToString(CultureInfo.InvariantCulture);
-        this.screenRecordingFramesPerSecondInput.PlaceholderText = WindowsScreenRecordingOptions.Default.FramesPerSecond.ToString(CultureInfo.InvariantCulture);
-        AutomationProperties.SetName(this.screenRecordingDurationInput, this.S("Shell.Devices.ScreenRecording.Duration.AutomationName", "Screen recording duration in seconds"));
-        AutomationProperties.SetName(this.screenRecordingFramesPerSecondInput, this.S("Shell.Devices.ScreenRecording.Fps.AutomationName", "Screen recording frames per second"));
-        this.screenRecordingPlanText.TextWrapping = TextWrapping.Wrap;
-        this.screenRecordingPlanText.Foreground = ResourceBrush("TextFillColorSecondaryBrush");
-        this.screenRecordingDurationInput.TextChanged -= this.OnScreenRecordingSettingsChanged;
-        this.screenRecordingFramesPerSecondInput.TextChanged -= this.OnScreenRecordingSettingsChanged;
-        this.screenRecordingDurationInput.TextChanged += this.OnScreenRecordingSettingsChanged;
-        this.screenRecordingFramesPerSecondInput.TextChanged += this.OnScreenRecordingSettingsChanged;
-        this.cancelScreenRecordingButton.Content = this.S("Shell.Devices.ScreenRecording.CancelButton", "Cancel");
-        this.cancelScreenRecordingButton.Command = this.CreateCommand(() =>
-        {
-            this.CancelScreenRecording();
-            return Task.CompletedTask;
-        });
-        this.textToSpeechInput.PlaceholderText = this.S(
-            "Shell.Devices.SystemSpeech.Input.Placeholder",
-            "Enter a short OpenClaw response to save as a Windows speech clip.");
-        AutomationProperties.SetName(this.textToSpeechInput, this.S("Shell.Devices.SystemSpeech.Input.AutomationName", "Speech clip text"));
-        AutomationProperties.SetName(this.textToSpeechVoiceInput, this.S("Shell.Devices.SystemSpeech.Voice.AutomationName", "Windows speech voice"));
         panel.Children.Add(new TextBlock
         {
             Text = "Windows capabilities",
@@ -1148,7 +1127,6 @@ public sealed class MainWindow : Window
         panel.Children.Add(this.deviceCapabilityCards);
         panel.Children.Add(this.mediaDevicesList);
         panel.Children.Add(this.nativeActionsText);
-        this.UpdateScreenRecordingPlanPreview();
         this.RenderDeviceCapabilityCards();
         return panel;
     }
@@ -1479,27 +1457,6 @@ public sealed class MainWindow : Window
         });
         field.Children.Add(input);
         return field;
-    }
-
-    private static void DetachFromParent(UIElement element)
-    {
-        if (element is not FrameworkElement frameworkElement || frameworkElement.Parent is null)
-        {
-            return;
-        }
-
-        switch (frameworkElement.Parent)
-        {
-            case Panel panel:
-                panel.Children.Remove(element);
-                break;
-            case ContentControl contentControl when ReferenceEquals(contentControl.Content, element):
-                contentControl.Content = null;
-                break;
-            case Border border when ReferenceEquals(border.Child, element):
-                border.Child = null;
-                break;
-        }
     }
 
     private static UIElement BuildReservedSettingsRow(string label, string state, string detail)
@@ -4355,10 +4312,7 @@ public sealed class MainWindow : Window
     private UIElement BuildScreenRecordingCard()
     {
         var presentation = DeviceCapabilityPresentation.Create("Screen recording", this.latestDevicePermissionStatuses, this.screenActionResult);
-        DetachFromParent(this.screenRecordingDurationInput);
-        DetachFromParent(this.screenRecordingFramesPerSecondInput);
-        DetachFromParent(this.screenRecordingPlanText);
-        DetachFromParent(this.cancelScreenRecordingButton);
+        this.RecreateScreenRecordingControls();
         this.UpdateScreenRecordingPlanPreview();
         var actions = new StackPanel { Orientation = XamlOrientation.Horizontal, Spacing = 8 };
         actions.Children.Add(this.cancelScreenRecordingButton);
@@ -4436,8 +4390,7 @@ public sealed class MainWindow : Window
     {
         var presentation = DeviceCapabilityPresentation.Create("System speech", this.latestDevicePermissionStatuses, this.textToSpeechActionResult);
         var status = this.appState.TextToSpeech.GetStatus();
-        DetachFromParent(this.textToSpeechVoiceInput);
-        DetachFromParent(this.textToSpeechInput);
+        this.RecreateTextToSpeechControls();
         var actions = new StackPanel { Orientation = XamlOrientation.Horizontal, Spacing = 8 };
         actions.Children.Add(this.DeviceActionButton(
             this.S("Shell.Devices.SystemSpeech.SaveButton", "Save clip"),
@@ -4564,9 +4517,75 @@ public sealed class MainWindow : Window
         };
     }
 
-    private void PopulateTextToSpeechVoices()
+    private void RecreateScreenRecordingControls()
     {
+        var durationText = this.screenRecordingDurationInput.Text;
+        var framesPerSecondText = this.screenRecordingFramesPerSecondInput.Text;
+
+        this.screenRecordingDurationInput.TextChanged -= this.OnScreenRecordingSettingsChanged;
+        this.screenRecordingFramesPerSecondInput.TextChanged -= this.OnScreenRecordingSettingsChanged;
+
+        this.screenRecordingDurationInput = new XamlTextBox
+        {
+            PlaceholderText = WindowsScreenRecordingOptions.Default.Duration.TotalSeconds.ToString(CultureInfo.InvariantCulture),
+            Text = durationText,
+        };
+        this.screenRecordingFramesPerSecondInput = new XamlTextBox
+        {
+            PlaceholderText = WindowsScreenRecordingOptions.Default.FramesPerSecond.ToString(CultureInfo.InvariantCulture),
+            Text = framesPerSecondText,
+        };
+        this.screenRecordingPlanText = new TextBlock
+        {
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = ResourceBrush("TextFillColorSecondaryBrush"),
+        };
+        this.cancelScreenRecordingButton = new XamlButton
+        {
+            Content = this.S("Shell.Devices.ScreenRecording.CancelButton", "Cancel"),
+            Command = this.CreateCommand(() =>
+            {
+                this.CancelScreenRecording();
+                return Task.CompletedTask;
+            }),
+        };
+
+        AutomationProperties.SetName(this.screenRecordingDurationInput, this.S("Shell.Devices.ScreenRecording.Duration.AutomationName", "Screen recording duration in seconds"));
+        AutomationProperties.SetName(this.screenRecordingFramesPerSecondInput, this.S("Shell.Devices.ScreenRecording.Fps.AutomationName", "Screen recording frames per second"));
+        AutomationProperties.SetName(this.cancelScreenRecordingButton, this.S("Shell.Devices.ScreenRecording.CancelAutomationName", "Cancel screen recording"));
+
+        this.screenRecordingDurationInput.TextChanged += this.OnScreenRecordingSettingsChanged;
+        this.screenRecordingFramesPerSecondInput.TextChanged += this.OnScreenRecordingSettingsChanged;
+    }
+
+    private void RecreateTextToSpeechControls()
+    {
+        var speechText = this.textToSpeechInput.Text;
         var selectedVoiceId = this.textToSpeechVoiceInput.SelectedItem is XamlComboBoxItem { Tag: string currentVoiceId }
+            ? currentVoiceId
+            : null;
+
+        this.textToSpeechInput = new XamlTextBox
+        {
+            AcceptsReturn = true,
+            MinHeight = 88,
+            TextWrapping = TextWrapping.Wrap,
+            PlaceholderText = this.S(
+                "Shell.Devices.SystemSpeech.Input.Placeholder",
+                "Enter a short OpenClaw response to save as a Windows speech clip."),
+            Text = speechText,
+        };
+        this.textToSpeechVoiceInput = new XamlComboBox();
+
+        AutomationProperties.SetName(this.textToSpeechInput, this.S("Shell.Devices.SystemSpeech.Input.AutomationName", "Speech clip text"));
+        AutomationProperties.SetName(this.textToSpeechVoiceInput, this.S("Shell.Devices.SystemSpeech.Voice.AutomationName", "Windows speech voice"));
+
+        this.PopulateTextToSpeechVoices(selectedVoiceId);
+    }
+
+    private void PopulateTextToSpeechVoices(string? selectedVoiceId = null)
+    {
+        selectedVoiceId ??= this.textToSpeechVoiceInput.SelectedItem is XamlComboBoxItem { Tag: string currentVoiceId }
             ? currentVoiceId
             : null;
         var voices = this.appState.TextToSpeech.GetAvailableVoices();
