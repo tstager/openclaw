@@ -1,0 +1,212 @@
+[
+  {
+    "createdAt": "2026-05-22T20:32:41.179896-05:00",
+    "category": "tunnel",
+    "title": "SSH tunnel updated",
+    "detail": "Tunnel not running.",
+    "destination": "settings"
+  },
+  {
+    "createdAt": "2026-05-22T20:32:24.8051651-05:00",
+    "category": "realtime",
+    "title": "Realtime Connected",
+    "detail": "Gateway realtime state changed to Connected.",
+    "destination": "home"
+  },
+  {
+    "createdAt": "2026-05-22T20:32:24.8036247-05:00",
+    "category": "gateway",
+    "title": "Realtime connected",
+    "detail": "Connected the Windows companion realtime channel.",
+    "destination": null
+  },
+  {
+    "createdAt": "2026-05-22T20:32:24.7367756-05:00",
+    "category": "event",
+    "title": "Gateway event connect.challenge",
+    "detail": "Received gateway event connect.challenge.",
+    "destination": "logs"
+  },
+  {
+    "createdAt": "2026-05-22T20:32:24.7344113-05:00",
+    "category": "realtime",
+    "title": "Realtime Connecting",
+    "detail": "Gateway realtime state changed to Connecting.",
+    "destination": "home"
+  },
+  {
+    "createdAt": "2026-05-22T20:32:24.7288371-05:00",
+    "category": "realtime",
+    "title": "Realtime Disconnected",
+    "detail": "Gateway realtime state changed to Disconnected.",
+    "destination": "home"
+  },
+  {
+    "createdAt": "2026-05-22T20:32:24.579665-05:00",
+    "category": "tunnel",
+    "title": "SSH tunnel updated",
+    "detail": "Tunnel not running.",
+    "destination": "settings"
+  },
+  {
+    "createdAt": "2026-05-22T20:32:18.9577385-05:00",
+    "category": "settings",
+    "title": "Settings saved",
+    "detail": "Updated Windows companion settings.",
+    "destination": null
+  },
+  {
+    "createdAt": "2026-05-22T20:31:23.4012343-05:00",
+    "category": "tunnel",
+    "title": "SSH tunnel updated",
+    "detail": "Tunnel not running.",
+    "destination": "settings"
+  },
+  {
+    "createdAt": "2026-05-22T20:03:34.3487773-05:00",
+    "category": "realtime",
+    "title": "Realtime Connected",
+    "detail": "Gateway realtime state changed to Connected.",
+    "destination": "home"
+  },
+  {
+    "createdAt": "2026-05-22T20:03:34.3381328-05:00",
+    "category": "gateway",
+    "title": "Realtime connected",
+    "detail": "Connected the Windows companion realtime channel.",
+    "destination": null
+  },
+  {
+    "createdAt": "2026-05-22T20:03:34.2870601-05:00",
+    "category": "event",
+    "title": "Gateway event connect.challenge",
+    "detail": "Received gateway event connect.challenge.",
+    "destination": "logs"
+  },
+  {
+    "createdAt": "2026-05-22T20:03:34.0012025-05:00",
+    "category": "realtime",
+    "title": "Realtime Connecting",
+    "detail": "Gateway realtime state changed to Connecting.",
+    "destination": "home"
+  },
+  {
+    "createdAt": "2026-05-22T20:03:33.9997889-05:00",
+    "category": "realtime",
+    "title": "Realtime Disconnected",
+    "detail": "Gateway realtime state changed to Disconnected.",
+    "destination": "home"
+  },
+  {
+    "createdAt": "2026-05-22T20:03:33.8889394-05:00",
+    "category": "tunnel",
+    "title": "SSH tunnel updated",
+    "detail": "Tunnel not running.",
+    "destination": "settings"
+  },
+  {
+    "createdAt": "2026-05-22T20:03:28.2700392-05:00",
+    "category": "settings",
+    "title": "Settings saved",
+    "detail": "Updated Windows companion settings.",
+    "destination": null
+  },
+  {
+    "createdAt": "2026-05-22T20:03:15.8621695-05:00",
+    "category": "tunnel",
+    "title": "SSH tunnel updated",
+    "detail": "Tunnel not running.",
+    "destination": "settings"
+  },
+  {
+    "createdAt": "2026-05-22T20:02:49.256221-05:00",
+    "category": "realtime",
+    "title": "Realtime Connected",
+    "detail": "Gateway realtime state changed to Connected.",
+    "destination": "home"
+  },
+  {
+    "createdAt": "2026-05-22T20:02:49.254872-05:00",
+    "category": "gateway",
+    "title": "Realtime connected",
+    "detail": "Connected the Windows companion realtime channel.",
+    "destination": null
+  },
+  {
+    "createdAt": "2026-05-22T20:02:49.1607397-05:00",
+    "category": "event",
+    "title": "Gateway event connect.challenge",
+    "detail": "Received gateway event connect.challenge.",
+    "destination": "logs"
+  },
+  {
+    "createdAt": "2026-05-22T20:02:48.9576552-05:00",
+    "category": "realtime",
+    "title": "Realtime Connecting",
+    "detail": "Gateway realtime state changed to Connecting.",
+    "destination": "home"
+  },
+  {
+    "createdAt": "2026-05-22T20:02:48.956227-05:00",
+    "category": "realtime",
+    "title": "Realtime Disconnected",
+    "detail": "Gateway realtime state changed to Disconnected.",
+    "destination": "home"
+  },
+  {
+    "createdAt": "2026-05-22T20:02:48.7700436-05:00",
+    "category": "tunnel",
+    "title": "SSH tunnel updated",
+    "detail": "Tunnel not running.",
+    "destination": "settings"
+  },
+  {
+    "createdAt": "2026-05-22T20:02:43.0996963-05:00",
+    "category": "settings",
+    "title": "Settings saved",
+    "detail": "Updated Windows companion settings.",
+    "destination": null
+  },
+  {
+    "createdAt": "2026-05-22T20:02:07.4558075-05:00",
+    "category": "tunnel",
+    "title": "SSH tunnel updated",
+    "detail": "Tunnel not running.",
+    "destination": "settings"
+  },
+  {
+    "createdAt": "2026-05-22T20:02:01.7039811-05:00",
+    "category": "settings",
+    "title": "Settings saved",
+    "detail": "Updated Windows companion settings.",
+    "destination": null
+  },
+  {
+    "createdAt": "2026-05-22T20:01:30.0182104-05:00",
+    "category": "tunnel",
+    "title": "SSH tunnel updated",
+    "detail": "Tunnel not running.",
+    "destination": "settings"
+  },
+  {
+    "createdAt": "2026-05-22T20:01:07.7462871-05:00",
+    "category": "tunnel",
+    "title": "SSH tunnel updated",
+    "detail": "Tunnel not running.",
+    "destination": "settings"
+  },
+  {
+    "createdAt": "2026-05-22T20:01:01.8765819-05:00",
+    "category": "settings",
+    "title": "Settings saved",
+    "detail": "Updated Windows companion settings.",
+    "destination": null
+  },
+  {
+    "createdAt": "2026-05-22T19:58:27.2131415-05:00",
+    "category": "tunnel",
+    "title": "SSH tunnel updated",
+    "detail": "Tunnel not running.",
+    "destination": "settings"
+  }
+]
