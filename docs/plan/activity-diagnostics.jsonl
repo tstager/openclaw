@@ -1,0 +1,30 @@
+{"createdAt":"2026-05-22T19:58:27.2188519-05:00","category":"tunnel","title":"SSH tunnel updated","detail":"Tunnel not running.","destination":"settings","raw":""}
+{"createdAt":"2026-05-22T20:01:01.8773851-05:00","category":"settings","title":"Settings saved","detail":"Updated Windows companion settings.","destination":null,"raw":""}
+{"createdAt":"2026-05-22T20:01:07.7554-05:00","category":"tunnel","title":"SSH tunnel updated","detail":"Tunnel not running.","destination":"settings","raw":""}
+{"createdAt":"2026-05-22T20:01:30.0191812-05:00","category":"tunnel","title":"SSH tunnel updated","detail":"Tunnel not running.","destination":"settings","raw":""}
+{"createdAt":"2026-05-22T20:02:01.7047546-05:00","category":"settings","title":"Settings saved","detail":"Updated Windows companion settings.","destination":null,"raw":""}
+{"createdAt":"2026-05-22T20:02:07.4566137-05:00","category":"tunnel","title":"SSH tunnel updated","detail":"Tunnel not running.","destination":"settings","raw":""}
+{"createdAt":"2026-05-22T20:02:43.1006207-05:00","category":"settings","title":"Settings saved","detail":"Updated Windows companion settings.","destination":null,"raw":""}
+{"createdAt":"2026-05-22T20:02:48.7708679-05:00","category":"tunnel","title":"SSH tunnel updated","detail":"Tunnel not running.","destination":"settings","raw":""}
+{"createdAt":"2026-05-22T20:02:48.9570785-05:00","category":"realtime","title":"Realtime Disconnected","detail":"Gateway realtime state changed to Disconnected.","destination":"home","raw":""}
+{"createdAt":"2026-05-22T20:02:48.9590861-05:00","category":"realtime","title":"Realtime Connecting","detail":"Gateway realtime state changed to Connecting.","destination":"home","raw":""}
+{"createdAt":"2026-05-22T20:02:49.1616115-05:00","category":"event","title":"Gateway event connect.challenge","detail":"Received gateway event connect.challenge.","destination":"logs","raw":"{\u0022nonce\u0022:\u0022efef5482-b3f3-449e-a9a8-1c2fcf60460a\u0022,\u0022ts\u0022:1779498169095}"}
+{"createdAt":"2026-05-22T20:02:49.2556908-05:00","category":"gateway","title":"Realtime connected","detail":"Connected the Windows companion realtime channel.","destination":null,"raw":""}
+{"createdAt":"2026-05-22T20:02:49.2582366-05:00","category":"realtime","title":"Realtime Connected","detail":"Gateway realtime state changed to Connected.","destination":"home","raw":""}
+{"createdAt":"2026-05-22T20:03:15.8684636-05:00","category":"tunnel","title":"SSH tunnel updated","detail":"Tunnel not running.","destination":"settings","raw":""}
+{"createdAt":"2026-05-22T20:03:28.2712051-05:00","category":"settings","title":"Settings saved","detail":"Updated Windows companion settings.","destination":null,"raw":""}
+{"createdAt":"2026-05-22T20:03:33.8901553-05:00","category":"tunnel","title":"SSH tunnel updated","detail":"Tunnel not running.","destination":"settings","raw":""}
+{"createdAt":"2026-05-22T20:03:34.0006339-05:00","category":"realtime","title":"Realtime Disconnected","detail":"Gateway realtime state changed to Disconnected.","destination":"home","raw":""}
+{"createdAt":"2026-05-22T20:03:34.0029563-05:00","category":"realtime","title":"Realtime Connecting","detail":"Gateway realtime state changed to Connecting.","destination":"home","raw":""}
+{"createdAt":"2026-05-22T20:03:34.2879122-05:00","category":"event","title":"Gateway event connect.challenge","detail":"Received gateway event connect.challenge.","destination":"logs","raw":"{\u0022nonce\u0022:\u0022e2915284-77f7-46dd-afdc-9e151100cf5d\u0022,\u0022ts\u0022:1779498214235}"}
+{"createdAt":"2026-05-22T20:03:34.349636-05:00","category":"gateway","title":"Realtime connected","detail":"Connected the Windows companion realtime channel.","destination":null,"raw":""}
+{"createdAt":"2026-05-22T20:03:34.3502061-05:00","category":"realtime","title":"Realtime Connected","detail":"Gateway realtime state changed to Connected.","destination":"home","raw":""}
+{"createdAt":"2026-05-22T20:31:23.4068415-05:00","category":"tunnel","title":"SSH tunnel updated","detail":"Tunnel not running.","destination":"settings","raw":""}
+{"createdAt":"2026-05-22T20:32:18.9589474-05:00","category":"settings","title":"Settings saved","detail":"Updated Windows companion settings.","destination":null,"raw":""}
+{"createdAt":"2026-05-22T20:32:24.5808937-05:00","category":"tunnel","title":"SSH tunnel updated","detail":"Tunnel not running.","destination":"settings","raw":""}
+{"createdAt":"2026-05-22T20:32:24.7336033-05:00","category":"realtime","title":"Realtime Disconnected","detail":"Gateway realtime state changed to Disconnected.","destination":"home","raw":""}
+{"createdAt":"2026-05-22T20:32:24.7361406-05:00","category":"realtime","title":"Realtime Connecting","detail":"Gateway realtime state changed to Connecting.","destination":"home","raw":""}
+{"createdAt":"2026-05-22T20:32:24.7533649-05:00","category":"event","title":"Gateway event connect.challenge","detail":"Received gateway event connect.challenge.","destination":"logs","raw":"{\u0022nonce\u0022:\u0022e2bdeb84-c6e9-4755-8655-fcf85af7a826\u0022,\u0022ts\u0022:1779499944657}"}
+{"createdAt":"2026-05-22T20:32:24.8045917-05:00","category":"gateway","title":"Realtime connected","detail":"Connected the Windows companion realtime channel.","destination":null,"raw":""}
+{"createdAt":"2026-05-22T20:32:24.8074522-05:00","category":"realtime","title":"Realtime Connected","detail":"Gateway realtime state changed to Connected.","destination":"home","raw":""}
+{"createdAt":"2026-05-22T20:32:41.1878875-05:00","category":"tunnel","title":"SSH tunnel updated","detail":"Tunnel not running.","destination":"settings","raw":""}
