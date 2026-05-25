@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using Microsoft.Web.WebView2.Core;
+using Microsoft.UI.Input;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
@@ -79,6 +80,7 @@ public sealed class MainWindow : Window
     private ScrollViewer? chatTranscriptScrollViewer;
     private bool chatScrollToBottomRequested;
     private readonly XamlButton chatRefreshButton = new();
+    private readonly XamlButton chatComposerRefreshButton = new();
     private readonly XamlButton chatSendButton = new();
     private readonly TextBlock canvasStatusText = new();
     private readonly TextBlock canvasDetailText = new();
@@ -772,6 +774,8 @@ public sealed class MainWindow : Window
         this.chatEmptyText.Foreground = ResourceBrush("TextFillColorSecondaryBrush");
         this.chatInput.PlaceholderText = this.Localizer.Get("Shell.Chat.Input.Placeholder", "Message the active OpenClaw session");
         AutomationProperties.SetName(this.chatInput, this.Localizer.Get("Shell.Chat.Input.AutomationName", "Message the active OpenClaw session"));
+        this.chatInput.KeyDown -= this.OnChatInputKeyDown;
+        this.chatInput.KeyDown += this.OnChatInputKeyDown;
 
         var header = new Grid
         {
@@ -868,6 +872,11 @@ public sealed class MainWindow : Window
 
     private FrameworkElement BuildChatComposer()
     {
+        this.chatComposerRefreshButton.Content = this.Localizer.Get("Shell.Chat.RefreshButtonLabel", "Refresh");
+        this.chatComposerRefreshButton.Command = this.CreateCommand(async () => await this.RefreshChatAsync());
+        AutomationProperties.SetName(
+            this.chatComposerRefreshButton,
+            this.Localizer.Get("Shell.Chat.RefreshButtonAutomationName", "Refresh session messages"));
         this.chatSendButton.Content = "Send";
         this.chatSendButton.AccessKey = "S";
         this.chatSendButton.Command = this.CreateCommand(async () => await this.SendChatAsync());
@@ -887,6 +896,7 @@ public sealed class MainWindow : Window
             HorizontalAlignment = XamlHorizontalAlignment.Right,
             Children =
             {
+                this.chatComposerRefreshButton,
                 this.chatSendButton,
             },
         };
@@ -3075,10 +3085,27 @@ public sealed class MainWindow : Window
         }
     }
 
+    private void OnChatInputKeyDown(object sender, KeyRoutedEventArgs args)
+    {
+        if (!ChatComposerKeyboard.IsSendShortcut(args.Key, IsControlKeyDown()))
+        {
+            return;
+        }
+
+        args.Handled = true;
+        this.chatSendButton.Command?.Execute(null);
+    }
+
+    private static bool IsControlKeyDown()
+    {
+        return InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control)
+            .HasFlag(global::Windows.UI.Core.CoreVirtualKeyStates.Down);
+    }
+
     private async Task SendChatAsync()
     {
         var message = this.chatInput.Text.Trim();
-        if (message.Length == 0)
+        if (message.Length == 0 || this.chatState.Status == ChatWorkspaceStatus.Sending)
         {
             return;
         }
@@ -3298,6 +3325,7 @@ public sealed class MainWindow : Window
         };
         this.chatSendButton.IsEnabled = this.chatState.Status != ChatWorkspaceStatus.Sending;
         this.chatRefreshButton.IsEnabled = this.chatState.Status != ChatWorkspaceStatus.Sending;
+        this.chatComposerRefreshButton.IsEnabled = this.chatState.Status != ChatWorkspaceStatus.Sending;
 
         this.chatEmptyText.Text = "No messages in this session yet.";
         this.chatEmptyText.Visibility =
