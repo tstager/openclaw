@@ -41,6 +41,7 @@ public sealed class MainWindow : Window
     private static readonly SolidColorBrush SuccessBrush = new();
     private static readonly SolidColorBrush CautionBrush = new();
     private static readonly SolidColorBrush CriticalBrush = new();
+    private const double ScrollablePageScrollbarGutter = 24;
 
     private readonly WindowsCompanionState appState;
     private readonly WindowsCompanionCoordinator coordinator;
@@ -735,7 +736,6 @@ public sealed class MainWindow : Window
 
         var layout = new Grid
         {
-            MaxWidth = 840,
             HorizontalAlignment = XamlHorizontalAlignment.Stretch,
             VerticalAlignment = VerticalAlignment.Stretch,
             RowSpacing = 12,
@@ -853,11 +853,13 @@ public sealed class MainWindow : Window
         };
         this.chatTranscriptScrollViewer = new ScrollViewer
         {
-            Content = transcriptBody,
+            Content = AddScrollbarGutter(transcriptBody),
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             VerticalAlignment = VerticalAlignment.Stretch,
         };
+        this.chatTranscriptScrollViewer.SizeChanged += (_, args) =>
+            ResizeScrollableContent(this.chatTranscriptScrollViewer, args.NewSize.Width);
 
         return new Border
         {
@@ -2166,12 +2168,40 @@ public sealed class MainWindow : Window
 
     private static ScrollViewer Scrollable(UIElement content)
     {
-        return new ScrollViewer
+        var scrollViewer = new ScrollViewer
         {
-            Content = content,
+            Content = AddScrollbarGutter(content),
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
         };
+        scrollViewer.SizeChanged += (_, args) => ResizeScrollableContent(scrollViewer, args.NewSize.Width);
+        return scrollViewer;
+    }
+
+    private static Grid AddScrollbarGutter(UIElement content)
+    {
+        if (content is FrameworkElement element)
+        {
+            element.HorizontalAlignment = XamlHorizontalAlignment.Stretch;
+        }
+
+        return new Grid
+        {
+            Padding = new Thickness(0, 0, ScrollablePageScrollbarGutter, 0),
+            HorizontalAlignment = XamlHorizontalAlignment.Stretch,
+            Children =
+            {
+                content,
+            },
+        };
+    }
+
+    private static void ResizeScrollableContent(ScrollViewer scrollViewer, double width)
+    {
+        if (scrollViewer.Content is FrameworkElement content)
+        {
+            content.Width = Math.Max(0, width);
+        }
     }
 
     private void ClearCommandError()
