@@ -263,6 +263,10 @@ public sealed class MainWindow : Window
     public void AttachTrayHost(WindowsTrayHost trayHost)
     {
         this.trayHost = trayHost;
+        if (this.Content is FrameworkElement root)
+        {
+            this.trayHost.ApplyTheme(this.ResolveTrayThemePalette(root));
+        }
     }
 
     /// <summary>
@@ -1977,6 +1981,7 @@ public sealed class MainWindow : Window
             this.customAccentColor,
             this.customColorTheme);
         ApplyThemePalette(root, palette);
+        this.trayHost?.ApplyTheme(ToTrayThemePalette(palette));
     }
 
     private void UpdateAppearanceColorPickers()
@@ -2057,6 +2062,33 @@ public sealed class MainWindow : Window
         root.Resources["AccentTextFillColorPrimaryBrush"] = AccentBrush;
         root.Resources["TextOnAccentFillColorPrimaryBrush"] = AccentTextBrush;
         root.Resources["NavigationViewSelectionIndicatorForeground"] = AccentBrush;
+    }
+
+    private WindowsTrayThemePalette ResolveTrayThemePalette(FrameworkElement root)
+    {
+        return ToTrayThemePalette(WindowsThemePaletteResolver.Resolve(
+            ResolveBrushTheme(root, this.themePreference),
+            this.accentColorPreference,
+            this.colorThemePreference,
+            TryGetApplicationSystemAccentColor(),
+            this.customAccentColor,
+            this.customColorTheme));
+    }
+
+    private static WindowsTrayThemePalette ToTrayThemePalette(WindowsThemePalette palette)
+    {
+        return new WindowsTrayThemePalette(
+            ToDrawingColor(palette.CardBackgroundColor),
+            ToDrawingColor(palette.CardStrokeColor),
+            ToDrawingColor(palette.TextPrimaryColor),
+            ToDrawingColor(palette.TextSecondaryColor),
+            ToDrawingColor(palette.AccentColor),
+            ToDrawingColor(palette.AccentTextColor));
+    }
+
+    private static System.Drawing.Color ToDrawingColor(Color color)
+    {
+        return System.Drawing.Color.FromArgb(color.A, color.R, color.G, color.B);
     }
 
     private static Color? TryGetApplicationSystemAccentColor()

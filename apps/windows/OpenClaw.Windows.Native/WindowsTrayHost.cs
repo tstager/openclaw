@@ -9,6 +9,8 @@ namespace OpenClaw.Windows.Native;
 public sealed class WindowsTrayHost : IDisposable
 {
     private readonly NotifyIcon notifyIcon;
+    private readonly ToolStripMenuItem statusItem;
+    private readonly ToolStripMenuItem activityItem;
 
     public WindowsTrayHost(
         Func<string> getGatewayStatus,
@@ -27,11 +29,11 @@ public sealed class WindowsTrayHost : IDisposable
         Action onExit)
     {
         // Menu status rows are refreshed lazily so tray state reflects the latest coordinator values.
-        var statusItem = new ToolStripMenuItem("Gateway: Unknown")
+        this.statusItem = new ToolStripMenuItem("Gateway: Unknown")
         {
             Enabled = false,
         };
-        var activityItem = new ToolStripMenuItem("Activity: None")
+        this.activityItem = new ToolStripMenuItem("Activity: None")
         {
             Enabled = false,
         };
@@ -44,11 +46,11 @@ public sealed class WindowsTrayHost : IDisposable
         };
         this.notifyIcon.ContextMenuStrip.Opening += (_, _) =>
         {
-            statusItem.Text = $"Gateway: {getGatewayStatus()}";
-            activityItem.Text = $"Activity: {getLatestActivity()}";
+            this.statusItem.Text = $"Gateway: {getGatewayStatus()}";
+            this.activityItem.Text = $"Activity: {getLatestActivity()}";
         };
-        this.notifyIcon.ContextMenuStrip.Items.Add(statusItem);
-        this.notifyIcon.ContextMenuStrip.Items.Add(activityItem);
+        this.notifyIcon.ContextMenuStrip.Items.Add(this.statusItem);
+        this.notifyIcon.ContextMenuStrip.Items.Add(this.activityItem);
         this.notifyIcon.ContextMenuStrip.Items.Add(new ToolStripSeparator());
         this.notifyIcon.ContextMenuStrip.Items.Add("Open OpenClaw", null, (_, _) => onShow());
         this.notifyIcon.ContextMenuStrip.Items.Add("Home", null, (_, _) => onShowHome());
@@ -67,6 +69,27 @@ public sealed class WindowsTrayHost : IDisposable
         this.notifyIcon.BalloonTipClicked += (_, _) => onNotificationClicked();
     }
 
+    public void ApplyTheme(WindowsTrayThemePalette palette)
+    {
+        var menu = this.notifyIcon.ContextMenuStrip;
+        if (menu is null)
+        {
+            return;
+        }
+
+        menu.BackColor = palette.Background;
+        menu.ForeColor = palette.Text;
+        menu.Renderer = new ToolStripProfessionalRenderer(new WindowsTrayColorTable(palette));
+        foreach (ToolStripItem item in menu.Items)
+        {
+            item.BackColor = palette.Background;
+            item.ForeColor = item.Enabled ? palette.Text : palette.SecondaryText;
+        }
+
+        this.statusItem.ForeColor = palette.SecondaryText;
+        this.activityItem.ForeColor = palette.SecondaryText;
+    }
+
     /// <summary>
     /// Shows a Windows balloon notification through the tray icon.
     /// </summary>
@@ -81,4 +104,28 @@ public sealed class WindowsTrayHost : IDisposable
         this.notifyIcon.ContextMenuStrip?.Dispose();
         this.notifyIcon.Dispose();
     }
+}
+
+public sealed record WindowsTrayThemePalette(
+    Color Background,
+    Color Border,
+    Color Text,
+    Color SecondaryText,
+    Color Accent,
+    Color AccentText);
+
+internal sealed class WindowsTrayColorTable(WindowsTrayThemePalette palette) : ProfessionalColorTable
+{
+    public override Color ToolStripDropDownBackground => palette.Background;
+    public override Color ImageMarginGradientBegin => palette.Background;
+    public override Color ImageMarginGradientMiddle => palette.Background;
+    public override Color ImageMarginGradientEnd => palette.Background;
+    public override Color MenuBorder => palette.Border;
+    public override Color MenuItemBorder => palette.Accent;
+    public override Color MenuItemSelected => palette.Accent;
+    public override Color MenuItemSelectedGradientBegin => palette.Accent;
+    public override Color MenuItemSelectedGradientEnd => palette.Accent;
+    public override Color SeparatorDark => palette.Border;
+    public override Color SeparatorLight => palette.Border;
+    public override Color ToolStripBorder => palette.Border;
 }
