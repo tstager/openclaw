@@ -3168,11 +3168,11 @@ public sealed class MainWindow : Window
         this.logsDiagnosticsRows.Children.Add(BuildDashboardRow("Gateway", summary.GatewayStatus));
         this.logsDiagnosticsRows.Children.Add(BuildDashboardRow("Last error", summary.LastError));
         this.logsDiagnosticsRows.Children.Add(BuildDashboardRow("Last refresh", summary.LastRefresh));
-        this.logsDiagnosticsRows.Children.Add(BuildDashboardRow(
+        this.logsDiagnosticsRows.Children.Add(BuildStackedDashboardRow(
             "Structured diagnostics",
             this.appState.Diagnostics.ResolvePath(this.diagnosticsPreferences.StructuredDiagnosticsPath)));
-        this.logsDiagnosticsRows.Children.Add(BuildDashboardRow("Activity history", this.appState.ActivityHistory.Path));
-        this.logsDiagnosticsRows.Children.Add(BuildDashboardRow("Notification history", this.appState.NotificationHistory.Path));
+        this.logsDiagnosticsRows.Children.Add(BuildStackedDashboardRow("Activity history", this.appState.ActivityHistory.Path));
+        this.logsDiagnosticsRows.Children.Add(BuildStackedDashboardRow("Notification history", this.appState.NotificationHistory.Path));
 
         this.logsLocationCards.Children.Clear();
         this.logsLocationCards.Children.Add(this.BuildLogLocationCard(
@@ -5414,6 +5414,24 @@ public sealed class MainWindow : Window
         row.Children.Add(new TextBlock
         {
             Text = summary,
+            TextWrapping = TextWrapping.Wrap,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+        });
+        return row;
+    }
+
+    private static UIElement BuildStackedDashboardRow(string label, string value)
+    {
+        var row = new StackPanel { Spacing = 4 };
+        row.Children.Add(new TextBlock
+        {
+            Text = label,
+            TextWrapping = TextWrapping.Wrap,
+            Foreground = ResourceBrush("TextFillColorSecondaryBrush"),
+        });
+        row.Children.Add(new TextBlock
+        {
+            Text = string.IsNullOrWhiteSpace(value) ? "unknown" : value,
             TextWrapping = TextWrapping.Wrap,
             FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
         });
