@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text.Json;
 using OpenClaw.Windows;
+using Windows.UI;
 
 namespace OpenClaw.Windows.Tests;
 
@@ -19,7 +20,9 @@ public sealed class AppPreferencesStoreTests
             ChatSessionKey = "windows",
             ThemePreference = WindowsThemePreference.Dark,
             AccentColorPreference = WindowsAccentColorPreference.Purple,
+            CustomAccentColor = Color.FromArgb(255, 18, 52, 86),
             ColorThemePreference = WindowsColorThemePreference.Forest,
+            CustomColorTheme = Color.FromArgb(255, 120, 40, 200),
             VoiceControlsEnabled = true,
             GlobalHotkeyEnabled = true,
             NotificationPreferences = new WindowsNotificationPreferences(
@@ -75,7 +78,9 @@ public sealed class AppPreferencesStoreTests
         Assert.AreEqual(expected.ChatSessionKey, actual.ChatSessionKey);
         Assert.AreEqual(expected.ThemePreference, actual.ThemePreference);
         Assert.AreEqual(expected.AccentColorPreference, actual.AccentColorPreference);
+        Assert.AreEqual(expected.CustomAccentColor, actual.CustomAccentColor);
         Assert.AreEqual(expected.ColorThemePreference, actual.ColorThemePreference);
+        Assert.AreEqual(expected.CustomColorTheme, actual.CustomColorTheme);
         Assert.AreEqual(expected.VoiceControlsEnabled, actual.VoiceControlsEnabled);
         Assert.AreEqual(expected.GlobalHotkeyEnabled, actual.GlobalHotkeyEnabled);
         Assert.AreEqual(expected.NotificationPreferences, actual.NotificationPreferences);
@@ -95,6 +100,31 @@ public sealed class AppPreferencesStoreTests
         Assert.IsFalse(actual.SessionEventVisibility.IsVisible("custom.event"));
         Assert.IsTrue(actual.SessionEventVisibility.IsVisible("chat"));
         Assert.AreEqual(SessionEventVisibilityPreset.Custom, actual.SessionEventVisibility.Preset);
+    }
+
+    [TestMethod]
+    public async Task SavesAndLoadsCustomAppearanceColors()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName(), "preferences.json");
+        var store = new AppPreferencesStore(path);
+
+        await store.SaveAsync(AppPreferences.Default with
+        {
+            AccentColorPreference = WindowsAccentColorPreference.Custom,
+            CustomAccentColor = Color.FromArgb(255, 10, 120, 210),
+            ColorThemePreference = WindowsColorThemePreference.Custom,
+            CustomColorTheme = Color.FromArgb(255, 170, 50, 120),
+        });
+
+        var actual = await store.LoadAsync();
+        var raw = await File.ReadAllTextAsync(path);
+
+        Assert.AreEqual(WindowsAccentColorPreference.Custom, actual.AccentColorPreference);
+        Assert.AreEqual(Color.FromArgb(255, 10, 120, 210), actual.CustomAccentColor);
+        Assert.AreEqual(WindowsColorThemePreference.Custom, actual.ColorThemePreference);
+        Assert.AreEqual(Color.FromArgb(255, 170, 50, 120), actual.CustomColorTheme);
+        Assert.IsTrue(raw.Contains("\"customAccentColor\": \"#0A78D2\"", StringComparison.Ordinal));
+        Assert.IsTrue(raw.Contains("\"customColorTheme\": \"#AA3278\"", StringComparison.Ordinal));
     }
 
     [TestMethod]
@@ -331,6 +361,38 @@ public sealed class AppPreferencesStoreTests
 
         Assert.AreEqual(WindowsColorThemePreference.Default, actual.ColorThemePreference);
     }
+
+    [TestMethod]
+    public async Task InvalidCustomAppearanceColorsNormalizeToDefaults()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName(), "preferences.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        await File.WriteAllTextAsync(
+            path,
+            """
+            {
+              "openMainWindowOnLaunch": true,
+              "gatewayUrl": "ws://127.0.0.1:18789",
+              "chatSessionKey": "main",
+              "theme": "Dark",
+              "accentColor": "Custom",
+              "customAccentColor": "not-a-color",
+              "colorTheme": "Custom",
+              "customColorTheme": "#12345Z",
+              "voiceControlsEnabled": false,
+              "globalHotkeyEnabled": false
+            }
+            """);
+        var store = new AppPreferencesStore(path);
+
+        var actual = await store.LoadAsync();
+
+        Assert.AreEqual(WindowsAccentColorPreference.System, actual.AccentColorPreference);
+        Assert.IsNull(actual.CustomAccentColor);
+        Assert.AreEqual(WindowsColorThemePreference.Default, actual.ColorThemePreference);
+        Assert.IsNull(actual.CustomColorTheme);
+    }
+
 
     [TestMethod]
     public async Task MissingNestedPreferencesDefaultToCurrentDefaults()

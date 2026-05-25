@@ -126,6 +126,39 @@ public sealed class WindowsThemePaletteResolverTests
         AssertColor(Microsoft.UI.Colors.Black, palette.AccentTextColor);
     }
 
+    [TestMethod]
+    public void Resolve_CustomAccentUsesProvidedCustomAccent()
+    {
+        var customAccent = Color.FromArgb(255, 250, 210, 30);
+        var palette = WindowsThemePaletteResolver.Resolve(
+            ElementTheme.Light,
+            WindowsAccentColorPreference.Custom,
+            WindowsColorThemePreference.Default,
+            customAccentColor: customAccent);
+
+        AssertColor(customAccent, palette.AccentColor);
+        AssertColor(Microsoft.UI.Colors.Black, palette.AccentTextColor);
+    }
+
+    [TestMethod]
+    public void Resolve_CustomColorThemeDerivesSurfacesFromProvidedColor()
+    {
+        var customTheme = Color.FromArgb(255, 40, 80, 160);
+        var palette = WindowsThemePaletteResolver.Resolve(
+            ElementTheme.Dark,
+            WindowsAccentColorPreference.Orange,
+            WindowsColorThemePreference.Custom,
+            customColorTheme: customTheme);
+
+        AssertColor(Color.FromArgb(255, 5, 10, 20), palette.AppBackgroundColor);
+        AssertColor(Color.FromArgb(255, 16, 32, 64), palette.CardBackgroundColor);
+        AssertColor(Color.FromArgb(255, 40, 80, 160), palette.CardStrokeColor);
+        AssertColor(Color.FromArgb(255, 10, 20, 40), palette.LayerFillColor);
+        AssertColor(Color.FromArgb(255, 238, 241, 247), palette.TextPrimaryColor);
+        AssertColor(Color.FromArgb(255, 158, 176, 212), palette.TextSecondaryColor);
+        AssertColor(Color.FromArgb(255, 251, 146, 60), palette.AccentColor);
+    }
+
     private static void AssertColor(Color expected, Color actual)
     {
         Assert.AreEqual(expected, actual);

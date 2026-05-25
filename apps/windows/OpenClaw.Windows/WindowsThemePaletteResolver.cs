@@ -28,11 +28,13 @@ public static class WindowsThemePaletteResolver
         ElementTheme brightness,
         WindowsAccentColorPreference accentPreference,
         WindowsColorThemePreference colorThemePreference,
-        Color? systemAccentColor = null)
+        Color? systemAccentColor = null,
+        Color? customAccentColor = null,
+        Color? customColorTheme = null)
     {
         var theme = brightness == ElementTheme.Dark ? ElementTheme.Dark : ElementTheme.Light;
-        var accent = ResolveAccentColor(accentPreference, theme, systemAccentColor);
-        return ResolveSurfacePalette(colorThemePreference, theme) with
+        var accent = ResolveAccentColor(accentPreference, theme, systemAccentColor, customAccentColor);
+        return ResolveSurfacePalette(colorThemePreference, theme, customColorTheme) with
         {
             AccentColor = accent,
             AccentTextColor = ResolveTextOnAccentColor(accent),
@@ -42,12 +44,18 @@ public static class WindowsThemePaletteResolver
     public static Color ResolveAccentColor(
         WindowsAccentColorPreference preference,
         ElementTheme brightness,
-        Color? systemAccentColor = null)
+        Color? systemAccentColor = null,
+        Color? customAccentColor = null)
     {
         var theme = brightness == ElementTheme.Dark ? ElementTheme.Dark : ElementTheme.Light;
         if (preference == WindowsAccentColorPreference.System)
         {
             return systemAccentColor ?? ResolveSystemAccentFallback(theme);
+        }
+
+        if (preference == WindowsAccentColorPreference.Custom && customAccentColor is { } custom)
+        {
+            return Color.FromArgb(255, custom.R, custom.G, custom.B);
         }
 
         return preference switch
@@ -80,8 +88,16 @@ public static class WindowsThemePaletteResolver
             : Microsoft.UI.Colors.White;
     }
 
-    private static WindowsThemePalette ResolveSurfacePalette(WindowsColorThemePreference preference, ElementTheme theme)
+    private static WindowsThemePalette ResolveSurfacePalette(
+        WindowsColorThemePreference preference,
+        ElementTheme theme,
+        Color? customColorTheme)
     {
+        if (preference == WindowsColorThemePreference.Custom && customColorTheme is { } custom)
+        {
+            return CreateCustomPalette(Color.FromArgb(255, custom.R, custom.G, custom.B), theme);
+        }
+
         return (preference, theme) switch
         {
             (WindowsColorThemePreference.Slate, ElementTheme.Dark) => CreatePalette(
@@ -219,6 +235,66 @@ public static class WindowsThemePaletteResolver
         return theme == ElementTheme.Dark
             ? Color.FromArgb(255, 96, 165, 250)
             : Color.FromArgb(255, 37, 99, 235);
+    }
+
+    private static WindowsThemePalette CreateCustomPalette(Color seed, ElementTheme theme)
+    {
+        if (theme == ElementTheme.Dark)
+        {
+            return CreatePalette(
+                appBackground: Scale(seed, 0.125),
+                cardBackground: Scale(seed, 0.4),
+                cardStroke: seed,
+                layerFill: Scale(seed, 0.25),
+                textPrimary: Blend(Microsoft.UI.Colors.White, seed, 0.08),
+                textSecondary: Blend(Microsoft.UI.Colors.White, seed, 0.45),
+                success: DefaultDark.SuccessColor,
+                caution: DefaultDark.CautionColor,
+                critical: DefaultDark.CriticalColor);
+        }
+
+        return CreatePalette(
+            appBackground: Blend(Microsoft.UI.Colors.White, seed, 0.08),
+            cardBackground: Blend(Microsoft.UI.Colors.White, seed, 0.04),
+            cardStroke: Blend(Microsoft.UI.Colors.White, seed, 0.35),
+            layerFill: Blend(Microsoft.UI.Colors.White, seed, 0.12),
+            textPrimary: Scale(seed, 0.32),
+            textSecondary: Scale(seed, 0.58),
+            success: DefaultLight.SuccessColor,
+            caution: DefaultLight.CautionColor,
+            critical: DefaultLight.CriticalColor);
+    }
+
+    private static Color Scale(Color color, double factor)
+    {
+        return Color.FromArgb(
+            255,
+            ScaleChannel(color.R, factor),
+            ScaleChannel(color.G, factor),
+            ScaleChannel(color.B, factor));
+    }
+
+    private static Color Blend(Color baseColor, Color overlay, double overlayWeight)
+    {
+        return Color.FromArgb(
+            255,
+            BlendChannel(baseColor.R, overlay.R, overlayWeight),
+            BlendChannel(baseColor.G, overlay.G, overlayWeight),
+            BlendChannel(baseColor.B, overlay.B, overlayWeight));
+    }
+
+    private static byte ScaleChannel(byte value, double factor)
+    {
+        return (byte)Math.Clamp((int)Math.Round(value * factor, MidpointRounding.AwayFromZero), 0, 255);
+    }
+
+    private static byte BlendChannel(byte baseValue, byte overlayValue, double overlayWeight)
+    {
+        var baseWeight = 1.0 - overlayWeight;
+        return (byte)Math.Clamp(
+            (int)Math.Round(baseValue * baseWeight + overlayValue * overlayWeight, MidpointRounding.AwayFromZero),
+            0,
+            255);
     }
 
     private static double RelativeLuminance(Color color)

@@ -1,4 +1,6 @@
+using System.Globalization;
 using System.Text.Json;
+using Windows.UI;
 
 namespace OpenClaw.Windows;
 
@@ -24,6 +26,7 @@ public enum WindowsAccentColorPreference
     Orange,
     Rose,
     Purple,
+    Custom,
 }
 
 /// <summary>
@@ -37,6 +40,7 @@ public enum WindowsColorThemePreference
     Ocean,
     Ember,
     HighContrast,
+    Custom,
 }
 
 /// <summary>
@@ -108,7 +112,9 @@ public sealed record AppPreferences(
     string ChatSessionKey,
     WindowsThemePreference ThemePreference,
     WindowsAccentColorPreference AccentColorPreference,
+    Color? CustomAccentColor,
     WindowsColorThemePreference ColorThemePreference,
+    Color? CustomColorTheme,
     bool CanvasNodeEnabled,
     bool VoiceControlsEnabled,
     bool GlobalHotkeyEnabled,
@@ -132,7 +138,9 @@ public sealed record AppPreferences(
         ChatSessionKey: "main",
         ThemePreference: WindowsThemePreference.System,
         AccentColorPreference: WindowsAccentColorPreference.System,
+        CustomAccentColor: null,
         ColorThemePreference: WindowsColorThemePreference.Default,
+        CustomColorTheme: null,
         CanvasNodeEnabled: true,
         VoiceControlsEnabled: false,
         GlobalHotkeyEnabled: false,
@@ -309,7 +317,9 @@ public sealed class AppPreferencesStore : IDisposable
         string ChatSessionKey,
         string? Theme,
         string? AccentColor,
+        string? CustomAccentColor,
         string? ColorTheme,
+        string? CustomColorTheme,
         bool? CanvasNodeEnabled,
         bool VoiceControlsEnabled,
         bool GlobalHotkeyEnabled,
@@ -331,7 +341,9 @@ public sealed class AppPreferencesStore : IDisposable
                 preferences.ChatSessionKey,
                 preferences.ThemePreference.ToString(),
                 preferences.AccentColorPreference.ToString(),
+                FormatColor(preferences.CustomAccentColor),
                 preferences.ColorThemePreference.ToString(),
+                FormatColor(preferences.CustomColorTheme),
                 preferences.CanvasNodeEnabled,
                 preferences.VoiceControlsEnabled,
                 preferences.GlobalHotkeyEnabled,
@@ -351,6 +363,20 @@ public sealed class AppPreferencesStore : IDisposable
 
         public AppPreferences ToAppPreferences()
         {
+            var customAccentColor = ParseColor(this.CustomAccentColor);
+            var accentColorPreference = ParseAccentColorPreference(this.AccentColor);
+            if (accentColorPreference == WindowsAccentColorPreference.Custom && customAccentColor is null)
+            {
+                accentColorPreference = AppPreferences.Default.AccentColorPreference;
+            }
+
+            var customColorTheme = ParseColor(this.CustomColorTheme);
+            var colorThemePreference = ParseColorThemePreference(this.ColorTheme);
+            if (colorThemePreference == WindowsColorThemePreference.Custom && customColorTheme is null)
+            {
+                colorThemePreference = AppPreferences.Default.ColorThemePreference;
+            }
+
             return new AppPreferences(
                 this.OpenMainWindowOnLaunch,
                 string.IsNullOrWhiteSpace(this.GatewayUrl) ? AppPreferences.Default.GatewayUrl : this.GatewayUrl,
@@ -358,8 +384,10 @@ public sealed class AppPreferencesStore : IDisposable
                 DeviceToken: null,
                 string.IsNullOrWhiteSpace(this.ChatSessionKey) ? AppPreferences.Default.ChatSessionKey : this.ChatSessionKey,
                 ParseThemePreference(this.Theme),
-                ParseAccentColorPreference(this.AccentColor),
-                ParseColorThemePreference(this.ColorTheme),
+                accentColorPreference,
+                customAccentColor,
+                colorThemePreference,
+                customColorTheme,
                 this.CanvasNodeEnabled ?? AppPreferences.Default.CanvasNodeEnabled,
                 this.VoiceControlsEnabled,
                 this.GlobalHotkeyEnabled,
@@ -394,6 +422,33 @@ public sealed class AppPreferencesStore : IDisposable
             return Enum.TryParse<WindowsColorThemePreference>(value, ignoreCase: true, out var colorTheme)
                 ? colorTheme
                 : AppPreferences.Default.ColorThemePreference;
+        }
+
+        private static string? FormatColor(Color? color)
+        {
+            return color is { } value
+                ? $"#{value.R:X2}{value.G:X2}{value.B:X2}"
+                : null;
+        }
+
+        private static Color? ParseColor(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return null;
+            }
+
+            var trimmed = value.Trim();
+            if (trimmed.Length != 7 || trimmed[0] != '#')
+            {
+                return null;
+            }
+
+            return byte.TryParse(trimmed.AsSpan(1, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var red) &&
+                byte.TryParse(trimmed.AsSpan(3, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var green) &&
+                byte.TryParse(trimmed.AsSpan(5, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var blue)
+                ? Color.FromArgb(255, red, green, blue)
+                : null;
         }
 
         private static SessionEventVisibilityPreset ParseSessionEventVisibilityPreset(string? value)

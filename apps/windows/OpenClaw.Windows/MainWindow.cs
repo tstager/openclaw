@@ -139,6 +139,10 @@ public sealed class MainWindow : Window
     private readonly XamlComboBox themePreferenceInput = new();
     private readonly XamlComboBox accentColorInput = new();
     private readonly XamlComboBox colorThemeInput = new();
+    private readonly ColorPicker customAccentColorInput = CreateAppearanceColorPicker();
+    private readonly ColorPicker customColorThemeInput = CreateAppearanceColorPicker();
+    private readonly StackPanel customAccentColorField = new() { Spacing = 4 };
+    private readonly StackPanel customColorThemeField = new() { Spacing = 4 };
     private readonly XamlComboBox approvalPolicyInput = new();
     private readonly XamlTextBox chatInput = new() { AcceptsReturn = true, Height = 88, TextWrapping = TextWrapping.Wrap };
     private readonly XamlTextBox gatewayUrlInput = new();
@@ -155,7 +159,9 @@ public sealed class MainWindow : Window
     private bool openMainWindowOnLaunch = AppPreferences.Default.OpenMainWindowOnLaunch;
     private WindowsThemePreference themePreference = AppPreferences.Default.ThemePreference;
     private WindowsAccentColorPreference accentColorPreference = AppPreferences.Default.AccentColorPreference;
+    private Color? customAccentColor = AppPreferences.Default.CustomAccentColor;
     private WindowsColorThemePreference colorThemePreference = AppPreferences.Default.ColorThemePreference;
+    private Color? customColorTheme = AppPreferences.Default.CustomColorTheme;
     private SessionEventVisibilityPreferences sessionEventVisibility = AppPreferences.Default.SessionEventVisibility;
     private WindowsNotificationPreferences notificationPreferences = WindowsNotificationPreferences.Default;
     private WindowsNotificationRulePreferences notificationRulePreferences = WindowsNotificationRulePreferences.Default;
@@ -181,6 +187,7 @@ public sealed class MainWindow : Window
     private NavigationView? navigationView;
     private bool exitRequested;
     private bool shutdownStarted;
+    private bool updatingAppearanceInputs;
     private CancellationTokenSource? screenRecordingCancellation;
     private string? latestTextToSpeechPath;
     private string? latestSupportSummaryArtifactPath;
@@ -233,11 +240,16 @@ public sealed class MainWindow : Window
     public void ApplyAppearancePreferences(
         WindowsThemePreference themePreference,
         WindowsAccentColorPreference accentColorPreference,
-        WindowsColorThemePreference colorThemePreference)
+        Color? customAccentColor,
+        WindowsColorThemePreference colorThemePreference,
+        Color? customColorTheme)
     {
         this.themePreference = themePreference;
         this.accentColorPreference = accentColorPreference;
+        this.customAccentColor = NormalizeOpaqueColor(customAccentColor);
         this.colorThemePreference = colorThemePreference;
+        this.customColorTheme = NormalizeOpaqueColor(customColorTheme);
+        this.UpdateAppearanceColorPickers();
         if (this.Content is FrameworkElement root)
         {
             ApplyThemePreference(root, themePreference);
@@ -1175,6 +1187,24 @@ public sealed class MainWindow : Window
         this.PopulateAppearancePreviewItems(this.ResolveCurrentBrushTheme());
         AutomationProperties.SetName(this.accentColorInput, "Accent color");
         AutomationProperties.SetName(this.colorThemeInput, "Color theme");
+        AutomationProperties.SetName(this.customAccentColorInput, "Custom accent color");
+        AutomationProperties.SetName(this.customColorThemeInput, "Custom color theme");
+        this.customAccentColorInput.ColorChanged -= this.OnCustomAccentColorChanged;
+        this.customColorThemeInput.ColorChanged -= this.OnCustomColorThemeChanged;
+        this.UpdateAppearanceColorPickers();
+        this.customAccentColorInput.ColorChanged += this.OnCustomAccentColorChanged;
+        this.customColorThemeInput.ColorChanged += this.OnCustomColorThemeChanged;
+        PopulateSettingsField(
+            this.customAccentColorField,
+            "Custom accent color",
+            "Choose any highlight color when Accent color is set to Custom.",
+            this.customAccentColorInput);
+        PopulateSettingsField(
+            this.customColorThemeField,
+            "Custom color theme",
+            "Choose any seed color when Color theme is set to Custom.",
+            this.customColorThemeInput);
+        this.UpdateCustomColorInputVisibility();
         this.approvalPolicyInput.Items.Clear();
         this.approvalPolicyInput.Items.Add(CreateApprovalPolicyItem(
             "Ask every time",
@@ -1252,7 +1282,9 @@ public sealed class MainWindow : Window
         panel.Children.Add(BuildDashboardCard("Appearance", BuildSettingsSection(
             BuildSettingsField("Theme", "Choose System, Light, or Dark for the Windows companion.", this.themePreferenceInput),
             BuildSettingsField("Accent color", "Choose the Windows companion highlight color.", this.accentColorInput),
-            BuildSettingsField("Color theme", "Choose the Windows companion surface palette.", this.colorThemeInput))));
+            this.customAccentColorField,
+            BuildSettingsField("Color theme", "Choose the Windows companion surface palette.", this.colorThemeInput),
+            this.customColorThemeField)));
         panel.Children.Add(BuildDashboardCard("Startup", BuildSettingsSection(
             this.openMainWindowOnLaunchInput,
             BuildReservedSettingsRow("Autostart", "Reserved", "Future tray startup preference."))));
@@ -1357,17 +1389,29 @@ public sealed class MainWindow : Window
         };
     }
 
-    private static XamlComboBoxItem CreateAccentColorItem(
+    private static ColorPicker CreateAppearanceColorPicker()
+    {
+        return new ColorPicker
+        {
+            HorizontalAlignment = XamlHorizontalAlignment.Left,
+            MaxWidth = 360,
+        };
+    }
+
+    private XamlComboBoxItem CreateAccentColorItem(
         string label,
         WindowsAccentColorPreference preference,
         ElementTheme theme)
     {
+        var fill = preference == WindowsAccentColorPreference.Custom
+            ? this.ResolveCustomAccentColor()
+            : WindowsThemePaletteResolver.ResolveAccentColor(preference, theme);
         var swatch = new Border
         {
             Width = 14,
             Height = 14,
             CornerRadius = new CornerRadius(7),
-            Background = new SolidColorBrush(WindowsThemePaletteResolver.ResolveAccentColor(preference, theme)),
+            Background = new SolidColorBrush(fill),
             BorderBrush = preference == WindowsAccentColorPreference.System
                 ? ResourceBrush("TextFillColorSecondaryBrush")
                 : null,
@@ -1404,7 +1448,9 @@ public sealed class MainWindow : Window
             theme,
             this.accentColorPreference,
             preference,
-            TryGetApplicationSystemAccentColor());
+            TryGetApplicationSystemAccentColor(),
+            this.customAccentColor,
+            this.ResolveCustomColorTheme());
         var preview = new StackPanel { Orientation = XamlOrientation.Horizontal, Spacing = 4 };
         preview.Children.Add(CreatePreviewSwatch(palette.AppBackgroundColor, palette.CardStrokeColor));
         preview.Children.Add(CreatePreviewSwatch(palette.CardBackgroundColor, palette.CardStrokeColor));
@@ -1444,6 +1490,13 @@ public sealed class MainWindow : Window
     private static UIElement BuildSettingsField(string label, string detail, Control input)
     {
         var field = new StackPanel { Spacing = 4 };
+        PopulateSettingsField(field, label, detail, input);
+        return field;
+    }
+
+    private static void PopulateSettingsField(StackPanel field, string label, string detail, Control input)
+    {
+        field.Children.Clear();
         field.Children.Add(new TextBlock
         {
             Text = label,
@@ -1456,7 +1509,6 @@ public sealed class MainWindow : Window
             Foreground = ResourceBrush("TextFillColorSecondaryBrush"),
         });
         field.Children.Add(input);
-        return field;
     }
 
     private static UIElement BuildReservedSettingsRow(string label, string state, string detail)
@@ -1712,6 +1764,12 @@ public sealed class MainWindow : Window
     {
         if (this.accentColorInput.SelectedItem is XamlComboBoxItem { Tag: WindowsAccentColorPreference preference })
         {
+            if (preference == WindowsAccentColorPreference.Custom)
+            {
+                this.customAccentColor ??= DefaultCustomAccentColor();
+                this.UpdateAppearanceColorPickers();
+            }
+
             this.ApplyAccentColorPreference(preference);
         }
     }
@@ -1720,8 +1778,38 @@ public sealed class MainWindow : Window
     {
         if (this.colorThemeInput.SelectedItem is XamlComboBoxItem { Tag: WindowsColorThemePreference preference })
         {
+            if (preference == WindowsColorThemePreference.Custom)
+            {
+                this.customColorTheme ??= DefaultCustomColorTheme();
+                this.UpdateAppearanceColorPickers();
+            }
+
             this.ApplyColorThemePreference(preference);
         }
+    }
+
+    private void OnCustomAccentColorChanged(ColorPicker sender, ColorChangedEventArgs args)
+    {
+        if (this.updatingAppearanceInputs)
+        {
+            return;
+        }
+
+        this.customAccentColor = NormalizeOpaqueColor(args.NewColor);
+        this.ApplyAccentColorPreference(WindowsAccentColorPreference.Custom);
+        this.PopulateAppearancePreviewItems(this.ResolveCurrentBrushTheme());
+    }
+
+    private void OnCustomColorThemeChanged(ColorPicker sender, ColorChangedEventArgs args)
+    {
+        if (this.updatingAppearanceInputs)
+        {
+            return;
+        }
+
+        this.customColorTheme = NormalizeOpaqueColor(args.NewColor);
+        this.ApplyColorThemePreference(WindowsColorThemePreference.Custom);
+        this.PopulateAppearancePreviewItems(this.ResolveCurrentBrushTheme());
     }
 
     private void OnScreenRecordingSettingsChanged(object sender, TextChangedEventArgs args)
@@ -1787,13 +1875,14 @@ public sealed class MainWindow : Window
     {
         this.accentColorInput.SelectionChanged -= this.OnAccentColorSelectionChanged;
         this.accentColorInput.Items.Clear();
-        this.accentColorInput.Items.Add(CreateAccentColorItem("System", WindowsAccentColorPreference.System, theme));
-        this.accentColorInput.Items.Add(CreateAccentColorItem("Blue", WindowsAccentColorPreference.Blue, theme));
-        this.accentColorInput.Items.Add(CreateAccentColorItem("Teal", WindowsAccentColorPreference.Teal, theme));
-        this.accentColorInput.Items.Add(CreateAccentColorItem("Green", WindowsAccentColorPreference.Green, theme));
-        this.accentColorInput.Items.Add(CreateAccentColorItem("Orange", WindowsAccentColorPreference.Orange, theme));
-        this.accentColorInput.Items.Add(CreateAccentColorItem("Rose", WindowsAccentColorPreference.Rose, theme));
-        this.accentColorInput.Items.Add(CreateAccentColorItem("Purple", WindowsAccentColorPreference.Purple, theme));
+        this.accentColorInput.Items.Add(this.CreateAccentColorItem("System", WindowsAccentColorPreference.System, theme));
+        this.accentColorInput.Items.Add(this.CreateAccentColorItem("Blue", WindowsAccentColorPreference.Blue, theme));
+        this.accentColorInput.Items.Add(this.CreateAccentColorItem("Teal", WindowsAccentColorPreference.Teal, theme));
+        this.accentColorInput.Items.Add(this.CreateAccentColorItem("Green", WindowsAccentColorPreference.Green, theme));
+        this.accentColorInput.Items.Add(this.CreateAccentColorItem("Orange", WindowsAccentColorPreference.Orange, theme));
+        this.accentColorInput.Items.Add(this.CreateAccentColorItem("Rose", WindowsAccentColorPreference.Rose, theme));
+        this.accentColorInput.Items.Add(this.CreateAccentColorItem("Purple", WindowsAccentColorPreference.Purple, theme));
+        this.accentColorInput.Items.Add(this.CreateAccentColorItem("Custom", WindowsAccentColorPreference.Custom, theme));
         this.SelectAccentColor(this.accentColorPreference);
         this.accentColorInput.SelectionChanged += this.OnAccentColorSelectionChanged;
     }
@@ -1808,6 +1897,7 @@ public sealed class MainWindow : Window
         this.colorThemeInput.Items.Add(this.CreateColorThemeItem("Ocean", WindowsColorThemePreference.Ocean, theme));
         this.colorThemeInput.Items.Add(this.CreateColorThemeItem("Ember", WindowsColorThemePreference.Ember, theme));
         this.colorThemeInput.Items.Add(this.CreateColorThemeItem("High Contrast", WindowsColorThemePreference.HighContrast, theme));
+        this.colorThemeInput.Items.Add(this.CreateColorThemeItem("Custom", WindowsColorThemePreference.Custom, theme));
         this.SelectColorTheme(this.colorThemePreference);
         this.colorThemeInput.SelectionChanged += this.OnColorThemeSelectionChanged;
     }
@@ -1822,6 +1912,7 @@ public sealed class MainWindow : Window
     private void ApplyAccentColorPreference(WindowsAccentColorPreference preference)
     {
         this.accentColorPreference = preference;
+        this.UpdateCustomColorInputVisibility();
         if (this.Content is FrameworkElement root)
         {
             this.ApplyCurrentPalette(root);
@@ -1831,6 +1922,7 @@ public sealed class MainWindow : Window
     private void ApplyColorThemePreference(WindowsColorThemePreference preference)
     {
         this.colorThemePreference = preference;
+        this.UpdateCustomColorInputVisibility();
         if (this.Content is FrameworkElement root)
         {
             this.ApplyCurrentPalette(root);
@@ -1869,8 +1961,67 @@ public sealed class MainWindow : Window
             ResolveBrushTheme(root, this.themePreference),
             this.accentColorPreference,
             this.colorThemePreference,
-            TryGetApplicationSystemAccentColor());
+            TryGetApplicationSystemAccentColor(),
+            this.customAccentColor,
+            this.customColorTheme);
         ApplyThemePalette(root, palette);
+    }
+
+    private void UpdateAppearanceColorPickers()
+    {
+        this.updatingAppearanceInputs = true;
+        try
+        {
+            this.customAccentColorInput.Color = this.ResolveCustomAccentColor();
+            this.customColorThemeInput.Color = this.ResolveCustomColorTheme();
+            this.UpdateCustomColorInputVisibility();
+        }
+        finally
+        {
+            this.updatingAppearanceInputs = false;
+        }
+    }
+
+    private void UpdateCustomColorInputVisibility()
+    {
+        this.customAccentColorField.Visibility = this.accentColorPreference == WindowsAccentColorPreference.Custom
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        this.customColorThemeField.Visibility = this.colorThemePreference == WindowsColorThemePreference.Custom
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
+
+    private Color ResolveCustomAccentColor()
+    {
+        return this.customAccentColor ?? DefaultCustomAccentColor();
+    }
+
+    private Color ResolveCustomColorTheme()
+    {
+        return this.customColorTheme ?? DefaultCustomColorTheme();
+    }
+
+    private static Color DefaultCustomAccentColor()
+    {
+        return WindowsThemePaletteResolver.ResolveAccentColor(WindowsAccentColorPreference.Blue, ElementTheme.Light);
+    }
+
+    private static Color DefaultCustomColorTheme()
+    {
+        return Color.FromArgb(255, 40, 80, 160);
+    }
+
+    private static Color? NormalizeOpaqueColor(Color? color)
+    {
+        return color is { } value
+            ? NormalizeOpaqueColor(value)
+            : null;
+    }
+
+    private static Color NormalizeOpaqueColor(Color color)
+    {
+        return Color.FromArgb(255, color.R, color.G, color.B);
     }
 
     private static void ApplyThemePalette(FrameworkElement root, WindowsThemePalette palette)
@@ -2790,7 +2941,9 @@ public sealed class MainWindow : Window
             this.ApplyAppearancePreferences(
                 preferences.ThemePreference,
                 preferences.AccentColorPreference,
-                preferences.ColorThemePreference);
+                preferences.CustomAccentColor,
+                preferences.ColorThemePreference,
+                preferences.CustomColorTheme);
             this.sessionEventVisibility = preferences.SessionEventVisibility.WithObservedEvents(this.chatRealtimeEvents);
             this.notificationPreferences = preferences.NotificationPreferences;
             this.notificationRulePreferences = WindowsNotificationRuleEvaluator.NormalizePreferences(preferences.NotificationRules);
@@ -3782,8 +3935,8 @@ public sealed class MainWindow : Window
         this.settingsText.Text =
             $"Open main window on launch: {preferences.OpenMainWindowOnLaunch}\n" +
             $"Theme: {preferences.ThemePreference}\n" +
-            $"Accent color: {preferences.AccentColorPreference}\n" +
-            $"Color theme: {preferences.ColorThemePreference}\n" +
+            $"Accent color: {preferences.AccentColorPreference}{FormatOptionalColor(preferences.CustomAccentColor)}\n" +
+            $"Color theme: {preferences.ColorThemePreference}{FormatOptionalColor(preferences.CustomColorTheme)}\n" +
             $"Last status: {preferences.LastStatus ?? "unknown"}\n" +
             $"Last checked: {preferences.LastStatusCheckedAt?.ToLocalTime().ToString("g", CultureInfo.CurrentCulture) ?? "never"}\n" +
             $"Device token cached: {!string.IsNullOrWhiteSpace(preferences.DeviceToken)}\n" +
@@ -3805,6 +3958,13 @@ public sealed class MainWindow : Window
             $"Gateway health alerts: {preferences.NotificationPreferences.GatewayHealthAlerts}\n" +
             $"Device permission alerts: {preferences.NotificationPreferences.DevicePermissionAlerts}\n" +
             $"Notification rules: {preferences.NotificationRules.Rules.Count}";
+    }
+
+    private static string FormatOptionalColor(Color? color)
+    {
+        return color is { } value
+            ? $" #{value.R:X2}{value.G:X2}{value.B:X2}"
+            : "";
     }
 
     private void RenderSettingsStorage()
@@ -4106,7 +4266,9 @@ public sealed class MainWindow : Window
                 : this.chatSessionInput.Text.Trim(),
             ThemePreference = this.themePreference,
             AccentColorPreference = this.accentColorPreference,
+            CustomAccentColor = this.customAccentColor,
             ColorThemePreference = this.colorThemePreference,
+            CustomColorTheme = this.customColorTheme,
             CanvasNodeEnabled = this.canvasNodeEnabled,
             SessionEventVisibility = this.sessionEventVisibility.WithObservedEvents(this.chatRealtimeEvents),
             NotificationPreferences = this.notificationPreferences,
@@ -4506,6 +4668,11 @@ public sealed class MainWindow : Window
         return AppPreferences.Default with
         {
             GatewayUrl = string.IsNullOrWhiteSpace(this.gatewayUrlInput.Text) ? AppPreferences.Default.GatewayUrl : this.gatewayUrlInput.Text.Trim(),
+            ThemePreference = this.themePreference,
+            AccentColorPreference = this.accentColorPreference,
+            CustomAccentColor = this.customAccentColor,
+            ColorThemePreference = this.colorThemePreference,
+            CustomColorTheme = this.customColorTheme,
             NotificationPreferences = this.notificationPreferences,
             NotificationRules = this.notificationRulePreferences,
             Topology = this.topologyPreferences,
