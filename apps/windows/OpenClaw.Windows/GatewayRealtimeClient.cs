@@ -318,7 +318,7 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
         }
 
         return messages.EnumerateArray()
-            .Select(ParseChatMessage)
+            .Select(ChatTranscriptProjector.Project)
             .Where(static message => message is not null)
             .Cast<ChatMessage>()
             .ToArray();
@@ -787,17 +787,6 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
                 completion.TrySetException(exception);
             }
         }
-    }
-
-    private static ChatMessage? ParseChatMessage(JsonElement element)
-    {
-        var role = ReadString(element, "role") ?? ReadString(element, "kind") ?? "message";
-        var text =
-            ReadString(element, "text") ??
-            ReadString(element, "content") ??
-            ReadString(element, "message") ??
-            element.ToString();
-        return string.IsNullOrWhiteSpace(text) ? null : new ChatMessage(role, text);
     }
 
     private static SessionSummary? ParseSessionSummary(JsonElement element)

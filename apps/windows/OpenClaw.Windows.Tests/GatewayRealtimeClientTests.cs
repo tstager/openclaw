@@ -14,15 +14,87 @@ public sealed class GatewayRealtimeClientTests
     public void ParsesChatHistoryPayload()
     {
         using var document = JsonDocument.Parse(
-            """{"messages":[{"role":"user","text":"hello"},{"role":"assistant","content":"hi"}]}""");
+            """{"messages":[{"role":"user","text":"hello"},{"role":"assistant","content":"hi"},{"role":"assistant","content":[{"type":"text","text":"array text"}]}]}""");
 
         var messages = GatewayRealtimeClient.ParseChatHistoryPayload(document.RootElement);
 
-        Assert.HasCount(2, messages);
+        Assert.HasCount(3, messages);
         Assert.AreEqual("user", messages[0].Role);
         Assert.AreEqual("hello", messages[0].Text);
         Assert.AreEqual("assistant", messages[1].Role);
         Assert.AreEqual("hi", messages[1].Text);
+        Assert.AreEqual("assistant", messages[2].Role);
+        Assert.AreEqual("array text", messages[2].Text);
+    }
+
+    [TestMethod]
+    public void ParsesChatHistoryPayloadFiltersOperationalRecords()
+    {
+        using var document = JsonDocument.Parse(
+            """
+            {
+              "messages": [
+                {
+                  "role": "assistant",
+                  "content": [
+                    { "type": "toolCall", "id": "call_1", "name": "shell", "arguments": {} }
+                  ]
+                },
+                {
+                  "role": "tool",
+                  "content": "shell output"
+                },
+                {
+                  "type": "tool.call.started",
+                  "data": { "name": "shell" }
+                },
+                {
+                  "event": "chat",
+                  "payload": {
+                    "state": "final",
+                    "message": {
+                      "role": "assistant",
+                      "content": [{ "type": "text", "text": "Done." }]
+                    }
+                  }
+                },
+                {
+                  "role": "assistant",
+                  "content": "{\"type\":\"tool.call.completed\",\"data\":{\"name\":\"shell\"}}\n{\"type\":\"assistant.message\",\"data\":{\"text\":\"Visible answer\"}}"
+                }
+              ]
+            }
+            """);
+
+        var messages = GatewayRealtimeClient.ParseChatHistoryPayload(document.RootElement);
+
+        Assert.HasCount(2, messages);
+        Assert.AreEqual("assistant", messages[0].Role);
+        Assert.AreEqual("Done.", messages[0].Text);
+        Assert.AreEqual("assistant", messages[1].Role);
+        Assert.AreEqual("Visible answer", messages[1].Text);
+    }
+
+    [TestMethod]
+    public void ParsesChatHistoryPayloadPreservesAssistantJsonAnswers()
+    {
+        using var document = JsonDocument.Parse(
+            """
+            {
+              "messages": [
+                {
+                  "role": "assistant",
+                  "content": "{\"answer\":true,\"items\":[1,2]}"
+                }
+              ]
+            }
+            """);
+
+        var messages = GatewayRealtimeClient.ParseChatHistoryPayload(document.RootElement);
+
+        Assert.HasCount(1, messages);
+        Assert.AreEqual("assistant", messages[0].Role);
+        Assert.AreEqual("{\"answer\":true,\"items\":[1,2]}", messages[0].Text);
     }
 
     [TestMethod]
