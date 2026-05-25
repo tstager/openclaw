@@ -4097,9 +4097,7 @@ public sealed class MainWindow : Window
             this.logsActivityRows.Children.Add(BuildDashboardCard(
                 null,
                 BuildSettingsSection(
-                    BuildDashboardRow(
-                        entry.CreatedAt.ToLocalTime().ToString("g", CultureInfo.CurrentCulture),
-                        $"{entry.Category}: {entry.Title}"),
+                    BuildTimestampSummaryRow(entry.CreatedAt, $"{entry.Category}: {entry.Title}"),
                     BuildDashboardRow("Destination", entry.Destination ?? "none"),
                     new TextBlock
                     {
@@ -4127,9 +4125,7 @@ public sealed class MainWindow : Window
             this.logsNotificationRows.Children.Add(BuildDashboardCard(
                 null,
                 BuildSettingsSection(
-                    BuildDashboardRow(
-                        entry.CreatedAt.ToLocalTime().ToString("g", CultureInfo.CurrentCulture),
-                        $"{entry.Kind}: {entry.Title}"),
+                    BuildTimestampSummaryRow(entry.CreatedAt, $"{entry.Kind}: {entry.Title}"),
                     BuildDashboardRow("Category", entry.Category),
                     BuildDashboardRow("Destination", entry.Destination),
                     new TextBlock
@@ -5308,8 +5304,8 @@ public sealed class MainWindow : Window
 
         foreach (var entry in entries.Take(5))
         {
-            this.homeNotificationRows.Children.Add(BuildDashboardRow(
-                entry.CreatedAt.ToLocalTime().ToString("g", CultureInfo.CurrentCulture),
+            this.homeNotificationRows.Children.Add(BuildTimestampSummaryRow(
+                entry.CreatedAt,
                 $"{entry.Kind}/{entry.Category}: {entry.Title}"));
         }
     }
@@ -5403,6 +5399,24 @@ public sealed class MainWindow : Window
         };
         Grid.SetColumn(valueText, 1);
         row.Children.Add(valueText);
+        return row;
+    }
+
+    private static UIElement BuildTimestampSummaryRow(DateTimeOffset createdAt, string summary)
+    {
+        var row = new StackPanel { Spacing = 4 };
+        row.Children.Add(new TextBlock
+        {
+            Text = createdAt.ToLocalTime().ToString("g", CultureInfo.CurrentCulture),
+            TextWrapping = TextWrapping.NoWrap,
+            Foreground = ResourceBrush("TextFillColorSecondaryBrush"),
+        });
+        row.Children.Add(new TextBlock
+        {
+            Text = summary,
+            TextWrapping = TextWrapping.Wrap,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+        });
         return row;
     }
 
