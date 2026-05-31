@@ -102,6 +102,26 @@ public sealed record WindowsPolicyPreferences(
 }
 
 /// <summary>
+/// Persisted local policy for the Windows node's secure system execution commands.
+/// </summary>
+/// <remarks>
+/// System execution (<c>system.which</c>/<c>system.run.prepare</c>/<c>system.run</c>) is off by default and must be
+/// locally enabled before the node advertises it. An optional allowlist restricts which executables may run; an
+/// empty allowlist permits any executable once execution is enabled. The gateway separately requires admin-approved
+/// node pairing, so this is local defense in depth.
+/// </remarks>
+public sealed record WindowsExecutionPolicyPreferences(
+    bool AllowSystemExecution,
+    IReadOnlyList<string> AllowedCommands,
+    int DefaultTimeoutMs)
+{
+    public static WindowsExecutionPolicyPreferences Default { get; } = new(
+        AllowSystemExecution: false,
+        AllowedCommands: [],
+        DefaultTimeoutMs: 30_000);
+}
+
+/// <summary>
 /// Non-secret app settings persisted between Windows companion sessions.
 /// </summary>
 public sealed record AppPreferences(
@@ -125,7 +145,8 @@ public sealed record AppPreferences(
     WindowsNotificationRulePreferences NotificationRules,
     WindowsTopologyPreferences Topology,
     WindowsDiagnosticsPreferences Diagnostics,
-    WindowsPolicyPreferences Policy)
+    WindowsPolicyPreferences Policy,
+    WindowsExecutionPolicyPreferences Execution)
 {
     /// <summary>
     /// Defaults used for a fresh install and for missing/invalid persisted fields.
@@ -151,7 +172,8 @@ public sealed record AppPreferences(
         NotificationRules: WindowsNotificationRulePreferences.Default,
         Topology: WindowsTopologyPreferences.Default,
         Diagnostics: WindowsDiagnosticsPreferences.Default,
-        Policy: WindowsPolicyPreferences.Default);
+        Policy: WindowsPolicyPreferences.Default,
+        Execution: WindowsExecutionPolicyPreferences.Default);
 }
 
 /// <summary>
@@ -331,7 +353,8 @@ public sealed class AppPreferencesStore : IDisposable
         PersistedWindowsNotificationRulePreferences? NotificationRules,
         WindowsTopologyPreferences? Topology,
         WindowsDiagnosticsPreferences? Diagnostics,
-        PersistedWindowsPolicyPreferences? Policy)
+        PersistedWindowsPolicyPreferences? Policy,
+        PersistedWindowsExecutionPolicyPreferences? Execution)
     {
         public static PersistedAppPreferences From(AppPreferences preferences)
         {
@@ -358,7 +381,8 @@ public sealed class AppPreferencesStore : IDisposable
                 PersistedWindowsNotificationRulePreferences.From(preferences.NotificationRules),
                 preferences.Topology,
                 preferences.Diagnostics,
-                PersistedWindowsPolicyPreferences.From(preferences.Policy));
+                PersistedWindowsPolicyPreferences.From(preferences.Policy),
+                PersistedWindowsExecutionPolicyPreferences.From(preferences.Execution));
         }
 
         public AppPreferences ToAppPreferences()
@@ -400,7 +424,8 @@ public sealed class AppPreferencesStore : IDisposable
                 this.NotificationRules?.ToPreferences() ?? WindowsNotificationRulePreferences.Default,
                 this.Topology ?? WindowsTopologyPreferences.Default,
                 NormalizeDiagnostics(this.Diagnostics),
-                this.Policy?.ToPolicyPreferences() ?? WindowsPolicyPreferences.Default);
+                this.Policy?.ToPolicyPreferences() ?? WindowsPolicyPreferences.Default,
+                this.Execution?.ToExecutionPreferences() ?? WindowsExecutionPolicyPreferences.Default);
         }
 
         private static WindowsThemePreference ParseThemePreference(string? value)
@@ -573,6 +598,35 @@ public sealed class AppPreferencesStore : IDisposable
             return Enum.TryParse<WindowsApprovalPolicyPreference>(value, ignoreCase: true, out var policy)
                 ? policy
                 : WindowsPolicyPreferences.Default.ApprovalPolicy;
+        }
+    }
+
+    private sealed record PersistedWindowsExecutionPolicyPreferences(
+        bool AllowSystemExecution,
+        string[]? AllowedCommands,
+        int? DefaultTimeoutMs)
+    {
+        public static PersistedWindowsExecutionPolicyPreferences From(WindowsExecutionPolicyPreferences preferences)
+        {
+            return new PersistedWindowsExecutionPolicyPreferences(
+                preferences.AllowSystemExecution,
+                preferences.AllowedCommands.ToArray(),
+                preferences.DefaultTimeoutMs);
+        }
+
+        public WindowsExecutionPolicyPreferences ToExecutionPreferences()
+        {
+            var timeout = this.DefaultTimeoutMs is > 0
+                ? this.DefaultTimeoutMs.Value
+                : WindowsExecutionPolicyPreferences.Default.DefaultTimeoutMs;
+            return new WindowsExecutionPolicyPreferences(
+                this.AllowSystemExecution,
+                (this.AllowedCommands ?? [])
+                    .Where(static command => !string.IsNullOrWhiteSpace(command))
+                    .Select(static command => command.Trim())
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToArray(),
+                timeout);
         }
     }
 }

@@ -50,6 +50,14 @@ public sealed record WindowsNodeSurface(
             permissions["camera.capture"] = true;
         }
 
+        if (preferences.Execution.AllowSystemExecution)
+        {
+            commands.Add(WindowsNodeSystemCommands.Which);
+            commands.Add(WindowsNodeSystemCommands.RunPrepare);
+            commands.Add(WindowsNodeSystemCommands.Run);
+            permissions["system.run"] = true;
+        }
+
         if (host.SupportsMicrophoneCapture)
         {
             permissions["microphone"] = preferences.VoiceControlsEnabled;

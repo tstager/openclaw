@@ -105,6 +105,17 @@ public sealed class WindowsCanvasNodeClient : IAsyncDisposable
         await this.ConnectAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// Sends a best-effort node event (e.g. exec.finished / exec.denied) to the gateway.
+    /// </summary>
+    public async Task SendEventAsync(
+        string @event,
+        string payloadJson,
+        CancellationToken cancellationToken = default)
+    {
+        await this.RequestAsync("node.event", new { @event, payloadJSON = payloadJson }, cancellationToken);
+    }
+
     public async Task<string?> RefreshCanvasSurfaceUrlAsync(CancellationToken cancellationToken = default)
     {
         var payload = await this.RequestAsync(

@@ -2961,7 +2961,7 @@ public sealed class MainWindow : Window
     private WindowsNodeCommandRegistry BuildNodeCommandRegistry(AppPreferences preferences)
     {
         var surface = WindowsNodeSurface.Build(WindowsHostCapabilityProbe.Current, preferences);
-        var handlers = this.BuildNodeCommandHandlers();
+        var handlers = this.BuildNodeCommandHandlers(preferences);
         var registry = new WindowsNodeCommandRegistry();
         foreach (var capability in surface.Capabilities)
         {
@@ -2989,8 +2989,12 @@ public sealed class MainWindow : Window
     /// Maps node command names to their native handlers. Canvas/A2UI commands run on the UI thread via the
     /// shared wrapper; native device handlers (screen/camera) are added as they are implemented.
     /// </summary>
-    private Dictionary<string, WindowsNodeCommandHandler> BuildNodeCommandHandlers()
+    private Dictionary<string, WindowsNodeCommandHandler> BuildNodeCommandHandlers(AppPreferences preferences)
     {
+        var systemCommands = new WindowsNodeSystemCommandService(
+            preferences.Execution,
+            new WindowsProcessCommandExecutor(),
+            new CanvasNodeEventSink(this.appState.CanvasNode));
         return new Dictionary<string, WindowsNodeCommandHandler>(StringComparer.Ordinal)
         {
             [WindowsCanvasCommands.Present] =
@@ -3044,6 +3048,12 @@ public sealed class MainWindow : Window
                     var devices = await WindowsDeviceCapabilityService.ListCameraDevicesAsync();
                     return WindowsNodeDeviceCommands.CameraListResponse(devices);
                 }),
+            [WindowsNodeSystemCommands.Which] =
+                (request, ct) => this.RunDeviceCommandAsync(ct, innerCt => systemCommands.WhichAsync(request, innerCt)),
+            [WindowsNodeSystemCommands.RunPrepare] =
+                (request, ct) => this.RunDeviceCommandAsync(ct, innerCt => systemCommands.PrepareAsync(request, innerCt)),
+            [WindowsNodeSystemCommands.Run] =
+                (request, ct) => this.RunDeviceCommandAsync(ct, innerCt => systemCommands.RunAsync(request, innerCt)),
         };
     }
 
@@ -4538,6 +4548,7 @@ public sealed class MainWindow : Window
             $"Operator scopes: {this.appState.Realtime.Authorization?.ScopeSummary ?? "Not connected."}\n" +
             $"Device token cached: {!string.IsNullOrWhiteSpace(preferences.DeviceToken)}\n" +
             $"Canvas node: {preferences.CanvasNodeEnabled}\n" +
+            $"System execution: {FormatSystemExecutionSummary(preferences.Execution)}\n" +
             $"Voice controls: {preferences.VoiceControlsEnabled}\n" +
             $"Global hotkey: {preferences.GlobalHotkeyEnabled}\n" +
             $"Approval policy: {preferences.Policy.ApprovalPolicy}\n" +
@@ -4555,6 +4566,18 @@ public sealed class MainWindow : Window
             $"Gateway health alerts: {preferences.NotificationPreferences.GatewayHealthAlerts}\n" +
             $"Device permission alerts: {preferences.NotificationPreferences.DevicePermissionAlerts}\n" +
             $"Notification rules: {preferences.NotificationRules.Rules.Count}";
+    }
+
+    private static string FormatSystemExecutionSummary(WindowsExecutionPolicyPreferences execution)
+    {
+        if (!execution.AllowSystemExecution)
+        {
+            return "Disabled";
+        }
+        var scope = execution.AllowedCommands.Count == 0
+            ? "any command"
+            : $"allowlist of {execution.AllowedCommands.Count} command(s)";
+        return $"Enabled ({scope}, {execution.DefaultTimeoutMs} ms timeout)";
     }
 
     private static string FormatOptionalColor(Color? color)
