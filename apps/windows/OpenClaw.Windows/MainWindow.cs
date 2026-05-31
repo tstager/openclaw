@@ -227,32 +227,43 @@ public sealed class MainWindow : Window
         this.Closed += this.OnClosed;
         this.AppWindow.Closing += this.OnAppWindowClosing;
         this.Content = this.BuildContent();
-        this.RegisterCompanionSettingsAccelerator();
+        this.RegisterCompanionSettingsShortcut();
     }
 
+    // OEM_1 ';' — there is no named VirtualKey for it; reading this value off a KeyDown is safe (only binding it to a
+    // KeyboardAccelerator fault-fails the XAML layer at construction, which is why this uses a key handler instead).
+    private const VirtualKey SemicolonKey = (VirtualKey)0xBA;
+
     /// <summary>
-    /// Registers the real Ctrl+Alt+; shell accelerator that opens Companion Settings, so the matching hint shown
-    /// on the tray flyout's settings row (<see cref="TrayFlyoutComposer.CompanionSettingsAccelerator"/>) is truthful.
+    /// Wires the real Ctrl+Alt+; shell shortcut that opens Companion Settings, so the matching hint shown on the
+    /// tray flyout's settings row (<see cref="TrayFlyoutComposer.CompanionSettingsAccelerator"/>) is truthful. A
+    /// <c>KeyboardAccelerator</c> cannot bind ';' (an undefined OEM VirtualKey) without a native fail-fast, so the
+    /// chord is detected from the bubbled KeyDown instead, matching how the shell reads modifier state elsewhere.
     /// </summary>
-    private void RegisterCompanionSettingsAccelerator()
+    private void RegisterCompanionSettingsShortcut()
     {
-        if (this.Content is not UIElement root)
+        if (this.Content is UIElement root)
+        {
+            root.KeyDown += this.OnShellKeyDown;
+        }
+    }
+
+    private void OnShellKeyDown(object sender, KeyRoutedEventArgs args)
+    {
+        if (args.Key != SemicolonKey)
         {
             return;
         }
 
-        // VirtualKey has no named member for ';' (OEM_1 = 0xBA); the numeric cast is the standard way to bind it.
-        var accelerator = new KeyboardAccelerator
-        {
-            Key = (VirtualKey)0xBA,
-            Modifiers = VirtualKeyModifiers.Control | VirtualKeyModifiers.Menu,
-        };
-        accelerator.Invoked += (_, args) =>
+        var control = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control)
+            .HasFlag(global::Windows.UI.Core.CoreVirtualKeyStates.Down);
+        var alt = InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Menu)
+            .HasFlag(global::Windows.UI.Core.CoreVirtualKeyStates.Down);
+        if (control && alt)
         {
             args.Handled = true;
             this.ShowDestination(WindowsNavigationDestination.Settings);
-        };
-        root.KeyboardAccelerators.Add(accelerator);
+        }
     }
 
     /// <summary>
