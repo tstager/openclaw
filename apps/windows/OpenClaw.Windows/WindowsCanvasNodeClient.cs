@@ -56,7 +56,10 @@ public sealed class WindowsCanvasNodeClient : IAsyncDisposable
 
     public string? A2UIHostUrl => WindowsCanvasA2UIUrl.ResolveFromCanvasPluginSurfaceUrl(this.CanvasSurfaceUrl);
 
-    public Func<WindowsCanvasInvokeRequest, CancellationToken, Task<WindowsCanvasInvokeResponse>>? InvokeAsync { get; set; }
+    /// <summary>
+    /// Command registry that supplies the advertised node surface (caps/commands/permissions) and handles invokes.
+    /// </summary>
+    public WindowsNodeCommandRegistry? Commands { get; set; }
 
     public event Action<WindowsCanvasNodeState, string?>? StateChanged;
 
@@ -205,9 +208,11 @@ public sealed class WindowsCanvasNodeClient : IAsyncDisposable
             },
             ["role"] = ClientRole,
             ["scopes"] = Array.Empty<string>(),
-            ["caps"] = new[] { "canvas" },
-            ["commands"] = WindowsCanvasCommands.All,
-            ["permissions"] = new { },
+            ["caps"] = this.Commands?.Capabilities.ToArray() ?? [],
+            ["commands"] = this.Commands?.Commands.ToArray() ?? [],
+            ["permissions"] = this.Commands is { } registry
+                ? registry.Permissions.ToDictionary(entry => entry.Key, entry => entry.Value, StringComparer.Ordinal)
+                : new Dictionary<string, object?>(StringComparer.Ordinal),
             ["locale"] = Thread.CurrentThread.CurrentCulture.Name,
             ["userAgent"] = "openclaw-windows/0.1.0",
             ["device"] = new
@@ -372,17 +377,17 @@ public sealed class WindowsCanvasNodeClient : IAsyncDisposable
         {
             CrashLog.WriteMessage(
                 $"Canvas node invoke handling: command={request.Command} id={request.Id} nodeId={request.NodeId} timeoutMs={request.TimeoutMs?.ToString(CultureInfo.InvariantCulture) ?? ""}");
-            var handler = this.InvokeAsync;
-            if (handler is null)
+            var registry = this.Commands;
+            if (registry is null)
             {
-                response = WindowsCanvasInvokeResponse.Failure("UNAVAILABLE", "Windows Canvas handler is not ready.");
+                response = WindowsCanvasInvokeResponse.Failure("UNAVAILABLE", "Windows node command registry is not ready.");
             }
             else
             {
                 using var handlerCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 var handlerTimeout = ResolveInvokeHandlerTimeout(request.TimeoutMs);
                 handlerCts.CancelAfter(handlerTimeout);
-                response = await handler(request, handlerCts.Token);
+                response = await registry.InvokeAsync(request, handlerCts.Token);
             }
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
