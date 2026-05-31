@@ -4,90 +4,53 @@ using System.Windows.Forms;
 namespace OpenClaw.Windows.Native;
 
 /// <summary>
-/// WinForms NotifyIcon bridge used because WinUI 3 has no built-in tray icon API.
+/// Screen position, in physical pixels, where the tray flyout should be anchored.
+/// </summary>
+public readonly record struct TrayAnchorPoint(int X, int Y);
+
+/// <summary>
+/// WinForms <see cref="NotifyIcon"/> bridge used because WinUI 3 has no built-in tray icon API.
+/// The visible tray UX is a WinUI flyout owned by the app; this host only manages the icon and
+/// raises an event when the operator asks to open that flyout.
 /// </summary>
 public sealed class WindowsTrayHost : IDisposable
 {
     private readonly NotifyIcon notifyIcon;
-    private readonly ToolStripMenuItem statusItem;
-    private readonly ToolStripMenuItem activityItem;
+    private readonly Action onShow;
+    private readonly Action onNotificationClicked;
 
-    public WindowsTrayHost(
-        Func<string> getGatewayStatus,
-        Func<string> getLatestActivity,
-        Action onShow,
-        Action onShowHome,
-        Action onShowLogs,
-        Action onShowSettings,
-        Action onInstallGateway,
-        Action onStartGateway,
-        Action onRestartGateway,
-        Action onStopGateway,
-        Action onConnect,
-        Action onOpenLogs,
-        Action onNotificationClicked,
-        Action onExit)
+    /// <summary>
+    /// Creates the tray icon. <paramref name="onShow"/> opens the main app on double-click; the
+    /// owner shows the WinUI flyout in response to <see cref="TrayActivated"/>.
+    /// </summary>
+    public WindowsTrayHost(Action onShow, Action onNotificationClicked)
     {
-        // Menu status rows are refreshed lazily so tray state reflects the latest coordinator values.
-        this.statusItem = new ToolStripMenuItem("Gateway: Unknown")
-        {
-            Enabled = false,
-        };
-        this.activityItem = new ToolStripMenuItem("Activity: None")
-        {
-            Enabled = false,
-        };
+        this.onShow = onShow;
+        this.onNotificationClicked = onNotificationClicked;
         this.notifyIcon = new NotifyIcon
         {
             Icon = SystemIcons.Application,
             Text = "OpenClaw",
             Visible = true,
-            ContextMenuStrip = new ContextMenuStrip(),
         };
-        this.notifyIcon.ContextMenuStrip.Opening += (_, _) =>
-        {
-            this.statusItem.Text = $"Gateway: {getGatewayStatus()}";
-            this.activityItem.Text = $"Activity: {getLatestActivity()}";
-        };
-        this.notifyIcon.ContextMenuStrip.Items.Add(this.statusItem);
-        this.notifyIcon.ContextMenuStrip.Items.Add(this.activityItem);
-        this.notifyIcon.ContextMenuStrip.Items.Add(new ToolStripSeparator());
-        this.notifyIcon.ContextMenuStrip.Items.Add("Open OpenClaw", null, (_, _) => onShow());
-        this.notifyIcon.ContextMenuStrip.Items.Add("Home", null, (_, _) => onShowHome());
-        this.notifyIcon.ContextMenuStrip.Items.Add("Logs", null, (_, _) => onShowLogs());
-        this.notifyIcon.ContextMenuStrip.Items.Add("Settings", null, (_, _) => onShowSettings());
-        this.notifyIcon.ContextMenuStrip.Items.Add(new ToolStripSeparator());
-        this.notifyIcon.ContextMenuStrip.Items.Add("Install Gateway", null, (_, _) => onInstallGateway());
-        this.notifyIcon.ContextMenuStrip.Items.Add("Start Gateway", null, (_, _) => onStartGateway());
-        this.notifyIcon.ContextMenuStrip.Items.Add("Restart Gateway", null, (_, _) => onRestartGateway());
-        this.notifyIcon.ContextMenuStrip.Items.Add("Stop Gateway", null, (_, _) => onStopGateway());
-        this.notifyIcon.ContextMenuStrip.Items.Add("Connect", null, (_, _) => onConnect());
-        this.notifyIcon.ContextMenuStrip.Items.Add("Open Logs", null, (_, _) => onOpenLogs());
-        this.notifyIcon.ContextMenuStrip.Items.Add(new ToolStripSeparator());
-        this.notifyIcon.ContextMenuStrip.Items.Add("Exit", null, (_, _) => onExit());
-        this.notifyIcon.DoubleClick += (_, _) => onShow();
-        this.notifyIcon.BalloonTipClicked += (_, _) => onNotificationClicked();
+        this.notifyIcon.MouseUp += this.OnMouseUp;
+        this.notifyIcon.DoubleClick += (_, _) => this.onShow();
+        this.notifyIcon.BalloonTipClicked += (_, _) => this.onNotificationClicked();
     }
 
-    public void ApplyTheme(WindowsTrayThemePalette palette)
+    /// <summary>
+    /// Raised when the operator left- or right-clicks the tray icon so the owner can show the flyout
+    /// anchored at the supplied screen position.
+    /// </summary>
+    public event Action<TrayAnchorPoint>? TrayActivated;
+
+    /// <summary>
+    /// Updates the tray icon tooltip text shown on hover.
+    /// </summary>
+    public void SetTooltip(string text)
     {
-        var menu = this.notifyIcon.ContextMenuStrip;
-        if (menu is null)
-        {
-            return;
-        }
-
-        menu.BackColor = palette.Background;
-        menu.ForeColor = palette.Text;
-        menu.Renderer = new ToolStripProfessionalRenderer(new WindowsTrayColorTable(palette));
-        foreach (ToolStripItem item in menu.Items)
-        {
-            item.BackColor = palette.Background;
-            item.ForeColor = item.Enabled ? palette.Text : palette.SecondaryText;
-        }
-
-        this.statusItem.ForeColor = palette.SecondaryText;
-        this.activityItem.ForeColor = palette.SecondaryText;
+        // NotifyIcon truncates tooltips past 63 chars and throws on longer values, so guard the length.
+        this.notifyIcon.Text = text.Length > 63 ? text[..63] : text;
     }
 
     /// <summary>
@@ -101,31 +64,17 @@ public sealed class WindowsTrayHost : IDisposable
     public void Dispose()
     {
         this.notifyIcon.Visible = false;
-        this.notifyIcon.ContextMenuStrip?.Dispose();
         this.notifyIcon.Dispose();
     }
-}
 
-public sealed record WindowsTrayThemePalette(
-    Color Background,
-    Color Border,
-    Color Text,
-    Color SecondaryText,
-    Color Accent,
-    Color AccentText);
+    private void OnMouseUp(object? sender, MouseEventArgs e)
+    {
+        if (e.Button is not (MouseButtons.Left or MouseButtons.Right))
+        {
+            return;
+        }
 
-internal sealed class WindowsTrayColorTable(WindowsTrayThemePalette palette) : ProfessionalColorTable
-{
-    public override Color ToolStripDropDownBackground => palette.Background;
-    public override Color ImageMarginGradientBegin => palette.Background;
-    public override Color ImageMarginGradientMiddle => palette.Background;
-    public override Color ImageMarginGradientEnd => palette.Background;
-    public override Color MenuBorder => palette.Border;
-    public override Color MenuItemBorder => palette.Accent;
-    public override Color MenuItemSelected => palette.Accent;
-    public override Color MenuItemSelectedGradientBegin => palette.Accent;
-    public override Color MenuItemSelectedGradientEnd => palette.Accent;
-    public override Color SeparatorDark => palette.Border;
-    public override Color SeparatorLight => palette.Border;
-    public override Color ToolStripBorder => palette.Border;
+        var cursor = Cursor.Position;
+        this.TrayActivated?.Invoke(new TrayAnchorPoint(cursor.X, cursor.Y));
+    }
 }

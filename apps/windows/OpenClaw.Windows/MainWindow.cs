@@ -185,6 +185,8 @@ public sealed class MainWindow : Window
     private string hotkeyActionResult = "Global hotkey preference has not been saved yet.";
     private string overlayActionResult = "No overlay shown yet.";
     private WindowsTrayHost? trayHost;
+    private TrayFlyoutWindow? trayFlyout;
+    private AppPreferences currentPreferences = AppPreferences.Default;
     private WindowsGlobalHotkeyService? hotkeyService;
     private Window? overlayWindow;
     private NavigationView? navigationView;
@@ -260,12 +262,92 @@ public sealed class MainWindow : Window
         }
     }
 
+    /// <summary>
+    /// Invoked when the operator chooses Exit in the tray flyout so the app can release process-wide
+    /// resources (single-instance mutex, tray icon) and end the WinUI message loop.
+    /// </summary>
+    public Action? ExitRequested { get; set; }
+
     public void AttachTrayHost(WindowsTrayHost trayHost)
     {
         this.trayHost = trayHost;
-        if (this.Content is FrameworkElement root)
+        this.trayHost.TrayActivated += this.OnTrayActivated;
+        this.trayHost.SetTooltip($"OpenClaw - {this.GatewayStatusText}");
+    }
+
+    /// <summary>
+    /// Builds a display-ready tray snapshot from current live gateway, realtime, node, and preference state.
+    /// </summary>
+    public WindowsTraySnapshot BuildTraySnapshot()
+    {
+        return WindowsTraySnapshot.Create(
+            this.coordinator.GatewayStatus,
+            this.coordinator.RealtimeState,
+            this.appState.CanvasNode.State,
+            this.canvasNodeEnabled,
+            this.currentPreferences,
+            this.latestSessions.Count,
+            this.latestApprovals.Count,
+            this.latestPairingRequests.Count,
+            this.coordinator.LastActivity,
+            this.appState.Notifications.Latest);
+    }
+
+    /// <summary>
+    /// Shows the tray flyout anchored near the tray icon. Tray clicks arrive off the WinUI input flow,
+    /// so the host marshals this onto the window dispatcher before calling in.
+    /// </summary>
+    private void OnTrayActivated(TrayAnchorPoint anchor)
+    {
+        this.DispatcherQueue.TryEnqueue(() => this.ShowTrayFlyout(anchor));
+    }
+
+    private void ShowTrayFlyout(TrayAnchorPoint anchor)
+    {
+        this.trayFlyout ??= new TrayFlyoutWindow(this.RunTrayAction);
+        var snapshot = this.BuildTraySnapshot();
+        var model = TrayFlyoutComposer.Compose(snapshot);
+        var palette = this.ResolveCurrentPalette();
+        this.trayFlyout.ShowFor(model, palette, anchor);
+    }
+
+    /// <summary>
+    /// Routes a tray flyout row action onto the existing app entry points.
+    /// </summary>
+    private void RunTrayAction(TrayFlyoutAction action)
+    {
+        switch (action)
         {
-            this.trayHost.ApplyTheme(this.ResolveTrayThemePalette(root));
+            case TrayFlyoutAction.OpenShell:
+                this.ShowShell();
+                break;
+            case TrayFlyoutAction.OpenSettings:
+                this.ShowDestination(WindowsNavigationDestination.Settings);
+                break;
+            case TrayFlyoutAction.OpenLogs:
+                this.ShowDestination(WindowsNavigationDestination.Logs);
+                break;
+            case TrayFlyoutAction.ConnectRealtime:
+                this.ConnectGateway();
+                break;
+            case TrayFlyoutAction.DisconnectRealtime:
+                this.DisconnectGateway();
+                break;
+            case TrayFlyoutAction.RunGatewayInstall:
+                this.RunGatewayAction(GatewayCliAction.Install);
+                break;
+            case TrayFlyoutAction.RunGatewayStart:
+                this.RunGatewayAction(GatewayCliAction.Start);
+                break;
+            case TrayFlyoutAction.RunGatewayStop:
+                this.RunGatewayAction(GatewayCliAction.Stop);
+                break;
+            case TrayFlyoutAction.RunGatewayRestart:
+                this.RunGatewayAction(GatewayCliAction.Restart);
+                break;
+            case TrayFlyoutAction.Exit:
+                this.ExitRequested?.Invoke();
+                break;
         }
     }
 
@@ -306,6 +388,23 @@ public sealed class MainWindow : Window
         try
         {
             await this.ConnectRealtimeAsync();
+        }
+        catch (Exception ex)
+        {
+            this.ReportCommandError(ex);
+        }
+    }
+
+    /// <summary>
+    /// Tears down the realtime channel and Canvas node from tray/menu entry points.
+    /// </summary>
+    public async void DisconnectGateway()
+    {
+        try
+        {
+            await this.appState.CanvasNode.DisconnectAsync();
+            await this.appState.Realtime.DisconnectAsync();
+            await this.RecordActivityAsync("gateway", "Realtime disconnected", "Disconnected the Windows companion realtime channel.");
         }
         catch (Exception ex)
         {
@@ -1981,7 +2080,6 @@ public sealed class MainWindow : Window
             this.customAccentColor,
             this.customColorTheme);
         ApplyThemePalette(root, palette);
-        this.trayHost?.ApplyTheme(ToTrayThemePalette(palette));
     }
 
     private void UpdateAppearanceColorPickers()
@@ -2064,31 +2162,21 @@ public sealed class MainWindow : Window
         root.Resources["NavigationViewSelectionIndicatorForeground"] = AccentBrush;
     }
 
-    private WindowsTrayThemePalette ResolveTrayThemePalette(FrameworkElement root)
+    /// <summary>
+    /// Resolves the current app theme palette so the tray flyout themes itself exactly like the shell.
+    /// </summary>
+    private WindowsThemePalette ResolveCurrentPalette()
     {
-        return ToTrayThemePalette(WindowsThemePaletteResolver.Resolve(
-            ResolveBrushTheme(root, this.themePreference),
+        var brightness = this.Content is FrameworkElement root
+            ? ResolveBrushTheme(root, this.themePreference)
+            : (this.themePreference == WindowsThemePreference.Dark ? ElementTheme.Dark : ElementTheme.Light);
+        return WindowsThemePaletteResolver.Resolve(
+            brightness,
             this.accentColorPreference,
             this.colorThemePreference,
             TryGetApplicationSystemAccentColor(),
             this.customAccentColor,
-            this.customColorTheme));
-    }
-
-    private static WindowsTrayThemePalette ToTrayThemePalette(WindowsThemePalette palette)
-    {
-        return new WindowsTrayThemePalette(
-            ToDrawingColor(palette.CardBackgroundColor),
-            ToDrawingColor(palette.CardStrokeColor),
-            ToDrawingColor(palette.TextPrimaryColor),
-            ToDrawingColor(palette.TextSecondaryColor),
-            ToDrawingColor(palette.AccentColor),
-            ToDrawingColor(palette.AccentTextColor));
-    }
-
-    private static System.Drawing.Color ToDrawingColor(Color color)
-    {
-        return System.Drawing.Color.FromArgb(color.A, color.R, color.G, color.B);
+            this.customColorTheme);
     }
 
     private static Color? TryGetApplicationSystemAccentColor()
@@ -2961,6 +3049,7 @@ public sealed class MainWindow : Window
         }
         this.canvasWebView?.Close();
         this.hotkeyService?.Dispose();
+        this.trayFlyout?.Close();
         this.overlayWindow?.Close();
         this.screenRecordingCancellation?.Cancel();
         this.screenRecordingCancellation?.Dispose();
@@ -3005,6 +3094,7 @@ public sealed class MainWindow : Window
             this.RenderHomeDashboard();
 
             var preferences = await this.appState.Preferences.LoadAsync();
+            this.currentPreferences = preferences;
             this.lastGatewayStatusCheckedAt = preferences.LastStatusCheckedAt;
             this.gatewayUrlInput.Text = preferences.GatewayUrl;
             this.gatewayTokenInput.Password = preferences.GatewayToken ?? "";

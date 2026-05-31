@@ -61,41 +61,29 @@ public sealed partial class App : XamlApplication, IDisposable
                 preferences.ColorThemePreference,
                 preferences.CustomColorTheme);
             // Tray callbacks run outside WinUI's normal input flow, so marshal every UI action to the window dispatcher.
+            // The host only owns the NotifyIcon now; the WinUI flyout (shown via TrayActivated inside MainWindow)
+            // is the visible tray UX and routes the per-action commands itself.
             this.trayHost = new WindowsTrayHost(
-                getGatewayStatus: () => this.window.GatewayStatusText,
-                getLatestActivity: () => this.window.LatestActivityText,
                 onShow: () => this.window.DispatcherQueue.TryEnqueue(this.window.ShowShell),
-                onShowHome: () => this.window.DispatcherQueue.TryEnqueue(() => this.window.ShowDestination(WindowsNavigationDestination.Home)),
-                onShowLogs: () => this.window.DispatcherQueue.TryEnqueue(() => this.window.ShowDestination(WindowsNavigationDestination.Logs)),
-                onShowSettings: () => this.window.DispatcherQueue.TryEnqueue(() => this.window.ShowDestination(WindowsNavigationDestination.Settings)),
-                onInstallGateway: () => this.window.DispatcherQueue.TryEnqueue(() => this.window.RunGatewayAction(GatewayCliAction.Install)),
-                onStartGateway: () => this.window.DispatcherQueue.TryEnqueue(() => this.window.RunGatewayAction(GatewayCliAction.Start)),
-                onRestartGateway: () => this.window.DispatcherQueue.TryEnqueue(() => this.window.RunGatewayAction(GatewayCliAction.Restart)),
-                onStopGateway: () => this.window.DispatcherQueue.TryEnqueue(() => this.window.RunGatewayAction(GatewayCliAction.Stop)),
-                onConnect: () => this.window.DispatcherQueue.TryEnqueue(this.window.ConnectGateway),
-                onOpenLogs: () => this.window.DispatcherQueue.TryEnqueue(this.window.OpenLogs),
-                onNotificationClicked: () => this.window.DispatcherQueue.TryEnqueue(this.window.ShowLatestNotificationDestination),
-                onExit: () =>
+                onNotificationClicked: () => this.window.DispatcherQueue.TryEnqueue(this.window.ShowLatestNotificationDestination));
+            this.window.ExitRequested = () => this.window.DispatcherQueue.TryEnqueue(async () =>
+            {
+                try
                 {
-                    this.window.DispatcherQueue.TryEnqueue(async () =>
-                    {
-                        try
-                        {
-                            await this.window.ExitApplicationAsync();
-                        }
-                        catch (Exception ex)
-                        {
-                            CrashLog.Write(ex);
-                        }
-                        finally
-                        {
-                            this.trayHost?.Dispose();
-                            this.trayHost = null;
-                            this.ReleaseSingleInstanceMutex();
-                            Exit();
-                        }
-                    });
-                });
+                    await this.window.ExitApplicationAsync();
+                }
+                catch (Exception ex)
+                {
+                    CrashLog.Write(ex);
+                }
+                finally
+                {
+                    this.trayHost?.Dispose();
+                    this.trayHost = null;
+                    this.ReleaseSingleInstanceMutex();
+                    Exit();
+                }
+            });
             this.window.AttachTrayHost(this.trayHost);
 
             this.window.Closed += (_, _) =>
