@@ -143,11 +143,17 @@ Tasks:
 - Explain when node approval needs admin because the node advertises system execution commands.
 - Add a repair/re-request access flow for stale narrow device identity.
 - Integrate this into the implemented Home, Pairing, Devices, Logs, and Settings pages rather than adding a new page.
+- Surface the same node/pairing state in the tray flyout, reading the existing snapshot rather than building a parallel feed:
+  - Add per-node topology rows to `TrayFlyoutComposer` (this Windows node plus any remote nodes the gateway reports), each with an online/role line and a platform badge, mirroring the `openclaw-windows-node` reference flyout.
+  - Add a node-paired / connected-clients badge to the Gateway status row from the same connected-clients/pairing state this session surfaces.
+  - Decide the header master-toggle semantics here: the reference flyout's top-right switch is the Windows-node enablement master, so wire it to the node enable/disable preference rather than treating it as chrome.
+  - Extend `WindowsTraySnapshot` with the node/client fields these rows need; keep the composer purely a projection of that snapshot.
 - Keep the manual's deployment model intact: gateway remains the source of truth and the Windows companion remains an operator UX plus Windows-native capability host.
 
 Verification:
 
 - Windows tests for narrow-scope repair.
+- `TrayFlyoutComposer` tests assert per-node rows and the node-paired/client badge for representative snapshots.
 - VM test with gateway token and approved pairing.
 
 ## Session 7: Gateway Compatibility And Documentation
@@ -176,6 +182,7 @@ Tasks:
 - Launch the Windows app from repo build.
 - Verify operator connection grants expected scopes.
 - Verify Windows node appears in `openclaw nodes status`.
+- Verify the tray flyout shows the Windows node row and the node-paired badge once pairing is approved.
 - Verify Canvas/A2UI push renders.
 - Verify screen/camera commands work or return clear permission errors.
 - Verify `system.run` is blocked before admin-approved node pairing and succeeds within policy after approval.
