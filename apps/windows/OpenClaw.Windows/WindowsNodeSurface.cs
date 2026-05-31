@@ -34,10 +34,10 @@ public sealed record WindowsNodeSurface(
         if (host.SupportsScreenCapture)
         {
             capabilities.Add("screen");
-            commands.Add("screen.snapshot");
+            commands.Add(WindowsNodeDeviceCommands.ScreenSnapshot);
             if (host.SupportsScreenRecording)
             {
-                commands.Add("screen.record");
+                commands.Add(WindowsNodeDeviceCommands.ScreenRecord);
             }
             permissions["screen.record"] = host.SupportsScreenRecording;
         }
@@ -45,8 +45,8 @@ public sealed record WindowsNodeSurface(
         if (host.SupportsCameraCapture)
         {
             capabilities.Add("camera");
-            commands.Add("camera.list");
-            commands.Add("camera.snap");
+            commands.Add(WindowsNodeDeviceCommands.CameraList);
+            commands.Add(WindowsNodeDeviceCommands.CameraSnap);
             permissions["camera.capture"] = true;
         }
 

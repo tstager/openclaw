@@ -3011,7 +3011,68 @@ public sealed class MainWindow : Window
                 (request, ct) => this.RunNodeCommandAsync(ct, () => this.HandleCanvasA2UIPushAsync(request.ParamsJson)),
             [WindowsCanvasCommands.A2UIReset] =
                 (_, ct) => this.RunNodeCommandAsync(ct, () => this.HandleCanvasA2UIResetAsync()),
+            [WindowsNodeDeviceCommands.ScreenSnapshot] =
+                (_, ct) => this.RunDeviceCommandAsync(ct, async innerCt =>
+                {
+                    var result = await Task.Run(
+                        () => this.appState.DeviceCapabilities.CapturePrimaryScreen(),
+                        innerCt);
+                    return WindowsNodeDeviceCommands.ScreenSnapshotResponse(result);
+                }),
+            [WindowsNodeDeviceCommands.ScreenRecord] =
+                (request, ct) => this.RunDeviceCommandAsync(ct, async innerCt =>
+                {
+                    if (!WindowsNodeDeviceCommands.TryParseScreenRecordingOptions(
+                            request.ParamsJson,
+                            out var options,
+                            out var error))
+                    {
+                        return WindowsCanvasInvokeResponse.Failure("INVALID_REQUEST", error!);
+                    }
+                    var result = await this.appState.DeviceCapabilities.CaptureScreenRecordingAsync(options, innerCt);
+                    return WindowsNodeDeviceCommands.ScreenRecordingResponse(result);
+                }),
+            [WindowsNodeDeviceCommands.CameraSnap] =
+                (_, ct) => this.RunDeviceCommandAsync(ct, async _ =>
+                {
+                    var result = await this.appState.DeviceCapabilities.CaptureCameraPhotoAsync();
+                    return WindowsNodeDeviceCommands.CameraSnapshotResponse(result);
+                }),
+            [WindowsNodeDeviceCommands.CameraList] =
+                (_, ct) => this.RunDeviceCommandAsync(ct, async _ =>
+                {
+                    var devices = await WindowsDeviceCapabilityService.ListCameraDevicesAsync();
+                    return WindowsNodeDeviceCommands.CameraListResponse(devices);
+                }),
         };
+    }
+
+    /// <summary>
+    /// Runs a native device command off the UI thread with shared crash logging, mapping consent denials to
+    /// UNAUTHORIZED and other failures to UNAVAILABLE. Cancellation is rethrown so the transport reports TIMEOUT.
+    /// </summary>
+    private async Task<WindowsCanvasInvokeResponse> RunDeviceCommandAsync(
+        CancellationToken cancellationToken,
+        Func<CancellationToken, Task<WindowsCanvasInvokeResponse>> handler)
+    {
+        try
+        {
+            return await handler(cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            CrashLog.Write(ex);
+            return WindowsCanvasInvokeResponse.Failure("UNAUTHORIZED", ex.Message);
+        }
+        catch (Exception ex)
+        {
+            CrashLog.Write(ex);
+            return WindowsCanvasInvokeResponse.Failure("UNAVAILABLE", ex.Message);
+        }
     }
 
     /// <summary>
