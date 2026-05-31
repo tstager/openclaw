@@ -326,7 +326,7 @@ public sealed class MainWindow : Window
         // A transient flyout gets a fresh window per open; reusing one hidden window accumulates
         // windowing state that faults after a few open/close cycles.
         this.trayFlyout?.RequestClose();
-        var flyout = new TrayFlyoutWindow(this.RunTrayAction);
+        var flyout = new TrayFlyoutWindow(this.RunTrayAction, this.RunTrayToggle);
         this.trayFlyout = flyout;
         flyout.Closed += (_, _) =>
         {
@@ -404,6 +404,81 @@ public sealed class MainWindow : Window
                 this.ExitRequested?.Invoke();
                 break;
         }
+    }
+
+    /// <summary>
+    /// Flips a preference-backed capability toggle from the tray flyout without dismissing it. The new value is
+    /// applied to the in-memory mirror fields and the matching Settings-page checkbox immediately, the flyout is
+    /// refreshed in place so the indicator updates at once, then the preference is persisted in the background.
+    /// The save runs fire-and-forget because awaiting it could let the flyout deactivate; the click keeps focus
+    /// on the flyout, so there is no dismiss race.
+    /// </summary>
+    private void RunTrayToggle(TrayFlyoutAction action)
+    {
+        switch (action)
+        {
+            case TrayFlyoutAction.ToggleCanvasNode:
+                this.canvasNodeEnabled = !this.canvasNodeEnabled;
+                this.canvasNodeEnabledInput.IsChecked = this.canvasNodeEnabled;
+                break;
+            case TrayFlyoutAction.ToggleVoiceControls:
+                this.voiceControlsEnabled = !this.voiceControlsEnabled;
+                this.settingsVoiceControlsInput.IsChecked = this.voiceControlsEnabled;
+                break;
+            case TrayFlyoutAction.ToggleApprovalAlerts:
+                this.notificationPreferences = this.notificationPreferences with
+                {
+                    ApprovalAlerts = !this.notificationPreferences.ApprovalAlerts,
+                };
+                this.approvalAlertsInput.IsChecked = this.notificationPreferences.ApprovalAlerts;
+                break;
+            case TrayFlyoutAction.TogglePairingAlerts:
+                this.notificationPreferences = this.notificationPreferences with
+                {
+                    PairingAlerts = !this.notificationPreferences.PairingAlerts,
+                };
+                this.pairingAlertsInput.IsChecked = this.notificationPreferences.PairingAlerts;
+                break;
+            case TrayFlyoutAction.ToggleGatewayHealthAlerts:
+                this.notificationPreferences = this.notificationPreferences with
+                {
+                    GatewayHealthAlerts = !this.notificationPreferences.GatewayHealthAlerts,
+                };
+                this.gatewayHealthAlertsInput.IsChecked = this.notificationPreferences.GatewayHealthAlerts;
+                break;
+            case TrayFlyoutAction.ToggleDevicePermissionAlerts:
+                this.notificationPreferences = this.notificationPreferences with
+                {
+                    DevicePermissionAlerts = !this.notificationPreferences.DevicePermissionAlerts,
+                };
+                this.devicePermissionAlertsInput.IsChecked = this.notificationPreferences.DevicePermissionAlerts;
+                break;
+            default:
+                return;
+        }
+
+        var canvasNodeEnabled = this.canvasNodeEnabled;
+        var voiceControlsEnabled = this.voiceControlsEnabled;
+        var notificationPreferences = this.notificationPreferences;
+
+        // Keep the cached snapshot source in sync so a re-render or tooltip refresh reflects the new value.
+        this.currentPreferences = this.currentPreferences with
+        {
+            CanvasNodeEnabled = canvasNodeEnabled,
+            VoiceControlsEnabled = voiceControlsEnabled,
+            NotificationPreferences = notificationPreferences,
+        };
+
+        var model = TrayFlyoutComposer.Compose(this.BuildTraySnapshot());
+        this.trayFlyout?.Refresh(model, this.ResolveCurrentPalette());
+        this.UpdateTrayTooltip();
+
+        _ = this.appState.Preferences.UpdateAsync(current => current with
+        {
+            CanvasNodeEnabled = canvasNodeEnabled,
+            VoiceControlsEnabled = voiceControlsEnabled,
+            NotificationPreferences = notificationPreferences,
+        });
     }
 
     /// <summary>

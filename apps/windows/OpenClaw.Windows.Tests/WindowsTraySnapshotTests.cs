@@ -309,4 +309,70 @@ public sealed class WindowsTraySnapshotTests
         Assert.AreEqual(WindowsColorThemePreference.Ocean, snapshot.ColorTheme);
         Assert.IsTrue(snapshot.NotificationsEnabled);
     }
+
+    [TestMethod]
+    public void CapturesCanvasAndVoiceEnablementFromArgumentsAndPreferences()
+    {
+        var preferences = AppPreferences.Default with { VoiceControlsEnabled = true };
+
+        var enabled = WindowsTraySnapshot.Create(
+            RunningStatus(),
+            GatewayRealtimeState.Connected,
+            WindowsCanvasNodeState.Connected,
+            canvasNodeEnabled: true,
+            preferences,
+            sessionCount: 0,
+            pendingApprovalCount: 0,
+            pendingPairingCount: 0,
+            lastActivity: null,
+            latestNotification: null);
+
+        Assert.IsTrue(enabled.CanvasNodeEnabled);
+        Assert.IsTrue(enabled.VoiceControlsEnabled);
+
+        var disabled = WindowsTraySnapshot.Create(
+            RunningStatus(),
+            GatewayRealtimeState.Connected,
+            WindowsCanvasNodeState.Connected,
+            canvasNodeEnabled: false,
+            AppPreferences.Default,
+            sessionCount: 0,
+            pendingApprovalCount: 0,
+            pendingPairingCount: 0,
+            lastActivity: null,
+            latestNotification: null);
+
+        Assert.IsFalse(disabled.CanvasNodeEnabled);
+        Assert.IsFalse(disabled.VoiceControlsEnabled);
+    }
+
+    [TestMethod]
+    public void CapturesEachNotificationAlertEnablement()
+    {
+        var preferences = AppPreferences.Default with
+        {
+            NotificationPreferences = new WindowsNotificationPreferences(
+                ApprovalAlerts: true,
+                PairingAlerts: false,
+                GatewayHealthAlerts: true,
+                DevicePermissionAlerts: false),
+        };
+
+        var snapshot = WindowsTraySnapshot.Create(
+            RunningStatus(),
+            GatewayRealtimeState.Connected,
+            WindowsCanvasNodeState.Connected,
+            canvasNodeEnabled: true,
+            preferences,
+            sessionCount: 0,
+            pendingApprovalCount: 0,
+            pendingPairingCount: 0,
+            lastActivity: null,
+            latestNotification: null);
+
+        Assert.IsTrue(snapshot.ApprovalAlertsEnabled);
+        Assert.IsFalse(snapshot.PairingAlertsEnabled);
+        Assert.IsTrue(snapshot.GatewayHealthAlertsEnabled);
+        Assert.IsFalse(snapshot.DevicePermissionAlertsEnabled);
+    }
 }

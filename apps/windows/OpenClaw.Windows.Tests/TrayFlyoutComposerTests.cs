@@ -41,19 +41,25 @@ public sealed class TrayFlyoutComposerTests
         int approvals = 0,
         int pairings = 0,
         int sessions = 0,
-        string? lastActivity = null)
+        string? lastActivity = null,
+        AppPreferences? preferences = null)
     {
         return WindowsTraySnapshot.Create(
             status,
             realtime,
             canvas,
             canvasEnabled,
-            AppPreferences.Default,
+            preferences ?? AppPreferences.Default,
             sessionCount: sessions,
             pendingApprovalCount: approvals,
             pendingPairingCount: pairings,
             lastActivity: lastActivity,
             latestNotification: null);
+    }
+
+    private static IEnumerable<TrayToggleRow> AllToggleRows(TrayFlyoutModel model)
+    {
+        return model.Sections.SelectMany(section => section.ToggleRows);
     }
 
     private static IEnumerable<TrayActionRow> AllActionRows(TrayFlyoutModel model)
@@ -404,6 +410,113 @@ public sealed class TrayFlyoutComposerTests
         foreach (var row in AllActionRows(model))
         {
             Assert.IsFalse(string.IsNullOrEmpty(row.Glyph), $"Action {row.Action} is missing a glyph.");
+        }
+    }
+
+    [TestMethod]
+    public void PermissionsSectionExposesEveryLocalCapabilityToggle()
+    {
+        var model = TrayFlyoutComposer.Compose(
+            Snapshot(RunningStatus(), GatewayRealtimeState.Connected, WindowsCanvasNodeState.Connected));
+
+        var permissions = model.Sections.Single(section => section.Heading == "Permissions");
+        var toggleActions = permissions.ToggleRows.Select(row => row.ToggleAction).ToArray();
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                TrayFlyoutAction.ToggleCanvasNode,
+                TrayFlyoutAction.ToggleVoiceControls,
+                TrayFlyoutAction.ToggleApprovalAlerts,
+                TrayFlyoutAction.TogglePairingAlerts,
+                TrayFlyoutAction.ToggleGatewayHealthAlerts,
+                TrayFlyoutAction.ToggleDevicePermissionAlerts,
+            },
+            toggleActions);
+    }
+
+    [TestMethod]
+    public void CanvasToggleReflectsSnapshotEnablement()
+    {
+        var on = TrayFlyoutComposer.Compose(
+            Snapshot(RunningStatus(), GatewayRealtimeState.Connected, WindowsCanvasNodeState.Connected, canvasEnabled: true));
+        var off = TrayFlyoutComposer.Compose(
+            Snapshot(RunningStatus(), GatewayRealtimeState.Connected, WindowsCanvasNodeState.Connected, canvasEnabled: false));
+
+        Assert.IsTrue(AllToggleRows(on).Single(row => row.ToggleAction == TrayFlyoutAction.ToggleCanvasNode).IsOn);
+        Assert.IsFalse(AllToggleRows(off).Single(row => row.ToggleAction == TrayFlyoutAction.ToggleCanvasNode).IsOn);
+    }
+
+    [TestMethod]
+    public void VoiceToggleReflectsPreferenceEnablement()
+    {
+        var on = TrayFlyoutComposer.Compose(
+            Snapshot(
+                RunningStatus(),
+                GatewayRealtimeState.Connected,
+                WindowsCanvasNodeState.Connected,
+                preferences: AppPreferences.Default with { VoiceControlsEnabled = true }));
+        var off = TrayFlyoutComposer.Compose(
+            Snapshot(RunningStatus(), GatewayRealtimeState.Connected, WindowsCanvasNodeState.Connected));
+
+        Assert.IsTrue(AllToggleRows(on).Single(row => row.ToggleAction == TrayFlyoutAction.ToggleVoiceControls).IsOn);
+        Assert.IsFalse(AllToggleRows(off).Single(row => row.ToggleAction == TrayFlyoutAction.ToggleVoiceControls).IsOn);
+    }
+
+    [TestMethod]
+    public void NotificationAlertTogglesReflectEachPreferenceFlag()
+    {
+        var preferences = AppPreferences.Default with
+        {
+            NotificationPreferences = new WindowsNotificationPreferences(
+                ApprovalAlerts: true,
+                PairingAlerts: false,
+                GatewayHealthAlerts: true,
+                DevicePermissionAlerts: false),
+        };
+        var model = TrayFlyoutComposer.Compose(
+            Snapshot(RunningStatus(), GatewayRealtimeState.Connected, WindowsCanvasNodeState.Connected, preferences: preferences));
+
+        var byAction = AllToggleRows(model).ToDictionary(row => row.ToggleAction);
+        Assert.IsTrue(byAction[TrayFlyoutAction.ToggleApprovalAlerts].IsOn);
+        Assert.IsFalse(byAction[TrayFlyoutAction.TogglePairingAlerts].IsOn);
+        Assert.IsTrue(byAction[TrayFlyoutAction.ToggleGatewayHealthAlerts].IsOn);
+        Assert.IsFalse(byAction[TrayFlyoutAction.ToggleDevicePermissionAlerts].IsOn);
+    }
+
+    [TestMethod]
+    public void EveryToggleRowCarriesANonEmptyGlyph()
+    {
+        var model = TrayFlyoutComposer.Compose(
+            Snapshot(RunningStatus(), GatewayRealtimeState.Connected, WindowsCanvasNodeState.Connected));
+
+        foreach (var row in AllToggleRows(model))
+        {
+            Assert.IsFalse(string.IsNullOrEmpty(row.Glyph), $"Toggle {row.ToggleAction} is missing a glyph.");
+        }
+    }
+
+    [TestMethod]
+    public void PermissionTogglesDoNotLeakIntoActionRows()
+    {
+        var model = TrayFlyoutComposer.Compose(
+            Snapshot(RunningStatus(), GatewayRealtimeState.Connected, WindowsCanvasNodeState.Connected));
+
+        var actions = AllActionRows(model).Select(row => row.Action).ToArray();
+        CollectionAssert.DoesNotContain(actions, TrayFlyoutAction.ToggleCanvasNode);
+        CollectionAssert.DoesNotContain(actions, TrayFlyoutAction.ToggleVoiceControls);
+        CollectionAssert.DoesNotContain(actions, TrayFlyoutAction.ToggleApprovalAlerts);
+    }
+
+    [TestMethod]
+    public void StatusAndQuickActionSectionsCarryNoToggleRows()
+    {
+        var model = TrayFlyoutComposer.Compose(
+            Snapshot(RunningStatus(), GatewayRealtimeState.Connected, WindowsCanvasNodeState.Connected, sessions: 2, approvals: 1));
+
+        var nonPermissionSections = model.Sections.Where(section => section.Heading != "Permissions");
+        foreach (var section in nonPermissionSections)
+        {
+            Assert.IsEmpty(section.ToggleRows);
         }
     }
 }

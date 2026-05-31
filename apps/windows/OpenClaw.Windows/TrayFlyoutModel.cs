@@ -21,6 +21,12 @@ public enum TrayFlyoutAction
     RunGatewayStart,
     RunGatewayStop,
     RunGatewayRestart,
+    ToggleCanvasNode,
+    ToggleVoiceControls,
+    ToggleApprovalAlerts,
+    TogglePairingAlerts,
+    ToggleGatewayHealthAlerts,
+    ToggleDevicePermissionAlerts,
 }
 
 /// <summary>
@@ -46,12 +52,31 @@ public sealed record TrayStatusRow(string Label, string? Detail, TrayStatusTone 
 public sealed record TrayActionRow(string Label, string Glyph, TrayFlyoutAction Action, string? Badge = null);
 
 /// <summary>
-/// A flyout section grouping status and action rows under an optional heading. Sessions 3-6 add sections here.
+/// An icon-plus-label permission toggle row. Activating it flips a preference-backed capability without
+/// dismissing the flyout, so it routes through the flyout's toggle channel rather than the action channel.
+/// </summary>
+public sealed record TrayToggleRow(string Label, string Glyph, bool IsOn, TrayFlyoutAction ToggleAction);
+
+/// <summary>
+/// A flyout section grouping status, action, and toggle rows under an optional heading. Sessions 3-6 add sections here.
 /// </summary>
 public sealed record TrayFlyoutSection(
     string? Heading,
     IReadOnlyList<TrayStatusRow> StatusRows,
-    IReadOnlyList<TrayActionRow> ActionRows);
+    IReadOnlyList<TrayActionRow> ActionRows,
+    IReadOnlyList<TrayToggleRow> ToggleRows)
+{
+    /// <summary>
+    /// Creates a section with no toggle rows so existing status/action sections and their tests stay unchanged.
+    /// </summary>
+    public TrayFlyoutSection(
+        string? Heading,
+        IReadOnlyList<TrayStatusRow> StatusRows,
+        IReadOnlyList<TrayActionRow> ActionRows)
+        : this(Heading, StatusRows, ActionRows, [])
+    {
+    }
+}
 
 /// <summary>
 /// The compact, ordered set of sections the tray flyout renders for a given snapshot.
@@ -81,6 +106,8 @@ public static class TrayFlyoutComposer
     private const string StartGlyph = "";
     private const string RestartGlyph = "";
     private const string StopGlyph = "";
+    private const string VoiceGlyph = "";
+    private const string NotificationGlyph = "";
 
     /// <summary>
     /// The hard NotifyIcon tooltip limit; longer text is rejected by the shell, so the builder stays within it.
@@ -134,6 +161,7 @@ public static class TrayFlyoutComposer
         {
             BuildStatusSection(snapshot),
             BuildQuickActionsSection(snapshot),
+            BuildPermissionsSection(snapshot),
             BuildGatewaySection(snapshot),
         };
 
@@ -213,6 +241,27 @@ public static class TrayFlyoutComposer
         };
 
         return new TrayFlyoutSection(Heading: null, StatusRows: [], ActionRows: actionRows);
+    }
+
+    /// <summary>
+    /// Interactive toggles for the local, preference-backed capabilities: the Canvas/A2UI node, voice controls,
+    /// and the four notification alert categories. Each row reflects the snapshot's current enablement and flips
+    /// its preference through the flyout's toggle channel without dismissing the flyout. Device/screen/camera
+    /// capabilities are intentionally absent because they have no preference backing to toggle.
+    /// </summary>
+    private static TrayFlyoutSection BuildPermissionsSection(WindowsTraySnapshot snapshot)
+    {
+        var toggleRows = new List<TrayToggleRow>
+        {
+            new("Canvas and A2UI node", CanvasGlyph, snapshot.CanvasNodeEnabled, TrayFlyoutAction.ToggleCanvasNode),
+            new("Voice controls", VoiceGlyph, snapshot.VoiceControlsEnabled, TrayFlyoutAction.ToggleVoiceControls),
+            new("Approval alerts", NotificationGlyph, snapshot.ApprovalAlertsEnabled, TrayFlyoutAction.ToggleApprovalAlerts),
+            new("Pairing alerts", NotificationGlyph, snapshot.PairingAlertsEnabled, TrayFlyoutAction.TogglePairingAlerts),
+            new("Gateway health alerts", NotificationGlyph, snapshot.GatewayHealthAlertsEnabled, TrayFlyoutAction.ToggleGatewayHealthAlerts),
+            new("Device permission alerts", NotificationGlyph, snapshot.DevicePermissionAlertsEnabled, TrayFlyoutAction.ToggleDevicePermissionAlerts),
+        };
+
+        return new TrayFlyoutSection(Heading: "Permissions", StatusRows: [], ActionRows: [], ToggleRows: toggleRows);
     }
 
     /// <summary>
