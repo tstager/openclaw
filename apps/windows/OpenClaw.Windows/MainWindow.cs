@@ -222,7 +222,6 @@ public sealed class MainWindow : Window
         this.appState.Realtime.EventReceived += this.OnRealtimeEventReceived;
         this.appState.CanvasNode.StateChanged += this.OnCanvasNodeStateChanged;
         this.appState.CanvasNode.CanvasSurfaceUrlChanged += this.OnCanvasSurfaceUrlChanged;
-        this.appState.CanvasNode.Commands = this.BuildNodeCommandRegistry();
         this.appState.Tunnel.StatusChanged += this.OnTunnelStatusChanged;
         this.Closed += this.OnClosed;
         this.AppWindow.Closing += this.OnAppWindowClosing;
@@ -2955,40 +2954,64 @@ public sealed class MainWindow : Window
     }
 
     /// <summary>
-    /// Builds the general Windows node command surface. Canvas/A2UI commands are registered as handlers so the
-    /// transport advertises and dispatches them without owning Canvas-specific behavior.
+    /// Builds the Windows node command surface for the current preferences. Capabilities, advertised commands,
+    /// and permission claims come from <see cref="WindowsNodeSurface"/>; commands with a native handler are wired
+    /// to it, while commands whose handler lands in a later session are advertised as not-yet-implemented.
     /// </summary>
-    private WindowsNodeCommandRegistry BuildNodeCommandRegistry()
+    private WindowsNodeCommandRegistry BuildNodeCommandRegistry(AppPreferences preferences)
     {
+        var surface = WindowsNodeSurface.Build(WindowsHostCapabilityProbe.Current, preferences);
+        var handlers = this.BuildNodeCommandHandlers();
         var registry = new WindowsNodeCommandRegistry();
-        registry.DeclareCapability("canvas");
-        registry.Register(
-            WindowsCanvasCommands.Present,
-            (_, ct) => this.RunNodeCommandAsync(ct, () => this.HandleCanvasPresentAsync()));
-        registry.Register(
-            WindowsCanvasCommands.Hide,
-            (_, ct) => this.RunNodeCommandAsync(ct, () => Task.FromResult(this.HandleCanvasHide())));
-        registry.Register(
-            WindowsCanvasCommands.Navigate,
-            (request, ct) => this.RunNodeCommandAsync(ct, () => this.HandleCanvasNavigateAsync(request.ParamsJson)));
-        registry.Register(
-            WindowsCanvasCommands.Eval,
-            (request, ct) => this.RunNodeCommandAsync(ct, () => this.HandleCanvasEvalAsync(request.ParamsJson)));
-        registry.Register(
-            WindowsCanvasCommands.Snapshot,
-            (_, _) => Task.FromResult(WindowsCanvasInvokeResponse.Failure(
-                "UNAVAILABLE",
-                "canvas.snapshot is not implemented in the Windows companion yet.")));
-        registry.Register(
-            WindowsCanvasCommands.A2UIPush,
-            (request, ct) => this.RunNodeCommandAsync(ct, () => this.HandleCanvasA2UIPushAsync(request.ParamsJson)));
-        registry.Register(
-            WindowsCanvasCommands.A2UIPushJsonl,
-            (request, ct) => this.RunNodeCommandAsync(ct, () => this.HandleCanvasA2UIPushAsync(request.ParamsJson)));
-        registry.Register(
-            WindowsCanvasCommands.A2UIReset,
-            (_, ct) => this.RunNodeCommandAsync(ct, () => this.HandleCanvasA2UIResetAsync()));
+        foreach (var capability in surface.Capabilities)
+        {
+            registry.DeclareCapability(capability);
+        }
+        foreach (var permission in surface.Permissions)
+        {
+            registry.DeclarePermission(permission.Key, permission.Value);
+        }
+        foreach (var command in surface.Commands)
+        {
+            if (handlers.TryGetValue(command, out var handler))
+            {
+                registry.Register(command, handler);
+            }
+            else
+            {
+                registry.DeclareCommand(command);
+            }
+        }
         return registry;
+    }
+
+    /// <summary>
+    /// Maps node command names to their native handlers. Canvas/A2UI commands run on the UI thread via the
+    /// shared wrapper; native device handlers (screen/camera) are added as they are implemented.
+    /// </summary>
+    private Dictionary<string, WindowsNodeCommandHandler> BuildNodeCommandHandlers()
+    {
+        return new Dictionary<string, WindowsNodeCommandHandler>(StringComparer.Ordinal)
+        {
+            [WindowsCanvasCommands.Present] =
+                (_, ct) => this.RunNodeCommandAsync(ct, () => this.HandleCanvasPresentAsync()),
+            [WindowsCanvasCommands.Hide] =
+                (_, ct) => this.RunNodeCommandAsync(ct, () => Task.FromResult(this.HandleCanvasHide())),
+            [WindowsCanvasCommands.Navigate] =
+                (request, ct) => this.RunNodeCommandAsync(ct, () => this.HandleCanvasNavigateAsync(request.ParamsJson)),
+            [WindowsCanvasCommands.Eval] =
+                (request, ct) => this.RunNodeCommandAsync(ct, () => this.HandleCanvasEvalAsync(request.ParamsJson)),
+            [WindowsCanvasCommands.Snapshot] =
+                (_, _) => Task.FromResult(WindowsCanvasInvokeResponse.Failure(
+                    "UNAVAILABLE",
+                    "canvas.snapshot is not implemented in the Windows companion yet.")),
+            [WindowsCanvasCommands.A2UIPush] =
+                (request, ct) => this.RunNodeCommandAsync(ct, () => this.HandleCanvasA2UIPushAsync(request.ParamsJson)),
+            [WindowsCanvasCommands.A2UIPushJsonl] =
+                (request, ct) => this.RunNodeCommandAsync(ct, () => this.HandleCanvasA2UIPushAsync(request.ParamsJson)),
+            [WindowsCanvasCommands.A2UIReset] =
+                (_, ct) => this.RunNodeCommandAsync(ct, () => this.HandleCanvasA2UIResetAsync()),
+        };
     }
 
     /// <summary>
@@ -3521,6 +3544,7 @@ public sealed class MainWindow : Window
         this.canvasStatusText.Text = "Connecting Canvas node...";
         try
         {
+            this.appState.CanvasNode.Commands = this.BuildNodeCommandRegistry(preferences);
             await this.appState.CanvasNode.ReconnectAsync();
             await this.RefreshCanvasA2UIAsync(forceRefresh: false);
         }

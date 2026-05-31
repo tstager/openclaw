@@ -38,6 +38,36 @@ public sealed class WindowsNodeCommandRegistryTests
     }
 
     [TestMethod]
+    public async Task DeclaredCommandWithoutHandlerIsAdvertisedAndReturnsUnavailable()
+    {
+        var registry = new WindowsNodeCommandRegistry();
+        registry.Register("canvas.present", (_, _) => Task.FromResult(WindowsCanvasInvokeResponse.Success()));
+        registry.DeclareCommand("screen.snapshot");
+
+        CollectionAssert.AreEqual(new[] { "canvas.present", "screen.snapshot" }, registry.Commands.ToArray());
+
+        var response = await registry.InvokeAsync(Request("screen.snapshot"), CancellationToken.None);
+
+        Assert.IsFalse(response.Ok);
+        Assert.IsNotNull(response.Error);
+        Assert.AreEqual("UNAVAILABLE", response.Error.Code);
+        StringAssert.Contains(response.Error.Message, "screen.snapshot");
+    }
+
+    [TestMethod]
+    public void RegisteringAPreviouslyDeclaredCommandKeepsItsAdvertisedPosition()
+    {
+        var registry = new WindowsNodeCommandRegistry();
+        registry.DeclareCommand("screen.snapshot");
+        registry.DeclareCommand("camera.snap");
+        registry.Register("screen.snapshot", (_, _) => Task.FromResult(WindowsCanvasInvokeResponse.Success()));
+
+        CollectionAssert.AreEqual(new[] { "screen.snapshot", "camera.snap" }, registry.Commands.ToArray());
+        Assert.IsTrue(registry.Contains("screen.snapshot"));
+        Assert.IsFalse(registry.Contains("camera.snap"));
+    }
+
+    [TestMethod]
     public void CommandsPreserveRegistrationOrderAndDeduplicateOnReplace()
     {
         var registry = new WindowsNodeCommandRegistry();

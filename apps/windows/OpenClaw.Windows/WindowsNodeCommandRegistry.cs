@@ -42,17 +42,25 @@ public sealed class WindowsNodeCommandRegistry
     /// </summary>
     public void Register(string command, WindowsNodeCommandHandler handler)
     {
+        ArgumentNullException.ThrowIfNull(handler);
+        this.DeclareCommand(command);
+        this.handlers[command] = handler;
+    }
+
+    /// <summary>
+    /// Advertises a command without attaching a handler yet. Invoking it returns a structured
+    /// not-implemented failure until a handler is registered.
+    /// </summary>
+    public void DeclareCommand(string command)
+    {
         if (string.IsNullOrWhiteSpace(command))
         {
             throw new ArgumentException("Command must be a non-empty string.", nameof(command));
         }
-        ArgumentNullException.ThrowIfNull(handler);
-
-        if (!this.handlers.ContainsKey(command))
+        if (!this.commandOrder.Contains(command, StringComparer.Ordinal))
         {
             this.commandOrder.Add(command);
         }
-        this.handlers[command] = handler;
     }
 
     /// <summary>
@@ -95,12 +103,18 @@ public sealed class WindowsNodeCommandRegistry
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
-        if (!this.handlers.TryGetValue(request.Command, out var handler))
+        if (this.handlers.TryGetValue(request.Command, out var handler))
+        {
+            return handler(request, cancellationToken);
+        }
+        if (this.commandOrder.Contains(request.Command, StringComparer.Ordinal))
         {
             return Task.FromResult(WindowsCanvasInvokeResponse.Failure(
-                "INVALID_REQUEST",
-                $"Unknown node command: {request.Command}"));
+                "UNAVAILABLE",
+                $"Node command not implemented yet: {request.Command}"));
         }
-        return handler(request, cancellationToken);
+        return Task.FromResult(WindowsCanvasInvokeResponse.Failure(
+            "INVALID_REQUEST",
+            $"Unknown node command: {request.Command}"));
     }
 }
