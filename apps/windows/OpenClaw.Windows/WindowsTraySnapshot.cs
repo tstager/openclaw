@@ -1,0 +1,187 @@
+namespace OpenClaw.Windows;
+
+/// <summary>
+/// Realtime connection action the tray can offer for the operator channel.
+/// </summary>
+public enum TrayRealtimeAction
+{
+    None,
+    Connect,
+    Disconnect,
+}
+
+/// <summary>
+/// Readiness of the Windows Canvas/A2UI node as shown in the tray.
+/// </summary>
+public enum TrayCanvasReadiness
+{
+    Disabled,
+    Disconnected,
+    Connecting,
+    PairingRequired,
+    AuthFailed,
+    Ready,
+}
+
+/// <summary>
+/// Display-ready value model the tray flyout renders without reading from <c>MainWindow</c>.
+/// </summary>
+public sealed record WindowsTraySnapshot(
+    string GatewayState,
+    string GatewayUrl,
+    bool GatewayRunning,
+    string ConnectionState,
+    bool RealtimeConnected,
+    TrayRealtimeAction RealtimeAction,
+    TrayCanvasReadiness CanvasReadiness,
+    int SessionCount,
+    int PendingApprovalCount,
+    int PendingPairingCount,
+    bool NotificationsEnabled,
+    string? LatestActivity,
+    WindowsThemePreference Theme,
+    WindowsAccentColorPreference Accent,
+    WindowsColorThemePreference ColorTheme,
+    IReadOnlyList<GatewayCliAction> AvailableGatewayActions)
+{
+    /// <summary>
+    /// Builds the tray snapshot from live gateway, realtime, node, and preference state.
+    /// </summary>
+    public static WindowsTraySnapshot Create(
+        GatewayStatusSnapshot? status,
+        GatewayRealtimeState realtimeState,
+        WindowsCanvasNodeState canvasNodeState,
+        bool canvasNodeEnabled,
+        AppPreferences preferences,
+        int sessionCount,
+        int pendingApprovalCount,
+        int pendingPairingCount,
+        string? lastActivity,
+        WindowsNotificationActivity? latestNotification)
+    {
+        var gatewayRunning = ResolveGatewayRunning(status);
+        var realtimeConnected = realtimeState == GatewayRealtimeState.Connected;
+
+        return new WindowsTraySnapshot(
+            GatewayState: status?.State ?? "unknown",
+            GatewayUrl: status?.DashboardUrl ?? preferences.GatewayUrl,
+            GatewayRunning: gatewayRunning,
+            ConnectionState: realtimeState.ToString(),
+            RealtimeConnected: realtimeConnected,
+            RealtimeAction: ResolveRealtimeAction(realtimeState),
+            CanvasReadiness: ResolveCanvasReadiness(canvasNodeState, canvasNodeEnabled),
+            SessionCount: Math.Max(0, sessionCount),
+            PendingApprovalCount: Math.Max(0, pendingApprovalCount),
+            PendingPairingCount: Math.Max(0, pendingPairingCount),
+            NotificationsEnabled: AnyNotificationsEnabled(preferences.NotificationPreferences),
+            LatestActivity: ResolveLatestActivity(lastActivity, latestNotification),
+            Theme: preferences.ThemePreference,
+            Accent: preferences.AccentColorPreference,
+            ColorTheme: preferences.ColorThemePreference,
+            AvailableGatewayActions: ResolveGatewayActions(status, gatewayRunning));
+    }
+
+    /// <summary>
+    /// Treats the gateway as running when the CLI reports it reachable or in a running runtime state.
+    /// </summary>
+    private static bool ResolveGatewayRunning(GatewayStatusSnapshot? status)
+    {
+        if (status is null)
+        {
+            return false;
+        }
+
+        if (status.Reachable)
+        {
+            return true;
+        }
+
+        return status.State is "running" or "started" or "active" or "online";
+    }
+
+    /// <summary>
+    /// Offers Disconnect on a live socket and Connect whenever the operator channel is not connected.
+    /// </summary>
+    private static TrayRealtimeAction ResolveRealtimeAction(GatewayRealtimeState realtimeState)
+    {
+        return realtimeState switch
+        {
+            GatewayRealtimeState.Connected => TrayRealtimeAction.Disconnect,
+            GatewayRealtimeState.Connecting => TrayRealtimeAction.None,
+            _ => TrayRealtimeAction.Connect,
+        };
+    }
+
+    private static TrayCanvasReadiness ResolveCanvasReadiness(WindowsCanvasNodeState state, bool enabled)
+    {
+        if (!enabled)
+        {
+            return TrayCanvasReadiness.Disabled;
+        }
+
+        return state switch
+        {
+            WindowsCanvasNodeState.Connected => TrayCanvasReadiness.Ready,
+            WindowsCanvasNodeState.Connecting => TrayCanvasReadiness.Connecting,
+            WindowsCanvasNodeState.PairingRequired => TrayCanvasReadiness.PairingRequired,
+            WindowsCanvasNodeState.AuthFailed => TrayCanvasReadiness.AuthFailed,
+            _ => TrayCanvasReadiness.Disconnected,
+        };
+    }
+
+    /// <summary>
+    /// Derives the gateway lifecycle actions that make sense for the current state so the flyout only renders them.
+    /// </summary>
+    private static IReadOnlyList<GatewayCliAction> ResolveGatewayActions(
+        GatewayStatusSnapshot? status,
+        bool gatewayRunning)
+    {
+        if (status is null)
+        {
+            return [];
+        }
+
+        var actions = new List<GatewayCliAction>();
+        if (!status.ServiceInstalled)
+        {
+            actions.Add(GatewayCliAction.Install);
+        }
+
+        if (gatewayRunning)
+        {
+            actions.Add(GatewayCliAction.Restart);
+            actions.Add(GatewayCliAction.Stop);
+        }
+        else
+        {
+            actions.Add(GatewayCliAction.Start);
+        }
+
+        return actions;
+    }
+
+    private static bool AnyNotificationsEnabled(WindowsNotificationPreferences preferences)
+    {
+        return preferences.ApprovalAlerts ||
+            preferences.PairingAlerts ||
+            preferences.GatewayHealthAlerts ||
+            preferences.DevicePermissionAlerts;
+    }
+
+    /// <summary>
+    /// Prefers the coordinator's last activity text and falls back to the newest tray notification.
+    /// </summary>
+    private static string? ResolveLatestActivity(
+        string? lastActivity,
+        WindowsNotificationActivity? latestNotification)
+    {
+        if (!string.IsNullOrWhiteSpace(lastActivity))
+        {
+            return lastActivity;
+        }
+
+        return latestNotification is null
+            ? null
+            : $"{latestNotification.Title}: {latestNotification.Message}";
+    }
+}
