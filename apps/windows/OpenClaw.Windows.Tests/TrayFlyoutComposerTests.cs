@@ -196,23 +196,96 @@ public sealed class TrayFlyoutComposerTests
     }
 
     [TestMethod]
-    public void PendingApprovalsAndPairingsBadgeTheOpenAction()
+    public void OpenShellRowNeverCarriesAPendingBadge()
     {
         var model = TrayFlyoutComposer.Compose(
             Snapshot(RunningStatus(), GatewayRealtimeState.Connected, WindowsCanvasNodeState.Connected, approvals: 2, pairings: 1));
 
         var openRow = AllActionRows(model).First(row => row.Action == TrayFlyoutAction.OpenShell);
-        Assert.AreEqual("3", openRow.Badge);
+        Assert.IsNull(openRow.Badge);
     }
 
     [TestMethod]
-    public void NoPendingWorkLeavesOpenActionWithoutBadge()
+    public void NavigationQuickActionsArePresentWithGlyphsAndActions()
     {
         var model = TrayFlyoutComposer.Compose(
             Snapshot(RunningStatus(), GatewayRealtimeState.Connected, WindowsCanvasNodeState.Connected));
 
-        var openRow = AllActionRows(model).First(row => row.Action == TrayFlyoutAction.OpenShell);
-        Assert.IsNull(openRow.Badge);
+        var byAction = AllActionRows(model).ToDictionary(row => row.Action);
+        foreach (var action in new[]
+        {
+            TrayFlyoutAction.OpenHome,
+            TrayFlyoutAction.OpenChat,
+            TrayFlyoutAction.OpenCanvas,
+            TrayFlyoutAction.OpenSessions,
+            TrayFlyoutAction.OpenApprovals,
+            TrayFlyoutAction.OpenPairing,
+            TrayFlyoutAction.OpenSettings,
+            TrayFlyoutAction.OpenLogs,
+        })
+        {
+            Assert.IsTrue(byAction.ContainsKey(action), $"Missing quick-action row {action}.");
+            Assert.IsFalse(string.IsNullOrEmpty(byAction[action].Glyph), $"Action {action} is missing a glyph.");
+        }
+    }
+
+    [TestMethod]
+    public void ApprovalsAndPairingRowsCarryTheirOwnCountBadges()
+    {
+        var model = TrayFlyoutComposer.Compose(
+            Snapshot(RunningStatus(), GatewayRealtimeState.Connected, WindowsCanvasNodeState.Connected, approvals: 2, pairings: 1));
+
+        var approvalsRow = AllActionRows(model).First(row => row.Action == TrayFlyoutAction.OpenApprovals);
+        var pairingRow = AllActionRows(model).First(row => row.Action == TrayFlyoutAction.OpenPairing);
+        Assert.AreEqual("2", approvalsRow.Badge);
+        Assert.AreEqual("1", pairingRow.Badge);
+    }
+
+    [TestMethod]
+    public void SessionsRowBadgesTheCountAndIsAbsentAtZero()
+    {
+        var withSessions = TrayFlyoutComposer.Compose(
+            Snapshot(RunningStatus(), GatewayRealtimeState.Connected, WindowsCanvasNodeState.Connected, sessions: 5));
+        var sessionsRow = AllActionRows(withSessions).First(row => row.Action == TrayFlyoutAction.OpenSessions);
+        Assert.AreEqual("5", sessionsRow.Badge);
+
+        var withoutSessions = TrayFlyoutComposer.Compose(
+            Snapshot(RunningStatus(), GatewayRealtimeState.Connected, WindowsCanvasNodeState.Connected, sessions: 0));
+        var zeroRow = AllActionRows(withoutSessions).First(row => row.Action == TrayFlyoutAction.OpenSessions);
+        Assert.IsNull(zeroRow.Badge);
+    }
+
+    [TestMethod]
+    public void ZeroPendingWorkLeavesApprovalsAndPairingRowsWithoutBadges()
+    {
+        var model = TrayFlyoutComposer.Compose(
+            Snapshot(RunningStatus(), GatewayRealtimeState.Connected, WindowsCanvasNodeState.Connected));
+
+        Assert.IsNull(AllActionRows(model).First(row => row.Action == TrayFlyoutAction.OpenApprovals).Badge);
+        Assert.IsNull(AllActionRows(model).First(row => row.Action == TrayFlyoutAction.OpenPairing).Badge);
+    }
+
+    [TestMethod]
+    public void QuickActionsFollowTheExpectedNavigationOrdering()
+    {
+        var model = TrayFlyoutComposer.Compose(
+            Snapshot(StoppedStatus(serviceInstalled: false), GatewayRealtimeState.Disconnected, WindowsCanvasNodeState.Disconnected));
+
+        var actions = AllActionRows(model).Select(row => row.Action).ToArray();
+        var expectedNav = new[]
+        {
+            TrayFlyoutAction.OpenShell,
+            TrayFlyoutAction.OpenHome,
+            TrayFlyoutAction.OpenChat,
+            TrayFlyoutAction.OpenCanvas,
+            TrayFlyoutAction.OpenSessions,
+            TrayFlyoutAction.OpenApprovals,
+            TrayFlyoutAction.OpenPairing,
+            TrayFlyoutAction.OpenSettings,
+            TrayFlyoutAction.OpenLogs,
+        };
+        CollectionAssert.AreEqual(expectedNav, actions.Take(expectedNav.Length).ToArray());
+        Assert.AreEqual(TrayFlyoutAction.Exit, actions[^1]);
     }
 
     [TestMethod]

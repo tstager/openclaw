@@ -6,6 +6,12 @@ namespace OpenClaw.Windows;
 public enum TrayFlyoutAction
 {
     OpenShell,
+    OpenHome,
+    OpenChat,
+    OpenCanvas,
+    OpenSessions,
+    OpenApprovals,
+    OpenPairing,
     OpenSettings,
     OpenLogs,
     Exit,
@@ -60,6 +66,12 @@ public static class TrayFlyoutComposer
 {
     // Segoe Fluent Icons glyphs, matching the shell navigation conventions.
     private const string OpenGlyph = "";
+    private const string HomeGlyph = "";
+    private const string ChatGlyph = "";
+    private const string CanvasGlyph = "";
+    private const string SessionsGlyph = "";
+    private const string ApprovalsGlyph = "";
+    private const string PairingGlyph = "";
     private const string SettingsGlyph = "";
     private const string LogsGlyph = "";
     private const string ExitGlyph = "";
@@ -169,14 +181,33 @@ public static class TrayFlyoutComposer
     }
 
     /// <summary>
-    /// Always-available navigation actions. Approval and pairing counts surface as Open badges. Sessions 4-6 grow this set.
+    /// Always-available navigation quick-actions. Home is the dashboard, so it is a single row.
+    /// Approvals, Pairing, and Sessions carry their own right-aligned count badges (Sessions only when &gt; 0),
+    /// so the shell entry no longer needs the combined pending badge. Sessions 5-6 grow this set.
     /// </summary>
     private static TrayFlyoutSection BuildQuickActionsSection(WindowsTraySnapshot snapshot)
     {
-        var pending = snapshot.PendingApprovalCount + snapshot.PendingPairingCount;
         var actionRows = new List<TrayActionRow>
         {
-            new("Open OpenClaw", OpenGlyph, TrayFlyoutAction.OpenShell, pending > 0 ? pending.ToString() : null),
+            new("Open OpenClaw", OpenGlyph, TrayFlyoutAction.OpenShell),
+            new("Home", HomeGlyph, TrayFlyoutAction.OpenHome),
+            new("Chat", ChatGlyph, TrayFlyoutAction.OpenChat),
+            new("Canvas", CanvasGlyph, TrayFlyoutAction.OpenCanvas),
+            new(
+                "Sessions",
+                SessionsGlyph,
+                TrayFlyoutAction.OpenSessions,
+                snapshot.SessionCount > 0 ? snapshot.SessionCount.ToString() : null),
+            new(
+                "Approvals",
+                ApprovalsGlyph,
+                TrayFlyoutAction.OpenApprovals,
+                snapshot.PendingApprovalCount > 0 ? snapshot.PendingApprovalCount.ToString() : null),
+            new(
+                "Pairing",
+                PairingGlyph,
+                TrayFlyoutAction.OpenPairing,
+                snapshot.PendingPairingCount > 0 ? snapshot.PendingPairingCount.ToString() : null),
             new("Settings", SettingsGlyph, TrayFlyoutAction.OpenSettings),
             new("Logs", LogsGlyph, TrayFlyoutAction.OpenLogs),
         };

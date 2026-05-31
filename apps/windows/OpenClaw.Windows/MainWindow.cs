@@ -352,6 +352,24 @@ public sealed class MainWindow : Window
             case TrayFlyoutAction.OpenShell:
                 this.ShowShell();
                 break;
+            case TrayFlyoutAction.OpenHome:
+                this.ShowDestination(WindowsNavigationDestination.Home);
+                break;
+            case TrayFlyoutAction.OpenChat:
+                this.ShowDestination(WindowsNavigationDestination.Chat);
+                break;
+            case TrayFlyoutAction.OpenCanvas:
+                this.ShowDestination(WindowsNavigationDestination.Canvas);
+                break;
+            case TrayFlyoutAction.OpenSessions:
+                this.ShowDestination(WindowsNavigationDestination.Sessions);
+                break;
+            case TrayFlyoutAction.OpenApprovals:
+                this.ShowDestination(WindowsNavigationDestination.Approvals);
+                break;
+            case TrayFlyoutAction.OpenPairing:
+                this.ShowDestination(WindowsNavigationDestination.Pairing);
+                break;
             case TrayFlyoutAction.OpenSettings:
                 this.ShowDestination(WindowsNavigationDestination.Settings);
                 break;
@@ -359,21 +377,27 @@ public sealed class MainWindow : Window
                 this.ShowDestination(WindowsNavigationDestination.Logs);
                 break;
             case TrayFlyoutAction.ConnectRealtime:
+                this.ShowShell();
                 this.ConnectGateway();
                 break;
             case TrayFlyoutAction.DisconnectRealtime:
+                this.ShowShell();
                 this.DisconnectGateway();
                 break;
             case TrayFlyoutAction.RunGatewayInstall:
+                this.ShowShell();
                 this.RunGatewayAction(GatewayCliAction.Install);
                 break;
             case TrayFlyoutAction.RunGatewayStart:
+                this.ShowShell();
                 this.RunGatewayAction(GatewayCliAction.Start);
                 break;
             case TrayFlyoutAction.RunGatewayStop:
+                this.ShowShell();
                 this.RunGatewayAction(GatewayCliAction.Stop);
                 break;
             case TrayFlyoutAction.RunGatewayRestart:
+                this.ShowShell();
                 this.RunGatewayAction(GatewayCliAction.Restart);
                 break;
             case TrayFlyoutAction.Exit:
