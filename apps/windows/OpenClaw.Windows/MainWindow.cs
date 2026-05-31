@@ -4422,6 +4422,8 @@ public sealed class MainWindow : Window
             $"Color theme: {preferences.ColorThemePreference}{FormatOptionalColor(preferences.CustomColorTheme)}\n" +
             $"Last status: {preferences.LastStatus ?? "unknown"}\n" +
             $"Last checked: {preferences.LastStatusCheckedAt?.ToLocalTime().ToString("g", CultureInfo.CurrentCulture) ?? "never"}\n" +
+            $"Requested operator scopes: {string.Join(", ", GatewayRealtimeClient.RequestedOperatorScopes)}\n" +
+            $"Operator scopes: {this.appState.Realtime.Authorization?.ScopeSummary ?? "Not connected."}\n" +
             $"Device token cached: {!string.IsNullOrWhiteSpace(preferences.DeviceToken)}\n" +
             $"Canvas node: {preferences.CanvasNodeEnabled}\n" +
             $"Voice controls: {preferences.VoiceControlsEnabled}\n" +
@@ -5687,6 +5689,11 @@ public sealed class MainWindow : Window
         this.homeGatewayRows.Children.Add(BuildDashboardRow("Service", summary.ServiceState));
         this.homeGatewayRows.Children.Add(BuildDashboardRow("RPC", summary.Reachability));
         this.homeGatewayRows.Children.Add(BuildDashboardRow("Capability", summary.Capability));
+        var authorization = this.appState.Realtime.Authorization;
+        if (authorization is not null)
+        {
+            this.homeGatewayRows.Children.Add(BuildDashboardRow("Scopes", authorization.ScopeSummary));
+        }
         this.homeGatewayRows.Children.Add(BuildDashboardRow("Onboarding", summary.OnboardingHealth));
         this.homeGatewayRows.Children.Add(BuildDashboardRow("Dashboard", summary.DashboardUrl));
         this.homeGatewayRows.Children.Add(BuildDashboardRow("Logs", summary.LogPath));

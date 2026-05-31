@@ -34,7 +34,7 @@ public sealed record GatewayRealtimeAuthorization(string? Role, IReadOnlyList<st
     {
         get
         {
-            if (this.Scopes.Contains("operator.admin", StringComparer.Ordinal))
+            if (this.AdminCapable)
             {
                 return "admin_capable";
             }
@@ -47,6 +47,39 @@ public sealed record GatewayRealtimeAuthorization(string? Role, IReadOnlyList<st
                 return "read_only";
             }
             return "unknown";
+        }
+    }
+
+    /// <summary>
+    /// True when the gateway granted <c>operator.admin</c> on this connection.
+    /// </summary>
+    public bool AdminCapable => this.Scopes.Contains("operator.admin", StringComparer.Ordinal);
+
+    /// <summary>
+    /// Requested operator scopes the gateway did not grant, in requested order.
+    /// </summary>
+    public IReadOnlyList<string> MissingRequestedScopes =>
+        GatewayRealtimeClient.RequestedOperatorScopes
+            .Where(scope => !this.Scopes.Contains(scope, StringComparer.Ordinal))
+            .ToArray();
+
+    /// <summary>
+    /// Honest one-line scope status for Home/Settings: admin grant, full grant, or the missing scopes.
+    /// </summary>
+    public string ScopeSummary
+    {
+        get
+        {
+            var missing = this.MissingRequestedScopes;
+            if (missing.Count == 0)
+            {
+                return "All requested operator scopes granted.";
+            }
+            if (this.Scopes.Count == 0)
+            {
+                return "No operator scopes granted yet.";
+            }
+            return $"Missing: {string.Join(", ", missing)}";
         }
     }
 }
@@ -101,11 +134,26 @@ public sealed class GatewayRpcException(string code, string message) : Exception
 /// </summary>
 public sealed class GatewayRealtimeClient : IAsyncDisposable
 {
-    // The gateway currently accepts known client ids; macOS is used until a Windows id lands upstream.
-    private const string ClientId = "openclaw-macos";
+    // Windows is a first-class gateway client id; the schema accepts openclaw-windows for ui and node modes.
+    private const string ClientId = "openclaw-windows";
     private const string ClientMode = "ui";
     private const string ClientRole = "operator";
+
+    // Full operator scope set requested on the UI socket. Privileged scopes (admin, talk.secrets) are
+    // only granted when bound to a paired device, so the app surfaces any ungranted scopes honestly.
     private static readonly string[] RequestedScopes =
+    [
+        "operator.read",
+        "operator.write",
+        "operator.admin",
+        "operator.approvals",
+        "operator.pairing",
+        "operator.talk.secrets",
+    ];
+
+    // Non-privileged scopes expected on any healthy operator connection. Narrow-identity repair keys off
+    // these only, so a device that legitimately lacks admin/talk.secrets is not treated as stale.
+    private static readonly string[] BaselineScopes =
     [
         "operator.read",
         "operator.write",
@@ -140,6 +188,11 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
         this.deviceIdentityStore = deviceIdentityStore;
         this.requestTimeout = requestTimeout ?? DefaultRequestTimeout;
     }
+
+    /// <summary>
+    /// Full operator scope set this client requests on the UI socket, in requested order.
+    /// </summary>
+    public static IReadOnlyList<string> RequestedOperatorScopes => RequestedScopes;
 
     public GatewayRealtimeState State { get; private set; } = GatewayRealtimeState.Disconnected;
 
@@ -578,7 +631,7 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
         {
             return true;
         }
-        return RequestedScopes.All(scope => scopes.Contains(scope, StringComparer.Ordinal));
+        return BaselineScopes.All(scope => scopes.Contains(scope, StringComparer.Ordinal));
     }
 
     private static GatewayRealtimeAuthorization ParseAuthorization(JsonElement authPayload)

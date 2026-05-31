@@ -167,6 +167,43 @@ public sealed class GatewayRealtimeClientTests
     }
 
     [TestMethod]
+    public void AuthorizationReportsAdminCapabilityAndNoMissingScopesWhenFullyGranted()
+    {
+        var authorization = new GatewayRealtimeAuthorization(
+            "operator",
+            GatewayRealtimeClient.RequestedOperatorScopes.ToArray());
+
+        Assert.IsTrue(authorization.AdminCapable);
+        Assert.AreEqual("admin_capable", authorization.Capability);
+        Assert.HasCount(0, authorization.MissingRequestedScopes);
+        Assert.AreEqual("All requested operator scopes granted.", authorization.ScopeSummary);
+    }
+
+    [TestMethod]
+    public void AuthorizationExposesMissingRequestedScopesWhenAdminAndSecretsWithheld()
+    {
+        var authorization = new GatewayRealtimeAuthorization(
+            "operator",
+            ["operator.read", "operator.write", "operator.approvals", "operator.pairing"]);
+
+        Assert.IsFalse(authorization.AdminCapable);
+        Assert.AreEqual("write_capable", authorization.Capability);
+        CollectionAssert.AreEqual(
+            new[] { "operator.admin", "operator.talk.secrets" },
+            authorization.MissingRequestedScopes.ToArray());
+        Assert.AreEqual("Missing: operator.admin, operator.talk.secrets", authorization.ScopeSummary);
+    }
+
+    [TestMethod]
+    public void AuthorizationReportsNoScopesGrantedWhenEmpty()
+    {
+        var authorization = new GatewayRealtimeAuthorization("operator", []);
+
+        Assert.AreEqual("unknown", authorization.Capability);
+        Assert.AreEqual("No operator scopes granted yet.", authorization.ScopeSummary);
+    }
+
+    [TestMethod]
     public async Task RequestAsyncTimesOutPendingRequest()
     {
         await using var server = GatewayRealtimeTestServer.Start(async (socket, request) =>
@@ -347,9 +384,20 @@ public sealed class GatewayRealtimeClientTests
         var connect = await connectRequest.Task.WaitAsync(TimeSpan.FromSeconds(5));
         var parameters = connect.GetProperty("params");
         var clientPayload = parameters.GetProperty("client");
-        Assert.AreEqual("openclaw-macos", clientPayload.GetProperty("id").GetString());
+        Assert.AreEqual("openclaw-windows", clientPayload.GetProperty("id").GetString());
         Assert.AreEqual("ui", clientPayload.GetProperty("mode").GetString());
         Assert.AreEqual("operator", parameters.GetProperty("role").GetString());
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                "operator.read",
+                "operator.write",
+                "operator.admin",
+                "operator.approvals",
+                "operator.pairing",
+                "operator.talk.secrets",
+            },
+            parameters.GetProperty("scopes").EnumerateArray().Select(scope => scope.GetString()).ToArray());
         var auth = parameters.GetProperty("auth");
         Assert.AreEqual("stored-device-token", auth.GetProperty("deviceToken").GetString());
         Assert.IsFalse(auth.TryGetProperty("token", out var token) && token.GetString() == "stored-device-token");
