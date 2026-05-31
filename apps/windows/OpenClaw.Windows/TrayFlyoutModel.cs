@@ -27,6 +27,13 @@ public enum TrayFlyoutAction
     TogglePairingAlerts,
     ToggleGatewayHealthAlerts,
     ToggleDevicePermissionAlerts,
+    OpenNotificationHistory,
+    OpenActivityHistory,
+    OpenSupportSummary,
+    OpenCrashLog,
+    OpenAppLogFolder,
+    OpenGatewayLogFolder,
+    CreateSupportArtifact,
 }
 
 /// <summary>
@@ -108,6 +115,13 @@ public static class TrayFlyoutComposer
     private const string StopGlyph = "";
     private const string VoiceGlyph = "";
     private const string NotificationGlyph = "";
+    private const string HistoryGlyph = "";
+    private const string ActivityGlyph = "";
+    private const string SupportGlyph = "";
+    private const string CrashLogGlyph = "";
+    private const string FolderGlyph = "";
+    private const string GatewayFolderGlyph = "";
+    private const string ArtifactGlyph = "";
 
     /// <summary>
     /// The hard NotifyIcon tooltip limit; longer text is rejected by the shell, so the builder stays within it.
@@ -162,6 +176,7 @@ public static class TrayFlyoutComposer
             BuildStatusSection(snapshot),
             BuildQuickActionsSection(snapshot),
             BuildPermissionsSection(snapshot),
+            BuildSupportSection(),
             BuildGatewaySection(snapshot),
         };
 
@@ -262,6 +277,28 @@ public static class TrayFlyoutComposer
         };
 
         return new TrayFlyoutSection(Heading: "Permissions", StatusRows: [], ActionRows: [], ToggleRows: toggleRows);
+    }
+
+    /// <summary>
+    /// Diagnostics and support entry points that reuse the existing stores: notification and activity history
+    /// store files, the support-summary view on the Logs page, the crash log file, the companion data folder,
+    /// the gateway log folder, and on-demand support-artifact creation. Every row dismisses the flyout through
+    /// the action channel because each one opens a file/folder or navigates the shell.
+    /// </summary>
+    private static TrayFlyoutSection BuildSupportSection()
+    {
+        var actionRows = new List<TrayActionRow>
+        {
+            new("Notification history", HistoryGlyph, TrayFlyoutAction.OpenNotificationHistory),
+            new("Activity history", ActivityGlyph, TrayFlyoutAction.OpenActivityHistory),
+            new("Support summary", SupportGlyph, TrayFlyoutAction.OpenSupportSummary),
+            new("Crash log", CrashLogGlyph, TrayFlyoutAction.OpenCrashLog),
+            new("App log folder", FolderGlyph, TrayFlyoutAction.OpenAppLogFolder),
+            new("Gateway log folder", GatewayFolderGlyph, TrayFlyoutAction.OpenGatewayLogFolder),
+            new("Create support artifact", ArtifactGlyph, TrayFlyoutAction.CreateSupportArtifact),
+        };
+
+        return new TrayFlyoutSection(Heading: "Support", StatusRows: [], ActionRows: actionRows);
     }
 
     /// <summary>

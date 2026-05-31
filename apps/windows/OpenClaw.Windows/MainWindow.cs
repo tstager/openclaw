@@ -400,6 +400,27 @@ public sealed class MainWindow : Window
                 this.ShowShell();
                 this.RunGatewayAction(GatewayCliAction.Restart);
                 break;
+            case TrayFlyoutAction.OpenNotificationHistory:
+                this.OpenNotificationHistory();
+                break;
+            case TrayFlyoutAction.OpenActivityHistory:
+                this.OpenActivityHistory();
+                break;
+            case TrayFlyoutAction.OpenSupportSummary:
+                this.ShowDestination(WindowsNavigationDestination.Logs);
+                break;
+            case TrayFlyoutAction.OpenCrashLog:
+                this.OpenCrashLog();
+                break;
+            case TrayFlyoutAction.OpenAppLogFolder:
+                this.OpenAppLogFolder();
+                break;
+            case TrayFlyoutAction.OpenGatewayLogFolder:
+                this.OpenGatewayLogFolder();
+                break;
+            case TrayFlyoutAction.CreateSupportArtifact:
+                this.CreateSupportArtifact();
+                break;
             case TrayFlyoutAction.Exit:
                 this.ExitRequested?.Invoke();
                 break;
@@ -553,6 +574,109 @@ public sealed class MainWindow : Window
             return;
         }
         WindowsShell.OpenFileInExplorer(CrashLog.Path);
+    }
+
+    /// <summary>
+    /// Reveals the notification history store file, falling back to its containing folder when it has not been
+    /// written yet, and routing to the Logs page if the shell open fails so the action never silently no-ops.
+    /// </summary>
+    private void OpenNotificationHistory()
+    {
+        this.RevealStoreTarget(this.appState.NotificationHistory.Path);
+    }
+
+    /// <summary>
+    /// Reveals the activity history store file, falling back to its containing folder when it has not been
+    /// written yet, and routing to the Logs page if the shell open fails so the action never silently no-ops.
+    /// </summary>
+    private void OpenActivityHistory()
+    {
+        this.RevealStoreTarget(this.appState.ActivityHistory.Path);
+    }
+
+    /// <summary>
+    /// Reveals the app crash log file, falling back to its containing folder when it has not been written yet.
+    /// </summary>
+    private void OpenCrashLog()
+    {
+        this.RevealStoreTarget(CrashLog.Path);
+    }
+
+    /// <summary>
+    /// Opens the companion data folder, which is the directory that holds the crash log and every history and
+    /// diagnostics file the companion writes.
+    /// </summary>
+    private void OpenAppLogFolder()
+    {
+        this.RevealFolder(Path.GetDirectoryName(CrashLog.Path));
+    }
+
+    /// <summary>
+    /// Opens the gateway log folder, falling back to the companion data folder when the gateway log path is not
+    /// yet known so the action stays visible rather than doing nothing.
+    /// </summary>
+    private void OpenGatewayLogFolder()
+    {
+        var folder = string.IsNullOrWhiteSpace(this.coordinator.LogPath)
+            ? Path.GetDirectoryName(CrashLog.Path)
+            : Path.GetDirectoryName(this.coordinator.LogPath);
+        this.RevealFolder(folder);
+    }
+
+    /// <summary>
+    /// Creates the support-summary artifact through the existing pipeline, which writes the file, surfaces its
+    /// path on the Logs page, and reveals it in Explorer. Failures are reported through the common command path.
+    /// </summary>
+    private async void CreateSupportArtifact()
+    {
+        try
+        {
+            await this.SaveSupportSummaryArtifactAsync();
+        }
+        catch (Exception ex)
+        {
+            this.ReportCommandError(ex);
+        }
+    }
+
+    /// <summary>
+    /// Reveals a store file, falling back to its containing folder when the file does not exist yet, and routing
+    /// to the Logs page when even that fails so a broken shell open is visible instead of silent.
+    /// </summary>
+    private void RevealStoreTarget(string path)
+    {
+        try
+        {
+            WindowsShell.OpenFileInExplorer(File.Exists(path) ? path : Path.GetDirectoryName(path) ?? path);
+        }
+        catch (Exception ex)
+        {
+            this.ReportCommandError(ex);
+            this.ShowDestination(WindowsNavigationDestination.Logs);
+        }
+    }
+
+    /// <summary>
+    /// Opens a folder in Explorer, routing to the Logs page when the path is missing or the shell open fails so
+    /// the action never silently does nothing.
+    /// </summary>
+    private void RevealFolder(string? folder)
+    {
+        if (string.IsNullOrWhiteSpace(folder))
+        {
+            this.ShowDestination(WindowsNavigationDestination.Logs);
+            return;
+        }
+
+        try
+        {
+            WindowsShell.OpenFileInExplorer(folder);
+        }
+        catch (Exception ex)
+        {
+            this.ReportCommandError(ex);
+            this.ShowDestination(WindowsNavigationDestination.Logs);
+        }
     }
 
     /// <summary>

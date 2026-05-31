@@ -508,6 +508,83 @@ public sealed class TrayFlyoutComposerTests
     }
 
     [TestMethod]
+    public void SupportSectionExposesEveryDiagnosticsEntryPointInOrder()
+    {
+        var model = TrayFlyoutComposer.Compose(
+            Snapshot(RunningStatus(), GatewayRealtimeState.Connected, WindowsCanvasNodeState.Connected));
+
+        var support = model.Sections.Single(section => section.Heading == "Support");
+        var supportActions = support.ActionRows.Select(row => row.Action).ToArray();
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                TrayFlyoutAction.OpenNotificationHistory,
+                TrayFlyoutAction.OpenActivityHistory,
+                TrayFlyoutAction.OpenSupportSummary,
+                TrayFlyoutAction.OpenCrashLog,
+                TrayFlyoutAction.OpenAppLogFolder,
+                TrayFlyoutAction.OpenGatewayLogFolder,
+                TrayFlyoutAction.CreateSupportArtifact,
+            },
+            supportActions);
+    }
+
+    [TestMethod]
+    public void SupportSectionRowsEachCarryANonEmptyGlyph()
+    {
+        var model = TrayFlyoutComposer.Compose(
+            Snapshot(RunningStatus(), GatewayRealtimeState.Connected, WindowsCanvasNodeState.Connected));
+
+        var support = model.Sections.Single(section => section.Heading == "Support");
+        foreach (var row in support.ActionRows)
+        {
+            Assert.IsFalse(string.IsNullOrEmpty(row.Glyph), $"Support action {row.Action} is missing a glyph.");
+        }
+    }
+
+    [TestMethod]
+    public void SupportSectionCarriesNoStatusOrToggleRows()
+    {
+        var model = TrayFlyoutComposer.Compose(
+            Snapshot(RunningStatus(), GatewayRealtimeState.Connected, WindowsCanvasNodeState.Connected));
+
+        var support = model.Sections.Single(section => section.Heading == "Support");
+        Assert.IsEmpty(support.StatusRows);
+        Assert.IsEmpty(support.ToggleRows);
+    }
+
+    [TestMethod]
+    public void SupportSectionAppearsBeforeTheExitAction()
+    {
+        var model = TrayFlyoutComposer.Compose(
+            Snapshot(RunningStatus(), GatewayRealtimeState.Connected, WindowsCanvasNodeState.Connected));
+
+        var actions = AllActionRows(model).Select(row => row.Action).ToArray();
+        var lastSupportIndex = Array.FindLastIndex(actions, action => action == TrayFlyoutAction.CreateSupportArtifact);
+        var exitIndex = Array.IndexOf(actions, TrayFlyoutAction.Exit);
+        Assert.IsGreaterThan(lastSupportIndex, exitIndex);
+        Assert.AreEqual(TrayFlyoutAction.Exit, actions[^1]);
+    }
+
+    [TestMethod]
+    public void StatusQuickActionAndSupportSectionsAreUnaffectedAndPermissionsRemain()
+    {
+        var model = TrayFlyoutComposer.Compose(
+            Snapshot(RunningStatus(), GatewayRealtimeState.Connected, WindowsCanvasNodeState.Connected, sessions: 2, approvals: 1));
+
+        var headings = model.Sections.Select(section => section.Heading).ToArray();
+        CollectionAssert.Contains(headings, "Permissions");
+        CollectionAssert.Contains(headings, "Support");
+
+        var actions = AllActionRows(model).Select(row => row.Action).ToArray();
+        CollectionAssert.Contains(actions, TrayFlyoutAction.OpenShell);
+        CollectionAssert.Contains(actions, TrayFlyoutAction.OpenLogs);
+        CollectionAssert.Contains(actions, TrayFlyoutAction.RunGatewayRestart);
+        Assert.IsTrue(AllStatusRows(model).Any(row => row.Label.StartsWith("Gateway:", StringComparison.Ordinal)));
+        Assert.IsTrue(AllToggleRows(model).Any(row => row.ToggleAction == TrayFlyoutAction.ToggleCanvasNode));
+    }
+
+    [TestMethod]
     public void StatusAndQuickActionSectionsCarryNoToggleRows()
     {
         var model = TrayFlyoutComposer.Compose(
