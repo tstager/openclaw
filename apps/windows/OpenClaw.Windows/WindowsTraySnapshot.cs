@@ -30,6 +30,7 @@ public sealed record WindowsTraySnapshot(
     string GatewayState,
     string GatewayUrl,
     bool GatewayRunning,
+    bool GatewayIsLocal,
     string ConnectionState,
     bool RealtimeConnected,
     TrayRealtimeAction RealtimeAction,
@@ -61,11 +62,13 @@ public sealed record WindowsTraySnapshot(
     {
         var gatewayRunning = ResolveGatewayRunning(status);
         var realtimeConnected = realtimeState == GatewayRealtimeState.Connected;
+        var gatewayUrl = status?.DashboardUrl ?? preferences.GatewayUrl;
 
         return new WindowsTraySnapshot(
             GatewayState: status?.State ?? "unknown",
-            GatewayUrl: status?.DashboardUrl ?? preferences.GatewayUrl,
+            GatewayUrl: gatewayUrl,
             GatewayRunning: gatewayRunning,
+            GatewayIsLocal: ResolveGatewayIsLocal(gatewayUrl),
             ConnectionState: realtimeState.ToString(),
             RealtimeConnected: realtimeConnected,
             RealtimeAction: ResolveRealtimeAction(realtimeState),
@@ -97,6 +100,23 @@ public sealed record WindowsTraySnapshot(
         }
 
         return status.State is "running" or "started" or "active" or "online";
+    }
+
+    /// <summary>
+    /// Treats a gateway whose host is a loopback address (127.0.0.1, localhost, ::1) as local, otherwise remote.
+    /// </summary>
+    private static bool ResolveGatewayIsLocal(string gatewayUrl)
+    {
+        if (string.IsNullOrWhiteSpace(gatewayUrl))
+        {
+            return false;
+        }
+
+        var host = Uri.TryCreate(gatewayUrl, UriKind.Absolute, out var uri)
+            ? uri.Host
+            : gatewayUrl;
+
+        return host is "127.0.0.1" or "localhost" or "::1" or "[::1]";
     }
 
     /// <summary>

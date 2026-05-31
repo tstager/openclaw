@@ -272,7 +272,26 @@ public sealed class MainWindow : Window
     {
         this.trayHost = trayHost;
         this.trayHost.TrayActivated += this.OnTrayActivated;
-        this.trayHost.SetTooltip($"OpenClaw - {this.GatewayStatusText}");
+        this.UpdateTrayTooltip();
+    }
+
+    /// <summary>
+    /// Refreshes the tray icon tooltip from the current snapshot so it stays live as gateway, node, and
+    /// activity state change. The warning count is pending approvals + pairings + onboarding warnings.
+    /// </summary>
+    public void UpdateTrayTooltip()
+    {
+        if (this.trayHost is null)
+        {
+            return;
+        }
+
+        var snapshot = this.BuildTraySnapshot();
+        var warningCount =
+            snapshot.PendingApprovalCount +
+            snapshot.PendingPairingCount +
+            this.coordinator.OnboardingChecks.Count(check => check.State == OnboardingCheckState.Warning);
+        this.trayHost.SetTooltip(TrayFlyoutComposer.BuildTooltip(snapshot, warningCount));
     }
 
     /// <summary>
@@ -2377,6 +2396,7 @@ public sealed class MainWindow : Window
                 $"Realtime {state}",
                 string.IsNullOrWhiteSpace(reason) ? $"Gateway realtime state changed to {state}." : reason,
                 WindowsNavigationDestination.Home);
+            this.UpdateTrayTooltip();
         });
     }
 
@@ -2425,6 +2445,7 @@ public sealed class MainWindow : Window
                 $"Canvas node {state}",
                 string.IsNullOrWhiteSpace(reason) ? $"Canvas node state changed to {state}." : reason,
                 WindowsNavigationDestination.Canvas);
+            this.UpdateTrayTooltip();
         });
     }
 
@@ -5329,6 +5350,7 @@ public sealed class MainWindow : Window
         this.RenderLogsDiagnostics();
         this.RenderSettingsStorage();
         this.RenderHomeDashboard();
+        this.UpdateTrayTooltip();
         var health = status.Reachable ? "reachable" : "unreachable";
         if (this.notificationPreferences.GatewayHealthAlerts &&
             this.lastNotifiedGatewayHealth is not null &&

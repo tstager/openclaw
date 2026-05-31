@@ -19,6 +19,35 @@ public sealed class WindowsTraySnapshotTests
             RawJson: "{}");
     }
 
+    private static GatewayStatusSnapshot StatusWithDashboard(string? dashboardUrl)
+    {
+        return new GatewayStatusSnapshot(
+            State: "running",
+            ServiceInstalled: true,
+            Reachable: true,
+            Capability: "admin_capable",
+            DashboardUrl: dashboardUrl,
+            LogPath: null,
+            AuthWarning: null,
+            Error: null,
+            RawJson: "{}");
+    }
+
+    private static WindowsTraySnapshot SnapshotForUrl(string? dashboardUrl)
+    {
+        return WindowsTraySnapshot.Create(
+            StatusWithDashboard(dashboardUrl),
+            GatewayRealtimeState.Connected,
+            WindowsCanvasNodeState.Connected,
+            canvasNodeEnabled: true,
+            AppPreferences.Default,
+            sessionCount: 0,
+            pendingApprovalCount: 0,
+            pendingPairingCount: 0,
+            lastActivity: null,
+            latestNotification: null);
+    }
+
     private static GatewayStatusSnapshot StoppedStatus(bool serviceInstalled = true)
     {
         return new GatewayStatusSnapshot(
@@ -224,6 +253,33 @@ public sealed class WindowsTraySnapshotTests
         Assert.AreEqual(0, snapshot.SessionCount);
         Assert.AreEqual(0, snapshot.PendingApprovalCount);
         Assert.AreEqual(0, snapshot.PendingPairingCount);
+    }
+
+    [TestMethod]
+    public void LoopbackDashboardUrlIsLocal()
+    {
+        Assert.IsTrue(SnapshotForUrl("http://127.0.0.1:18080").GatewayIsLocal);
+        Assert.IsTrue(SnapshotForUrl("http://localhost:18080").GatewayIsLocal);
+        Assert.IsTrue(SnapshotForUrl("http://[::1]:18080").GatewayIsLocal);
+    }
+
+    [TestMethod]
+    public void RemoteHostDashboardUrlIsNotLocal()
+    {
+        Assert.IsFalse(SnapshotForUrl("https://gateway.example.com:18080").GatewayIsLocal);
+        Assert.IsFalse(SnapshotForUrl("http://10.0.0.5:18080").GatewayIsLocal);
+    }
+
+    [TestMethod]
+    public void MissingDashboardUrlFallsBackToPreferenceHostForLocality()
+    {
+        var snapshot = SnapshotForUrl(null);
+
+        Assert.AreEqual(AppPreferences.Default.GatewayUrl, snapshot.GatewayUrl);
+        var expectedLocal =
+            AppPreferences.Default.GatewayUrl.Contains("127.0.0.1", StringComparison.Ordinal) ||
+            AppPreferences.Default.GatewayUrl.Contains("localhost", StringComparison.Ordinal);
+        Assert.AreEqual(expectedLocal, snapshot.GatewayIsLocal);
     }
 
     [TestMethod]

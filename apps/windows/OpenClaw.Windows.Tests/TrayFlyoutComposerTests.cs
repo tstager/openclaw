@@ -39,7 +39,9 @@ public sealed class TrayFlyoutComposerTests
         WindowsCanvasNodeState canvas,
         bool canvasEnabled = true,
         int approvals = 0,
-        int pairings = 0)
+        int pairings = 0,
+        int sessions = 0,
+        string? lastActivity = null)
     {
         return WindowsTraySnapshot.Create(
             status,
@@ -47,10 +49,10 @@ public sealed class TrayFlyoutComposerTests
             canvas,
             canvasEnabled,
             AppPreferences.Default,
-            sessionCount: 0,
+            sessionCount: sessions,
             pendingApprovalCount: approvals,
             pendingPairingCount: pairings,
-            lastActivity: null,
+            lastActivity: lastActivity,
             latestNotification: null);
     }
 
@@ -211,6 +213,113 @@ public sealed class TrayFlyoutComposerTests
 
         var openRow = AllActionRows(model).First(row => row.Action == TrayFlyoutAction.OpenShell);
         Assert.IsNull(openRow.Badge);
+    }
+
+    [TestMethod]
+    public void LocalRunningGatewayRowCarriesLocalBadge()
+    {
+        var model = TrayFlyoutComposer.Compose(
+            Snapshot(RunningStatus(), GatewayRealtimeState.Connected, WindowsCanvasNodeState.Connected));
+
+        var gatewayRow = AllStatusRows(model).First(row => row.Label.StartsWith("Gateway:", StringComparison.Ordinal));
+        Assert.AreEqual("Local", gatewayRow.Badge);
+    }
+
+    [TestMethod]
+    public void RemoteGatewayRowCarriesRemoteBadge()
+    {
+        var remoteStatus = new GatewayStatusSnapshot(
+            State: "running",
+            ServiceInstalled: true,
+            Reachable: true,
+            Capability: "admin_capable",
+            DashboardUrl: "https://gateway.example.com:18080",
+            LogPath: null,
+            AuthWarning: null,
+            Error: null,
+            RawJson: "{}");
+        var model = TrayFlyoutComposer.Compose(
+            Snapshot(remoteStatus, GatewayRealtimeState.Connected, WindowsCanvasNodeState.Connected));
+
+        var gatewayRow = AllStatusRows(model).First(row => row.Label.StartsWith("Gateway:", StringComparison.Ordinal));
+        Assert.AreEqual("Remote", gatewayRow.Badge);
+    }
+
+    [TestMethod]
+    public void KnownSessionsAddAnAccentSessionsRowWithBadge()
+    {
+        var model = TrayFlyoutComposer.Compose(
+            Snapshot(RunningStatus(), GatewayRealtimeState.Connected, WindowsCanvasNodeState.Connected, sessions: 4));
+
+        var sessionRow = AllStatusRows(model).First(row => row.Label.StartsWith("Sessions:", StringComparison.Ordinal));
+        Assert.AreEqual(TrayStatusTone.Accent, sessionRow.Tone);
+        Assert.AreEqual("4", sessionRow.Badge);
+    }
+
+    [TestMethod]
+    public void ZeroSessionsOmitsTheSessionsRow()
+    {
+        var model = TrayFlyoutComposer.Compose(
+            Snapshot(RunningStatus(), GatewayRealtimeState.Connected, WindowsCanvasNodeState.Connected, sessions: 0));
+
+        Assert.IsFalse(AllStatusRows(model).Any(row => row.Label.StartsWith("Sessions:", StringComparison.Ordinal)));
+    }
+
+    [TestMethod]
+    public void PresentActivityAddsAnActivityRow()
+    {
+        var model = TrayFlyoutComposer.Compose(
+            Snapshot(RunningStatus(), GatewayRealtimeState.Connected, WindowsCanvasNodeState.Connected, lastActivity: "Restart completed."));
+
+        var activityRow = AllStatusRows(model).First(row => row.Label == "Activity");
+        Assert.AreEqual("Restart completed.", activityRow.Detail);
+    }
+
+    [TestMethod]
+    public void AbsentActivityOmitsTheActivityRow()
+    {
+        var model = TrayFlyoutComposer.Compose(
+            Snapshot(RunningStatus(), GatewayRealtimeState.Connected, WindowsCanvasNodeState.Connected, lastActivity: null));
+
+        Assert.IsFalse(AllStatusRows(model).Any(row => row.Label == "Activity"));
+    }
+
+    [TestMethod]
+    public void TooltipIncludesGatewayCanvasLocalityAndStaysWithinLimit()
+    {
+        var tooltip = TrayFlyoutComposer.BuildTooltip(
+            Snapshot(RunningStatus(), GatewayRealtimeState.Connected, WindowsCanvasNodeState.Connected),
+            warningCount: 0);
+
+        StringAssert.Contains(tooltip, "Running");
+        StringAssert.Contains(tooltip, "Local");
+        StringAssert.Contains(tooltip, "Canvas Ready");
+        Assert.IsLessThanOrEqualTo(TrayFlyoutComposer.TooltipMaxLength, tooltip.Length);
+    }
+
+    [TestMethod]
+    public void TooltipIncludesWarningCountWhenPresent()
+    {
+        var tooltip = TrayFlyoutComposer.BuildTooltip(
+            Snapshot(RunningStatus(), GatewayRealtimeState.Connected, WindowsCanvasNodeState.Connected),
+            warningCount: 3);
+
+        StringAssert.Contains(tooltip, "3 warnings");
+        Assert.IsLessThanOrEqualTo(TrayFlyoutComposer.TooltipMaxLength, tooltip.Length);
+    }
+
+    [TestMethod]
+    public void TooltipTruncatesLongActivityToStayWithinLimit()
+    {
+        var tooltip = TrayFlyoutComposer.BuildTooltip(
+            Snapshot(
+                RunningStatus(),
+                GatewayRealtimeState.Connected,
+                WindowsCanvasNodeState.Connected,
+                lastActivity: new string('x', 200)),
+            warningCount: 0);
+
+        Assert.AreEqual(TrayFlyoutComposer.TooltipMaxLength, tooltip.Length);
     }
 
     [TestMethod]

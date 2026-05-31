@@ -71,6 +71,47 @@ public static class TrayFlyoutComposer
     private const string StopGlyph = "";
 
     /// <summary>
+    /// The hard NotifyIcon tooltip limit; longer text is rejected by the shell, so the builder stays within it.
+    /// </summary>
+    public const int TooltipMaxLength = 63;
+
+    /// <summary>
+    /// Builds the concise (&lt;= 63 char) tray tooltip covering gateway state, node/canvas state, an optional
+    /// warning count, and the latest activity. Activity is truncated first so the leading status survives the cap.
+    /// </summary>
+    /// <param name="snapshot">The current tray snapshot.</param>
+    /// <param name="warningCount">Outstanding-work warnings (pending approvals + pairings + onboarding warnings).</param>
+    public static string BuildTooltip(WindowsTraySnapshot snapshot, int warningCount)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+
+        var gateway = DescribeGateway(snapshot) + (snapshot.GatewayIsLocal ? " (Local)" : " (Remote)");
+        var head = $"OpenClaw - {gateway} - Canvas {DescribeCanvas(snapshot.CanvasReadiness)}";
+        if (warningCount > 0)
+        {
+            head += $" - {warningCount} warning{(warningCount == 1 ? string.Empty : "s")}";
+        }
+
+        if (head.Length >= TooltipMaxLength)
+        {
+            return Truncate(head, TooltipMaxLength);
+        }
+
+        if (string.IsNullOrWhiteSpace(snapshot.LatestActivity))
+        {
+            return head;
+        }
+
+        var withActivity = $"{head} - {snapshot.LatestActivity}";
+        return Truncate(withActivity, TooltipMaxLength);
+    }
+
+    private static string Truncate(string value, int max)
+    {
+        return value.Length <= max ? value : value[..max];
+    }
+
+    /// <summary>
     /// Builds the ordered sections shown in the tray flyout from the current snapshot.
     /// </summary>
     public static TrayFlyoutModel Compose(WindowsTraySnapshot snapshot)
@@ -88,7 +129,7 @@ public static class TrayFlyoutComposer
     }
 
     /// <summary>
-    /// Status-dot rows for the gateway and Canvas/A2UI node readiness.
+    /// Live status-dot rows for the gateway, Canvas/A2UI node, sessions, and the latest activity.
     /// </summary>
     private static TrayFlyoutSection BuildStatusSection(WindowsTraySnapshot snapshot)
     {
@@ -98,13 +139,31 @@ public static class TrayFlyoutComposer
                 Label: $"Gateway: {DescribeGateway(snapshot)}",
                 Detail: snapshot.GatewayUrl,
                 Tone: ResolveGatewayTone(snapshot),
-                Badge: null),
+                Badge: snapshot.GatewayIsLocal ? "Local" : "Remote"),
             new(
                 Label: $"Canvas: {DescribeCanvas(snapshot.CanvasReadiness)}",
                 Detail: null,
                 Tone: ResolveCanvasTone(snapshot.CanvasReadiness),
                 Badge: null),
         };
+
+        if (snapshot.SessionCount > 0)
+        {
+            statusRows.Add(new TrayStatusRow(
+                Label: $"Sessions: {snapshot.SessionCount}",
+                Detail: null,
+                Tone: TrayStatusTone.Accent,
+                Badge: snapshot.SessionCount.ToString()));
+        }
+
+        if (!string.IsNullOrWhiteSpace(snapshot.LatestActivity))
+        {
+            statusRows.Add(new TrayStatusRow(
+                Label: "Activity",
+                Detail: snapshot.LatestActivity,
+                Tone: TrayStatusTone.Neutral,
+                Badge: null));
+        }
 
         return new TrayFlyoutSection(Heading: null, StatusRows: statusRows, ActionRows: []);
     }
