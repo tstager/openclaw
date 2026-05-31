@@ -304,11 +304,23 @@ public sealed class MainWindow : Window
 
     private void ShowTrayFlyout(TrayAnchorPoint anchor)
     {
-        this.trayFlyout ??= new TrayFlyoutWindow(this.RunTrayAction);
+        // A transient flyout gets a fresh window per open; reusing one hidden window accumulates
+        // windowing state that faults after a few open/close cycles.
+        this.trayFlyout?.RequestClose();
+        var flyout = new TrayFlyoutWindow(this.RunTrayAction);
+        this.trayFlyout = flyout;
+        flyout.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(this.trayFlyout, flyout))
+            {
+                this.trayFlyout = null;
+            }
+        };
+
         var snapshot = this.BuildTraySnapshot();
         var model = TrayFlyoutComposer.Compose(snapshot);
         var palette = this.ResolveCurrentPalette();
-        this.trayFlyout.ShowFor(model, palette, anchor);
+        flyout.ShowFor(model, palette, anchor);
     }
 
     /// <summary>
@@ -3049,7 +3061,7 @@ public sealed class MainWindow : Window
         }
         this.canvasWebView?.Close();
         this.hotkeyService?.Dispose();
-        this.trayFlyout?.Close();
+        this.trayFlyout?.RequestClose();
         this.overlayWindow?.Close();
         this.screenRecordingCancellation?.Cancel();
         this.screenRecordingCancellation?.Dispose();

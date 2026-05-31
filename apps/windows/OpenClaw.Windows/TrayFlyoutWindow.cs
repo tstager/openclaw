@@ -24,11 +24,12 @@ public sealed class TrayFlyoutWindow : Window
     private const int FlyoutWidth = 300;
     private readonly Action<TrayFlyoutAction> onAction;
     private readonly OverlappedPresenter presenter;
-    private bool dismissed;
+    private bool closeRequested;
 
     /// <summary>
-    /// Creates a borderless, top-most flyout window. <paramref name="onAction"/> receives the row
-    /// action when the operator activates a row; the flyout closes itself first.
+    /// Creates a borderless, top-most flyout window. Each tray open creates a fresh instance; the
+    /// flyout closes itself on light-dismiss or when a row action is activated. <paramref name="onAction"/>
+    /// receives the activated row action.
     /// </summary>
     public TrayFlyoutWindow(Action<TrayFlyoutAction> onAction)
     {
@@ -41,12 +42,11 @@ public sealed class TrayFlyoutWindow : Window
     }
 
     /// <summary>
-    /// Rebuilds the flyout content from the model, themes it, sizes it to content, anchors it near the
-    /// tray, and activates it. Called on the WinUI dispatcher in response to a tray click.
+    /// Builds the flyout content from the model, themes it, sizes it to content, anchors it near the
+    /// tray, and activates it. Called once per instance on the WinUI dispatcher in response to a tray click.
     /// </summary>
     public void ShowFor(TrayFlyoutModel model, WindowsThemePalette palette, TrayAnchorPoint anchor)
     {
-        this.dismissed = false;
         this.BuildContent(model, palette);
         this.Activate();
 
@@ -247,7 +247,14 @@ public sealed class TrayFlyoutWindow : Window
 
     private void Invoke(TrayFlyoutAction action)
     {
-        this.Dismiss();
+        if (this.closeRequested)
+        {
+            return;
+        }
+
+        // Close the flyout before routing: the action may activate the main window, which would
+        // otherwise re-enter this window's Deactivated handler.
+        this.RequestClose();
         this.onAction(action);
     }
 
@@ -255,19 +262,27 @@ public sealed class TrayFlyoutWindow : Window
     {
         if (args.WindowActivationState == WindowActivationState.Deactivated)
         {
-            this.Dismiss();
+            this.RequestClose();
         }
     }
 
-    private void Dismiss()
+    /// <summary>
+    /// Closes the flyout exactly once. Closing is posted back to the dispatcher so it never runs inside
+    /// the activation callback, which otherwise faults the windowing layer on repeated open/close cycles.
+    /// </summary>
+    public void RequestClose()
     {
-        if (this.dismissed)
+        if (this.closeRequested)
         {
             return;
         }
 
-        this.dismissed = true;
-        this.AppWindow.Hide();
+        this.closeRequested = true;
+        this.Activated -= this.OnActivated;
+        if (!this.DispatcherQueue.TryEnqueue(this.Close))
+        {
+            this.Close();
+        }
     }
 
     /// <summary>
