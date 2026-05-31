@@ -24,7 +24,6 @@ public sealed class TrayFlyoutWindow : Window
     private const int FlyoutWidth = 300;
     private readonly Action<TrayFlyoutAction> onAction;
     private readonly OverlappedPresenter presenter;
-    private readonly StackPanel root;
     private bool dismissed;
 
     /// <summary>
@@ -34,7 +33,6 @@ public sealed class TrayFlyoutWindow : Window
     public TrayFlyoutWindow(Action<TrayFlyoutAction> onAction)
     {
         this.onAction = onAction;
-        this.root = new StackPanel { Spacing = 0 };
         this.presenter = OverlappedPresenter.CreateForContextMenu();
         this.presenter.IsAlwaysOnTop = true;
         this.AppWindow.SetPresenter(this.presenter);
@@ -62,18 +60,21 @@ public sealed class TrayFlyoutWindow : Window
     {
         var background = ToBrush(palette.CardBackgroundColor);
         var stroke = ToBrush(palette.CardStrokeColor);
-        this.root.Children.Clear();
+
+        // Build a fresh visual tree on every show. The window is reused across opens, so reparenting a
+        // persistent panel into a new Border would fault the native XAML layer on the second open.
+        var panel = new StackPanel { Spacing = 0 };
 
         var first = true;
         foreach (var section in model.Sections)
         {
             if (!first)
             {
-                this.root.Children.Add(BuildSeparator(palette));
+                panel.Children.Add(BuildSeparator(palette));
             }
 
             first = false;
-            this.AppendSection(section, palette);
+            this.AppendSection(panel, section, palette);
         }
 
         this.Content = new Border
@@ -83,15 +84,15 @@ public sealed class TrayFlyoutWindow : Window
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
             Padding = new Thickness(6),
-            Child = this.root,
+            Child = panel,
         };
     }
 
-    private void AppendSection(TrayFlyoutSection section, WindowsThemePalette palette)
+    private void AppendSection(StackPanel panel, TrayFlyoutSection section, WindowsThemePalette palette)
     {
         if (!string.IsNullOrWhiteSpace(section.Heading))
         {
-            this.root.Children.Add(new TextBlock
+            panel.Children.Add(new TextBlock
             {
                 Text = section.Heading,
                 FontSize = 11,
@@ -103,12 +104,12 @@ public sealed class TrayFlyoutWindow : Window
 
         foreach (var statusRow in section.StatusRows)
         {
-            this.root.Children.Add(BuildStatusRow(statusRow, palette));
+            panel.Children.Add(BuildStatusRow(statusRow, palette));
         }
 
         foreach (var actionRow in section.ActionRows)
         {
-            this.root.Children.Add(this.BuildActionRow(actionRow, palette));
+            panel.Children.Add(this.BuildActionRow(actionRow, palette));
         }
     }
 
