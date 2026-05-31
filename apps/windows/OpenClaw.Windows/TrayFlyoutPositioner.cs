@@ -28,18 +28,23 @@ public static class TrayFlyoutPositioner
         int flyoutWidth,
         int flyoutHeight)
     {
-        var x = anchor - flyoutWidth + EdgeMargin;
-        var y = anchorY - flyoutHeight - EdgeMargin;
+        // Never let the flyout exceed the work area; an oversized flyout is capped here and the view scrolls
+        // its overflow rather than running off-screen or painting a blank region past the edge.
+        var width = Math.Min(flyoutWidth, Math.Max(0, workArea.Width - (2 * EdgeMargin)));
+        var height = Math.Min(flyoutHeight, Math.Max(0, workArea.Height - (2 * EdgeMargin)));
 
-        var maxX = workArea.X + workArea.Width - flyoutWidth - EdgeMargin;
+        var x = anchor - width + EdgeMargin;
+        var y = anchorY - height - EdgeMargin;
+
+        var maxX = workArea.X + workArea.Width - width - EdgeMargin;
         var minX = workArea.X + EdgeMargin;
         x = Clamp(x, minX, maxX);
 
-        var maxY = workArea.Y + workArea.Height - flyoutHeight - EdgeMargin;
+        var maxY = workArea.Y + workArea.Height - height - EdgeMargin;
         var minY = workArea.Y + EdgeMargin;
         y = Clamp(y, minY, maxY);
 
-        return new TrayPixelRect(x, y, flyoutWidth, flyoutHeight);
+        return new TrayPixelRect(x, y, width, height);
     }
 
     private static int Clamp(int value, int min, int max)

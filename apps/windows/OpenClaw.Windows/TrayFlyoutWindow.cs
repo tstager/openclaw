@@ -15,13 +15,17 @@ namespace OpenClaw.Windows;
 
 /// <summary>
 /// Compact, themed, light-dismiss WinUI window that replaces the WinForms tray context menu.
-/// It renders a <see cref="TrayFlyoutModel"/> with status-dot rows, separators, and icon action rows,
-/// anchors itself near the tray icon, and closes when it loses focus. Sessions 3-6 extend the model
-/// rather than this view.
+/// It renders a <see cref="TrayFlyoutModel"/> with status-dot rows, separators, icon action rows, and
+/// permission toggles, anchors itself near the tray icon, and closes when it loses focus. Content scrolls
+/// when it is taller than the work area, the window is sized to its content at the display's DPI, and rows
+/// highlight on hover from the resolved theme palette. New rows are added via the model, not this view.
 /// </summary>
 public sealed class TrayFlyoutWindow : Window
 {
-    private const int FlyoutWidth = 300;
+    // Content width and chrome are expressed in DIPs; the window is sized in physical pixels by multiplying
+    // through the display's rasterization scale so the flyout is not clipped on high-DPI screens.
+    private const double FlyoutContentWidth = 300;
+    private const double ChromeThickness = 14;
 
     // Segoe Fluent Icons "Accept" check, shown accent-tinted when a toggle is on and dimmed when off.
     private const string ToggleIndicatorGlyph = "";
@@ -29,6 +33,10 @@ public sealed class TrayFlyoutWindow : Window
     private readonly Action<TrayFlyoutAction> onAction;
     private readonly Action<TrayFlyoutAction> onToggle;
     private readonly OverlappedPresenter presenter;
+    private TrayAnchorPoint anchor;
+    private TrayPixelRect workArea;
+    private int lastAppliedWidth = -1;
+    private int lastAppliedHeight = -1;
     private bool closeRequested;
 
     /// <summary>
@@ -54,13 +62,14 @@ public sealed class TrayFlyoutWindow : Window
     /// </summary>
     public void ShowFor(TrayFlyoutModel model, WindowsThemePalette palette, TrayAnchorPoint anchor)
     {
+        this.anchor = anchor;
+        this.workArea = ResolveWorkArea(anchor);
         this.BuildContent(model, palette);
         this.Activate();
 
-        var measured = this.MeasureContentHeight(model);
-        var workArea = ResolveWorkArea(anchor);
-        var placement = TrayFlyoutPositioner.Place(workArea, anchor.X, anchor.Y, FlyoutWidth, measured);
-        this.AppWindow.MoveAndResize(new RectInt32(placement.X, placement.Y, placement.Width, placement.Height));
+        // Size from the row estimate for the first paint; OnContentSizeChanged corrects to the exact,
+        // DPI-scaled content size once layout runs.
+        this.PlaceAndResize(EstimatePhysicalWidth(1.0), this.EstimateContentHeight(model));
     }
 
     /// <summary>
@@ -78,10 +87,7 @@ public sealed class TrayFlyoutWindow : Window
         }
 
         this.BuildContent(model, palette);
-
-        var measured = this.MeasureContentHeight(model);
-        var current = this.AppWindow.Position;
-        this.AppWindow.MoveAndResize(new RectInt32(current.X, current.Y, FlyoutWidth, measured));
+        this.PlaceAndResize(EstimatePhysicalWidth(1.0), this.EstimateContentHeight(model));
     }
 
     private void BuildContent(TrayFlyoutModel model, WindowsThemePalette palette)
@@ -91,7 +97,7 @@ public sealed class TrayFlyoutWindow : Window
 
         // Build a fresh visual tree on every show. The window is reused across opens, so reparenting a
         // persistent panel into a new Border would fault the native XAML layer on the second open.
-        var panel = new StackPanel { Spacing = 0 };
+        var panel = new StackPanel { Spacing = 0, Width = FlyoutContentWidth };
 
         var first = true;
         foreach (var section in model.Sections)
@@ -105,6 +111,17 @@ public sealed class TrayFlyoutWindow : Window
             this.AppendSection(panel, section, palette);
         }
 
+        // A ScrollViewer keeps a tall flyout (many rows on a short screen) scrollable instead of running off the
+        // work area or clipping the Exit row; the window height is capped to the work area by the positioner.
+        var scroller = new ScrollViewer
+        {
+            Content = panel,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            VerticalScrollMode = ScrollMode.Auto,
+            HorizontalScrollMode = ScrollMode.Disabled,
+        };
+
         this.Content = new Border
         {
             Background = background,
@@ -112,8 +129,13 @@ public sealed class TrayFlyoutWindow : Window
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(8),
             Padding = new Thickness(6),
-            Child = panel,
+            RequestedTheme = ResolveElementTheme(palette),
+            Child = scroller,
         };
+
+        // Re-fit the window to the true, DPI-scaled content height once layout runs. A fresh panel (and thus a
+        // fresh subscription) is created on every build, so handlers never accumulate across opens or refreshes.
+        panel.SizeChanged += this.OnContentSizeChanged;
     }
 
     private void AppendSection(StackPanel panel, TrayFlyoutSection section, WindowsThemePalette palette)
@@ -228,10 +250,10 @@ public sealed class TrayFlyoutWindow : Window
             Content = grid,
             HorizontalAlignment = XamlHorizontalAlignment.Stretch,
             HorizontalContentAlignment = XamlHorizontalAlignment.Stretch,
-            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
             BorderThickness = new Thickness(0),
             Padding = new Thickness(8, 6, 8, 6),
         };
+        ApplyRowButtonChrome(button, palette);
         button.Click += (_, _) => this.Invoke(row.Action);
         return button;
     }
@@ -282,10 +304,10 @@ public sealed class TrayFlyoutWindow : Window
             Content = grid,
             HorizontalAlignment = XamlHorizontalAlignment.Stretch,
             HorizontalContentAlignment = XamlHorizontalAlignment.Stretch,
-            Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
             BorderThickness = new Thickness(0),
             Padding = new Thickness(8, 6, 8, 6),
         };
+        ApplyRowButtonChrome(button, palette);
         button.Click += (_, _) => this.InvokeToggle(row.ToggleAction);
         return button;
     }
@@ -386,9 +408,53 @@ public sealed class TrayFlyoutWindow : Window
     }
 
     /// <summary>
+    /// Resizes and repositions the window for a content size given in physical pixels, clamped to the work area
+    /// by the positioner. No-ops when the resulting size is unchanged so a settle-driven re-measure cannot loop.
+    /// </summary>
+    private void PlaceAndResize(int physicalWidth, int physicalHeight)
+    {
+        if (this.closeRequested)
+        {
+            return;
+        }
+
+        var placement = TrayFlyoutPositioner.Place(this.workArea, this.anchor.X, this.anchor.Y, physicalWidth, physicalHeight);
+        if (placement.Width == this.lastAppliedWidth && placement.Height == this.lastAppliedHeight)
+        {
+            return;
+        }
+
+        this.lastAppliedWidth = placement.Width;
+        this.lastAppliedHeight = placement.Height;
+        this.AppWindow.MoveAndResize(new RectInt32(placement.X, placement.Y, placement.Width, placement.Height));
+    }
+
+    /// <summary>
+    /// Once the content has laid out, re-fits the window to its exact height scaled by the display's rasterization
+    /// scale, so the flyout hugs its content on any DPI instead of relying on the row-count estimate.
+    /// </summary>
+    private void OnContentSizeChanged(object sender, SizeChangedEventArgs args)
+    {
+        if (this.closeRequested || sender is not FrameworkElement content)
+        {
+            return;
+        }
+
+        var scale = content.XamlRoot?.RasterizationScale ?? 1.0;
+        var physicalWidth = EstimatePhysicalWidth(scale);
+        var physicalHeight = (int)Math.Ceiling((content.ActualHeight + ChromeThickness) * scale);
+        this.PlaceAndResize(physicalWidth, physicalHeight);
+    }
+
+    private static int EstimatePhysicalWidth(double scale)
+    {
+        return (int)Math.Ceiling((FlyoutContentWidth + ChromeThickness) * scale);
+    }
+
+    /// <summary>
     /// Estimates the natural pixel height from the row counts so the window can be sized before layout settles.
     /// </summary>
-    private int MeasureContentHeight(TrayFlyoutModel model)
+    private int EstimateContentHeight(TrayFlyoutModel model)
     {
         const int statusRowHeight = 38;
         const int actionRowHeight = 36;
@@ -446,5 +512,44 @@ public sealed class TrayFlyoutWindow : Window
     private static SolidColorBrush ToBrush(Color color)
     {
         return new SolidColorBrush(color);
+    }
+
+    /// <summary>
+    /// Styles a row as a menu item via lightweight styling: transparent at rest, a themed layer fill on
+    /// hover and a stronger fill on press, so the active row is clearly highlighted without a heavy slab.
+    /// </summary>
+    private static void ApplyRowButtonChrome(XamlButton button, WindowsThemePalette palette)
+    {
+        var transparent = new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+        button.Resources["ButtonBackground"] = transparent;
+        button.Resources["ButtonBackgroundPointerOver"] = ToBrush(palette.LayerFillColor);
+        button.Resources["ButtonBackgroundPressed"] = ToBrush(palette.CardStrokeColor);
+        button.Resources["ButtonBackgroundDisabled"] = transparent;
+        button.Resources["ButtonBorderBrush"] = transparent;
+        button.Resources["ButtonBorderBrushPointerOver"] = transparent;
+        button.Resources["ButtonBorderBrushPressed"] = transparent;
+        button.Resources["ButtonBorderBrushDisabled"] = transparent;
+    }
+
+    /// <summary>
+    /// Picks the element theme that matches the resolved palette so default control chrome (scrollbar, row
+    /// hover states) renders legibly against the flyout background regardless of the system theme.
+    /// </summary>
+    private static ElementTheme ResolveElementTheme(WindowsThemePalette palette)
+    {
+        return RelativeLuminance(palette.AppBackgroundColor) < 0.5 ? ElementTheme.Dark : ElementTheme.Light;
+    }
+
+    private static double RelativeLuminance(Color color)
+    {
+        static double Channel(byte value)
+        {
+            var normalized = value / 255.0;
+            return normalized <= 0.03928
+                ? normalized / 12.92
+                : Math.Pow((normalized + 0.055) / 1.055, 2.4);
+        }
+
+        return (0.2126 * Channel(color.R)) + (0.7152 * Channel(color.G)) + (0.0722 * Channel(color.B));
     }
 }

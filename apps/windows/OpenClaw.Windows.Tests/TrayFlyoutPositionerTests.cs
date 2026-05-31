@@ -65,4 +65,35 @@ public sealed class TrayFlyoutPositionerTests
         Assert.AreEqual(tiny.X + TrayFlyoutPositioner.EdgeMargin, placement.X);
         Assert.AreEqual(tiny.Y + TrayFlyoutPositioner.EdgeMargin, placement.Y);
     }
+
+    [TestMethod]
+    public void ClampsFlyoutHeightToWorkAreaWhenContentIsTallerThanScreen()
+    {
+        var placement = TrayFlyoutPositioner.Place(WorkArea, anchor: 1850, anchorY: 1030, flyoutWidth: 300, flyoutHeight: 5000);
+
+        Assert.AreEqual(WorkArea.Height - (2 * TrayFlyoutPositioner.EdgeMargin), placement.Height);
+        Assert.AreEqual(WorkArea.Y + TrayFlyoutPositioner.EdgeMargin, placement.Y);
+    }
+
+    [TestMethod]
+    public void ClampsFlyoutWidthToWorkAreaWhenWiderThanScreen()
+    {
+        var narrow = new TrayPixelRect(0, 0, 220, 1040);
+
+        var placement = TrayFlyoutPositioner.Place(narrow, anchor: 200, anchorY: 1030, flyoutWidth: 300, flyoutHeight: 260);
+
+        Assert.AreEqual(narrow.Width - (2 * TrayFlyoutPositioner.EdgeMargin), placement.Width);
+        Assert.AreEqual(narrow.X + TrayFlyoutPositioner.EdgeMargin, placement.X);
+    }
+
+    [TestMethod]
+    public void OversizedFlyoutIsCappedToWorkAreaSize()
+    {
+        var tiny = new TrayPixelRect(0, 0, 200, 200);
+
+        var placement = TrayFlyoutPositioner.Place(tiny, anchor: 150, anchorY: 150, flyoutWidth: 300, flyoutHeight: 260);
+
+        Assert.AreEqual(tiny.Width - (2 * TrayFlyoutPositioner.EdgeMargin), placement.Width);
+        Assert.AreEqual(tiny.Height - (2 * TrayFlyoutPositioner.EdgeMargin), placement.Height);
+    }
 }
