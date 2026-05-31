@@ -27,6 +27,10 @@ public sealed class TrayFlyoutWindow : Window
     private const double FlyoutContentWidth = 300;
     private const double ChromeThickness = 14;
 
+    // Right inset reserved inside the content width so the ScrollViewer's overlay scrollbar sits in this gutter
+    // rather than over the right-aligned row content (chevrons, badges, accelerator hints).
+    private const double ScrollbarGutter = 12;
+
     // Segoe Fluent Icons "Accept" check, shown accent-tinted when a toggle is on and dimmed when off.
     private const string ToggleIndicatorGlyph = "";
 
@@ -100,7 +104,12 @@ public sealed class TrayFlyoutWindow : Window
 
         // Build a fresh visual tree on every show. The window is reused across opens, so reparenting a
         // persistent panel into a new Border would fault the native XAML layer on the second open.
-        var panel = new StackPanel { Spacing = 0, Width = FlyoutContentWidth };
+        var panel = new StackPanel
+        {
+            Spacing = 0,
+            Width = FlyoutContentWidth,
+            Padding = new Thickness(0, 0, ScrollbarGutter, 0),
+        };
 
         if (model.Header is { } header)
         {
