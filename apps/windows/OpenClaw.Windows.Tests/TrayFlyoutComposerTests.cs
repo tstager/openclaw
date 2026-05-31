@@ -284,10 +284,13 @@ public sealed class TrayFlyoutComposerTests
             TrayFlyoutAction.OpenHome,
             TrayFlyoutAction.OpenChat,
             TrayFlyoutAction.OpenCanvas,
+            TrayFlyoutAction.OpenQuickSend,
+            TrayFlyoutAction.OpenReconfigure,
             TrayFlyoutAction.OpenSessions,
             TrayFlyoutAction.OpenApprovals,
             TrayFlyoutAction.OpenPairing,
             TrayFlyoutAction.OpenSettings,
+            TrayFlyoutAction.OpenAbout,
             TrayFlyoutAction.OpenLogs,
         };
         CollectionAssert.AreEqual(expectedNav, actions.Take(expectedNav.Length).ToArray());
@@ -594,6 +597,101 @@ public sealed class TrayFlyoutComposerTests
         foreach (var section in nonPermissionSections)
         {
             Assert.IsEmpty(section.ToggleRows);
+        }
+    }
+
+    // Session 1: branded header.
+    [TestMethod]
+    public void ModelCarriesBrandedHeaderWithTitleAndIcon()
+    {
+        var model = TrayFlyoutComposer.Compose(
+            Snapshot(RunningStatus(), GatewayRealtimeState.Connected, WindowsCanvasNodeState.Connected));
+
+        Assert.IsNotNull(model.Header);
+        Assert.AreEqual("OpenClaw", model.Header!.Title);
+        Assert.IsFalse(string.IsNullOrEmpty(model.Header.IconGlyph), "Header is missing its app mark glyph.");
+    }
+
+    // Session 2: navigable status rows.
+    [TestMethod]
+    public void GatewayCanvasAndSessionStatusRowsCarryNavigationActions()
+    {
+        var model = TrayFlyoutComposer.Compose(
+            Snapshot(RunningStatus(), GatewayRealtimeState.Connected, WindowsCanvasNodeState.Connected, sessions: 3));
+
+        var byPrefix = AllStatusRows(model).ToArray();
+        Assert.AreEqual(
+            TrayFlyoutAction.OpenHome,
+            byPrefix.First(row => row.Label.StartsWith("Gateway:", StringComparison.Ordinal)).Action);
+        Assert.AreEqual(
+            TrayFlyoutAction.OpenCanvas,
+            byPrefix.First(row => row.Label.StartsWith("Canvas:", StringComparison.Ordinal)).Action);
+        Assert.AreEqual(
+            TrayFlyoutAction.OpenSessions,
+            byPrefix.First(row => row.Label.StartsWith("Sessions:", StringComparison.Ordinal)).Action);
+    }
+
+    [TestMethod]
+    public void DisplayOnlyActivityRowCarriesNoNavigationAction()
+    {
+        var model = TrayFlyoutComposer.Compose(
+            Snapshot(RunningStatus(), GatewayRealtimeState.Connected, WindowsCanvasNodeState.Connected, lastActivity: "Restart completed."));
+
+        var activityRow = AllStatusRows(model).First(row => row.Label == "Activity");
+        Assert.IsNull(activityRow.Action);
+    }
+
+    // Session 3: missing quick actions.
+    [TestMethod]
+    public void QuickSendReconfigureAndAboutRowsExistWithGlyphs()
+    {
+        var model = TrayFlyoutComposer.Compose(
+            Snapshot(RunningStatus(), GatewayRealtimeState.Connected, WindowsCanvasNodeState.Connected));
+
+        var byAction = AllActionRows(model).ToDictionary(row => row.Action);
+        foreach (var action in new[]
+        {
+            TrayFlyoutAction.OpenQuickSend,
+            TrayFlyoutAction.OpenReconfigure,
+            TrayFlyoutAction.OpenAbout,
+        })
+        {
+            Assert.IsTrue(byAction.ContainsKey(action), $"Missing quick-action row {action}.");
+            Assert.IsFalse(string.IsNullOrEmpty(byAction[action].Glyph), $"Action {action} is missing a glyph.");
+        }
+    }
+
+    // Session 4: row affordance polish.
+    [TestMethod]
+    public void CompanionSettingsRowCarriesTheAcceleratorHintAndAlignedLabel()
+    {
+        var model = TrayFlyoutComposer.Compose(
+            Snapshot(RunningStatus(), GatewayRealtimeState.Connected, WindowsCanvasNodeState.Connected));
+
+        var settingsRow = AllActionRows(model).First(row => row.Action == TrayFlyoutAction.OpenSettings);
+        Assert.AreEqual("Companion Settings…", settingsRow.Label);
+        Assert.AreEqual(TrayFlyoutComposer.CompanionSettingsAccelerator, settingsRow.Accelerator);
+    }
+
+    [TestMethod]
+    public void DashboardRowUsesTheAlignedReferenceLabel()
+    {
+        var model = TrayFlyoutComposer.Compose(
+            Snapshot(RunningStatus(), GatewayRealtimeState.Connected, WindowsCanvasNodeState.Connected));
+
+        var dashboardRow = AllActionRows(model).First(row => row.Action == TrayFlyoutAction.OpenHome);
+        Assert.AreEqual("Dashboard", dashboardRow.Label);
+    }
+
+    [TestMethod]
+    public void NavigationRowsOtherThanCompanionSettingsCarryNoAcceleratorHint()
+    {
+        var model = TrayFlyoutComposer.Compose(
+            Snapshot(RunningStatus(), GatewayRealtimeState.Connected, WindowsCanvasNodeState.Connected));
+
+        foreach (var row in AllActionRows(model).Where(row => row.Action != TrayFlyoutAction.OpenSettings))
+        {
+            Assert.IsNull(row.Accelerator, $"Action {row.Action} unexpectedly carries an accelerator hint.");
         }
     }
 }

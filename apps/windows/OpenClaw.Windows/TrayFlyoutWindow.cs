@@ -30,6 +30,9 @@ public sealed class TrayFlyoutWindow : Window
     // Segoe Fluent Icons "Accept" check, shown accent-tinted when a toggle is on and dimmed when off.
     private const string ToggleIndicatorGlyph = "";
 
+    // Segoe Fluent Icons "ChevronRight", shown trailing a navigable status row to mark it as an entry point.
+    private const string ChevronGlyph = "";
+
     private readonly Action<TrayFlyoutAction> onAction;
     private readonly Action<TrayFlyoutAction> onToggle;
     private readonly OverlappedPresenter presenter;
@@ -99,6 +102,12 @@ public sealed class TrayFlyoutWindow : Window
         // persistent panel into a new Border would fault the native XAML layer on the second open.
         var panel = new StackPanel { Spacing = 0, Width = FlyoutContentWidth };
 
+        if (model.Header is { } header)
+        {
+            panel.Children.Add(BuildHeader(header, palette));
+            panel.Children.Add(BuildSeparator(palette));
+        }
+
         var first = true;
         foreach (var section in model.Sections)
         {
@@ -154,7 +163,7 @@ public sealed class TrayFlyoutWindow : Window
 
         foreach (var statusRow in section.StatusRows)
         {
-            panel.Children.Add(BuildStatusRow(statusRow, palette));
+            panel.Children.Add(this.BuildStatusRow(statusRow, palette));
         }
 
         foreach (var actionRow in section.ActionRows)
@@ -168,7 +177,7 @@ public sealed class TrayFlyoutWindow : Window
         }
     }
 
-    private static FrameworkElement BuildStatusRow(TrayStatusRow row, WindowsThemePalette palette)
+    private FrameworkElement BuildStatusRow(TrayStatusRow row, WindowsThemePalette palette)
     {
         var content = new StackPanel
         {
@@ -206,9 +215,26 @@ public sealed class TrayFlyoutWindow : Window
         content.Children.Add(labels);
 
         var grid = BuildRowGrid(content);
-        if (!string.IsNullOrWhiteSpace(row.Badge))
+        var trailing = BuildTrailing(row.Badge, accelerator: null, chevron: row.Action is not null, palette);
+        if (trailing is not null)
         {
-            grid.Children.Add(BuildBadge(row.Badge!, palette));
+            grid.Children.Add(trailing);
+        }
+
+        // A navigable row is a full-width button that dismisses-then-navigates; a display-only row is an inert grid.
+        if (row.Action is { } action)
+        {
+            var button = new XamlButton
+            {
+                Content = grid,
+                HorizontalAlignment = XamlHorizontalAlignment.Stretch,
+                HorizontalContentAlignment = XamlHorizontalAlignment.Stretch,
+                BorderThickness = new Thickness(0),
+                Padding = new Thickness(8, 6, 8, 6),
+            };
+            ApplyRowButtonChrome(button, palette);
+            button.Click += (_, _) => this.Invoke(action);
+            return button;
         }
 
         grid.Padding = new Thickness(8, 6, 8, 6);
@@ -240,9 +266,10 @@ public sealed class TrayFlyoutWindow : Window
         });
 
         var grid = BuildRowGrid(content);
-        if (!string.IsNullOrWhiteSpace(row.Badge))
+        var trailing = BuildTrailing(row.Badge, row.Accelerator, chevron: false, palette);
+        if (trailing is not null)
         {
-            grid.Children.Add(BuildBadge(row.Badge!, palette));
+            grid.Children.Add(trailing);
         }
 
         var button = new XamlButton
@@ -322,14 +349,64 @@ public sealed class TrayFlyoutWindow : Window
         return grid;
     }
 
+    /// <summary>
+    /// Builds the right-aligned trailing content for a row's Auto column: an optional accelerator hint, an optional
+    /// count/locality badge, and an optional navigation chevron, in that visual order. Returns null when a row has
+    /// no trailing content so the caller can skip adding it.
+    /// </summary>
+    private static FrameworkElement? BuildTrailing(string? badge, string? accelerator, bool chevron, WindowsThemePalette palette)
+    {
+        var stack = new StackPanel
+        {
+            Orientation = XamlOrientation.Horizontal,
+            Spacing = 6,
+            HorizontalAlignment = XamlHorizontalAlignment.Right,
+            VerticalAlignment = XamlVerticalAlignment.Center,
+        };
+
+        if (!string.IsNullOrWhiteSpace(accelerator))
+        {
+            stack.Children.Add(new TextBlock
+            {
+                Text = accelerator,
+                FontSize = 12,
+                Foreground = ToBrush(palette.TextSecondaryColor),
+                VerticalAlignment = XamlVerticalAlignment.Center,
+            });
+        }
+
+        if (!string.IsNullOrWhiteSpace(badge))
+        {
+            stack.Children.Add(BuildBadge(badge!, palette));
+        }
+
+        if (chevron)
+        {
+            stack.Children.Add(new FontIcon
+            {
+                Glyph = ChevronGlyph,
+                FontSize = 12,
+                Foreground = ToBrush(palette.TextSecondaryColor),
+                VerticalAlignment = XamlVerticalAlignment.Center,
+            });
+        }
+
+        if (stack.Children.Count == 0)
+        {
+            return null;
+        }
+
+        Grid.SetColumn(stack, 1);
+        return stack;
+    }
+
     private static FrameworkElement BuildBadge(string text, WindowsThemePalette palette)
     {
-        var badge = new Border
+        return new Border
         {
             Background = ToBrush(palette.AccentColor),
             CornerRadius = new CornerRadius(9),
             Padding = new Thickness(7, 1, 7, 1),
-            HorizontalAlignment = XamlHorizontalAlignment.Right,
             VerticalAlignment = XamlVerticalAlignment.Center,
             Child = new TextBlock
             {
@@ -339,8 +416,39 @@ public sealed class TrayFlyoutWindow : Window
                 Foreground = ToBrush(palette.AccentTextColor),
             },
         };
-        Grid.SetColumn(badge, 1);
-        return badge;
+    }
+
+    /// <summary>
+    /// Builds the branded header band: the app mark glyph and the product title, with a reserved trailing slot for
+    /// the node master toggle that the full-node-scopes plan wires (omitted until then).
+    /// </summary>
+    private static FrameworkElement BuildHeader(TrayFlyoutHeader header, WindowsThemePalette palette)
+    {
+        var content = new StackPanel
+        {
+            Orientation = XamlOrientation.Horizontal,
+            Spacing = 10,
+            VerticalAlignment = XamlVerticalAlignment.Center,
+        };
+
+        content.Children.Add(new TextBlock
+        {
+            Text = header.IconGlyph,
+            FontSize = 22,
+            VerticalAlignment = XamlVerticalAlignment.Center,
+        });
+        content.Children.Add(new TextBlock
+        {
+            Text = header.Title,
+            FontSize = 18,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+            Foreground = ToBrush(palette.TextPrimaryColor),
+            VerticalAlignment = XamlVerticalAlignment.Center,
+        });
+
+        var grid = BuildRowGrid(content);
+        grid.Padding = new Thickness(8, 8, 8, 8);
+        return grid;
     }
 
     private static FrameworkElement BuildSeparator(WindowsThemePalette palette)
@@ -462,6 +570,12 @@ public sealed class TrayFlyoutWindow : Window
         const int chromePadding = 14;
 
         var height = chromePadding;
+        if (model.Header is not null)
+        {
+            // Header band plus its trailing separator before the first section.
+            height += 44 + separatorHeight;
+        }
+
         var sectionIndex = 0;
         foreach (var section in model.Sections)
         {

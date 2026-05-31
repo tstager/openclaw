@@ -227,6 +227,32 @@ public sealed class MainWindow : Window
         this.Closed += this.OnClosed;
         this.AppWindow.Closing += this.OnAppWindowClosing;
         this.Content = this.BuildContent();
+        this.RegisterCompanionSettingsAccelerator();
+    }
+
+    /// <summary>
+    /// Registers the real Ctrl+Alt+; shell accelerator that opens Companion Settings, so the matching hint shown
+    /// on the tray flyout's settings row (<see cref="TrayFlyoutComposer.CompanionSettingsAccelerator"/>) is truthful.
+    /// </summary>
+    private void RegisterCompanionSettingsAccelerator()
+    {
+        if (this.Content is not UIElement root)
+        {
+            return;
+        }
+
+        // VirtualKey has no named member for ';' (OEM_1 = 0xBA); the numeric cast is the standard way to bind it.
+        var accelerator = new KeyboardAccelerator
+        {
+            Key = (VirtualKey)0xBA,
+            Modifiers = VirtualKeyModifiers.Control | VirtualKeyModifiers.Menu,
+        };
+        accelerator.Invoked += (_, args) =>
+        {
+            args.Handled = true;
+            this.ShowDestination(WindowsNavigationDestination.Settings);
+        };
+        root.KeyboardAccelerators.Add(accelerator);
     }
 
     /// <summary>
@@ -420,6 +446,16 @@ public sealed class MainWindow : Window
                 break;
             case TrayFlyoutAction.CreateSupportArtifact:
                 this.CreateSupportArtifact();
+                break;
+            case TrayFlyoutAction.OpenQuickSend:
+                this.ShowDestination(WindowsNavigationDestination.Chat);
+                this.chatInput.Focus(FocusState.Programmatic);
+                break;
+            case TrayFlyoutAction.OpenReconfigure:
+                this.ShowDestination(WindowsNavigationDestination.Home);
+                break;
+            case TrayFlyoutAction.OpenAbout:
+                this.ShowDestination(WindowsNavigationDestination.Settings);
                 break;
             case TrayFlyoutAction.Exit:
                 this.ExitRequested?.Invoke();

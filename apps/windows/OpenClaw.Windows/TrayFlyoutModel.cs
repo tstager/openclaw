@@ -34,6 +34,9 @@ public enum TrayFlyoutAction
     OpenAppLogFolder,
     OpenGatewayLogFolder,
     CreateSupportArtifact,
+    OpenQuickSend,
+    OpenReconfigure,
+    OpenAbout,
 }
 
 /// <summary>
@@ -49,14 +52,17 @@ public enum TrayStatusTone
 }
 
 /// <summary>
-/// A status-dot row: a small colored dot, a label, and an optional right-aligned badge.
+/// A status-dot row: a small colored dot, a label, and an optional right-aligned badge. When <paramref name="Action"/>
+/// is set, the row becomes a navigation entry point that shows a trailing chevron and dismisses-then-navigates;
+/// when it is null the row is display-only and non-interactive.
 /// </summary>
-public sealed record TrayStatusRow(string Label, string? Detail, TrayStatusTone Tone, string? Badge);
+public sealed record TrayStatusRow(string Label, string? Detail, TrayStatusTone Tone, string? Badge, TrayFlyoutAction? Action = null);
 
 /// <summary>
-/// An icon-plus-label action row, optionally carrying a right-aligned badge (e.g. a pending count).
+/// An icon-plus-label action row, optionally carrying a right-aligned badge (e.g. a pending count) or a
+/// right-aligned keyboard-accelerator hint (e.g. <c>Ctrl+Alt+;</c>) for rows backed by a real shortcut.
 /// </summary>
-public sealed record TrayActionRow(string Label, string Glyph, TrayFlyoutAction Action, string? Badge = null);
+public sealed record TrayActionRow(string Label, string Glyph, TrayFlyoutAction Action, string? Badge = null, string? Accelerator = null);
 
 /// <summary>
 /// An icon-plus-label permission toggle row. Activating it flips a preference-backed capability without
@@ -86,9 +92,16 @@ public sealed record TrayFlyoutSection(
 }
 
 /// <summary>
-/// The compact, ordered set of sections the tray flyout renders for a given snapshot.
+/// The branded header band shown above the first section: the app mark glyph, the product title, and a
+/// reserved slot for the node master toggle (wired by the full-node-scopes plan; omitted until then).
 /// </summary>
-public sealed record TrayFlyoutModel(IReadOnlyList<TrayFlyoutSection> Sections);
+public sealed record TrayFlyoutHeader(string Title, string IconGlyph);
+
+/// <summary>
+/// The compact, ordered set of sections the tray flyout renders for a given snapshot, with an optional
+/// branded header band rendered above them.
+/// </summary>
+public sealed record TrayFlyoutModel(IReadOnlyList<TrayFlyoutSection> Sections, TrayFlyoutHeader? Header = null);
 
 /// <summary>
 /// Maps a <see cref="WindowsTraySnapshot"/> to the flyout's status and action rows so the visual
@@ -122,6 +135,24 @@ public static class TrayFlyoutComposer
     private const string FolderGlyph = "";
     private const string GatewayFolderGlyph = "";
     private const string ArtifactGlyph = "";
+
+    // Segoe Fluent Icons glyphs for the reference's added quick actions: Send, Repair, and Info.
+    private const string QuickSendGlyph = "";
+    private const string ReconfigureGlyph = "";
+    private const string AboutGlyph = "";
+
+    /// <summary>
+    /// The product title shown in the flyout header band and the app mark glyph (lobster) beside it. There is no
+    /// bundled lobster asset, so the emoji is the brand mark, matching the reference flyout.
+    /// </summary>
+    private const string HeaderTitle = "OpenClaw";
+    private const string HeaderIconGlyph = "🦞";
+
+    /// <summary>
+    /// The single source of truth for the Companion Settings accelerator hint. <c>MainWindow</c> registers the
+    /// matching real Ctrl+Alt+; window accelerator so the displayed hint is truthful.
+    /// </summary>
+    public const string CompanionSettingsAccelerator = "Ctrl+Alt+;";
 
     /// <summary>
     /// The hard NotifyIcon tooltip limit; longer text is rejected by the shell, so the builder stays within it.
@@ -180,11 +211,13 @@ public static class TrayFlyoutComposer
             BuildGatewaySection(snapshot),
         };
 
-        return new TrayFlyoutModel(sections);
+        return new TrayFlyoutModel(sections, new TrayFlyoutHeader(HeaderTitle, HeaderIconGlyph));
     }
 
     /// <summary>
-    /// Live status-dot rows for the gateway, Canvas/A2UI node, sessions, and the latest activity.
+    /// Live status-dot rows for the gateway, Canvas/A2UI node, sessions, and the latest activity. The gateway,
+    /// Canvas, and Sessions rows carry a navigation action so they render a chevron and act as entry points;
+    /// the Activity row stays display-only.
     /// </summary>
     private static TrayFlyoutSection BuildStatusSection(WindowsTraySnapshot snapshot)
     {
@@ -194,12 +227,14 @@ public static class TrayFlyoutComposer
                 Label: $"Gateway: {DescribeGateway(snapshot)}",
                 Detail: snapshot.GatewayUrl,
                 Tone: ResolveGatewayTone(snapshot),
-                Badge: snapshot.GatewayIsLocal ? "Local" : "Remote"),
+                Badge: snapshot.GatewayIsLocal ? "Local" : "Remote",
+                Action: TrayFlyoutAction.OpenHome),
             new(
                 Label: $"Canvas: {DescribeCanvas(snapshot.CanvasReadiness)}",
                 Detail: null,
                 Tone: ResolveCanvasTone(snapshot.CanvasReadiness),
-                Badge: null),
+                Badge: null,
+                Action: TrayFlyoutAction.OpenCanvas),
         };
 
         if (snapshot.SessionCount > 0)
@@ -208,7 +243,8 @@ public static class TrayFlyoutComposer
                 Label: $"Sessions: {snapshot.SessionCount}",
                 Detail: null,
                 Tone: TrayStatusTone.Accent,
-                Badge: snapshot.SessionCount.ToString()));
+                Badge: snapshot.SessionCount.ToString(),
+                Action: TrayFlyoutAction.OpenSessions));
         }
 
         if (!string.IsNullOrWhiteSpace(snapshot.LatestActivity))
@@ -224,18 +260,21 @@ public static class TrayFlyoutComposer
     }
 
     /// <summary>
-    /// Always-available navigation quick-actions. Home is the dashboard, so it is a single row.
-    /// Approvals, Pairing, and Sessions carry their own right-aligned count badges (Sessions only when &gt; 0),
-    /// so the shell entry no longer needs the combined pending badge. Sessions 5-6 grow this set.
+    /// Always-available navigation quick-actions, ordered to match the reference flyout. "Dashboard" is the home
+    /// page; Quick Send and Reconfigure sit next to Canvas; "Companion Settings…" carries its real Ctrl+Alt+;
+    /// accelerator hint and is followed by About. Approvals, Pairing, and Sessions carry their own right-aligned
+    /// count badges (Sessions only when &gt; 0). Sessions 5-6 grow this set.
     /// </summary>
     private static TrayFlyoutSection BuildQuickActionsSection(WindowsTraySnapshot snapshot)
     {
         var actionRows = new List<TrayActionRow>
         {
             new("Open OpenClaw", OpenGlyph, TrayFlyoutAction.OpenShell),
-            new("Home", HomeGlyph, TrayFlyoutAction.OpenHome),
+            new("Dashboard", HomeGlyph, TrayFlyoutAction.OpenHome),
             new("Chat", ChatGlyph, TrayFlyoutAction.OpenChat),
             new("Canvas", CanvasGlyph, TrayFlyoutAction.OpenCanvas),
+            new("Quick Send…", QuickSendGlyph, TrayFlyoutAction.OpenQuickSend),
+            new("Reconfigure…", ReconfigureGlyph, TrayFlyoutAction.OpenReconfigure),
             new(
                 "Sessions",
                 SessionsGlyph,
@@ -251,7 +290,8 @@ public static class TrayFlyoutComposer
                 PairingGlyph,
                 TrayFlyoutAction.OpenPairing,
                 snapshot.PendingPairingCount > 0 ? snapshot.PendingPairingCount.ToString() : null),
-            new("Settings", SettingsGlyph, TrayFlyoutAction.OpenSettings),
+            new("Companion Settings…", SettingsGlyph, TrayFlyoutAction.OpenSettings, Badge: null, Accelerator: CompanionSettingsAccelerator),
+            new("About", AboutGlyph, TrayFlyoutAction.OpenAbout),
             new("Logs", LogsGlyph, TrayFlyoutAction.OpenLogs),
         };
 
