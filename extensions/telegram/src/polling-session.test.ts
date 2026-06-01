@@ -225,7 +225,7 @@ function installPollingStallWatchdogHarness(dateNowSequence: readonly number[] =
           },
           (error: unknown) => {
             realClearTimeout(timeout);
-            reject(error);
+            reject(toLintErrorObject(error, "Non-Error rejection"));
           },
         );
       });
@@ -600,6 +600,7 @@ describe("TelegramPollingSession", () => {
   });
 
   afterEach(() => {
+    pollingSessionTesting.resetActiveSpooledUpdateHandlersForTests();
     clearTelegramRuntime();
     closeOpenClawStateDatabaseForTest();
   });
@@ -716,17 +717,11 @@ describe("TelegramPollingSession", () => {
       spoolDir: tempDir,
       update: { update_id: 42, message: { text: "hello" } },
     });
-    let stopWorker: (() => void) | undefined;
-    const workerDone = new Promise<void>((resolve) => {
-      stopWorker = resolve;
-    });
     const createWorker = vi.fn(() => ({
       onMessage: vi.fn(() => () => undefined),
-      stop: vi.fn(async () => {
-        stopWorker?.();
-      }),
+      stop: vi.fn(async () => undefined),
       task: vi.fn(async () => {
-        await workerDone;
+        await waitForAbortSignal(abort.signal);
       }),
     }));
 
@@ -1921,21 +1916,17 @@ describe("TelegramPollingSession", () => {
     });
 
     let workerTaskCalls = 0;
-    let stopWorker: (() => void) | undefined;
-    const workerDone = new Promise<void>((resolve) => {
-      stopWorker = resolve;
-    });
     const createWorker = vi.fn(() => ({
       onMessage: vi.fn(() => () => undefined),
-      stop: vi.fn(async () => {
-        stopWorker?.();
-      }),
+      stop: vi.fn(async () => undefined),
       task: vi.fn(async () => {
         workerTaskCalls += 1;
         if (workerTaskCalls === 1) {
           return;
         }
-        await workerDone;
+        await new Promise<void>((resolve) => {
+          abort.signal.addEventListener("abort", () => resolve(), { once: true });
+        });
       }),
     }));
 
@@ -3476,3 +3467,17 @@ describe("TelegramPollingSession", () => {
     expect(transport2.close).toHaveBeenCalled();
   });
 });
+
+function toLintErrorObject(value: unknown, fallbackMessage: string): Error {
+  if (value instanceof Error) {
+    return value;
+  }
+  if (typeof value === "string") {
+    return new Error(value);
+  }
+  const error = new Error(fallbackMessage, { cause: value });
+  if ((typeof value === "object" && value !== null) || typeof value === "function") {
+    Object.assign(error, value);
+  }
+  return error;
+}
