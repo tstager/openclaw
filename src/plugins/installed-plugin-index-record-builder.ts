@@ -1,4 +1,5 @@
 import path from "node:path";
+import { normalizeSortedUniqueStringEntries } from "@openclaw/normalization-core/string-normalization";
 import type { OpenClawConfig } from "../config/types.js";
 import type { PluginCompatCode } from "./compat/registry.js";
 import { normalizePluginsConfig, resolveEffectiveEnableState } from "./config-state.js";
@@ -9,6 +10,7 @@ import { describePluginInstallSource } from "./install-source-info.js";
 import { hashJson, safeFileSignature, safeHashFile } from "./installed-plugin-index-hash.js";
 import { hasOptionalMissingPluginManifestFile } from "./installed-plugin-index-manifest.js";
 import type {
+  InstalledPluginContributionInfo,
   InstalledPluginIndexRecord,
   InstalledPluginInstallRecordInfo,
   InstalledPluginPackageChannelInfo,
@@ -20,25 +22,45 @@ import type { PluginPackageChannel } from "./manifest.js";
 import { isPathInside, safeRealpathSync } from "./path-safety.js";
 import { hasKind } from "./slots.js";
 
-function sortUnique(values: readonly string[] | undefined): readonly string[] {
-  if (!values || values.length === 0) {
-    return [];
-  }
-  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean))).toSorted(
-    (left, right) => left.localeCompare(right),
-  );
-}
-
 function buildStartupInfo(record: PluginManifestRecord): InstalledPluginStartupInfo {
   return {
     sidecar: record.activation?.onStartup === true,
     memory: hasKind(record.kind, "memory"),
     deferConfiguredChannelFullLoadUntilAfterListen:
       record.startupDeferConfiguredChannelFullLoadUntilAfterListen === true,
-    agentHarnesses: sortUnique([
+    agentHarnesses: normalizeSortedUniqueStringEntries([
       ...(record.activation?.onAgentHarnesses ?? []),
       ...(record.cliBackends ?? []),
     ]),
+    configPaths: normalizeSortedUniqueStringEntries(record.activation?.onConfigPaths),
+  };
+}
+
+function buildContributionInfo(record: PluginManifestRecord): InstalledPluginContributionInfo {
+  const contracts = Object.fromEntries(
+    Object.entries(record.contracts ?? {}).map(([key, values]) => [
+      key,
+      normalizeSortedUniqueStringEntries(values),
+    ]),
+  );
+  return {
+    channels: normalizeSortedUniqueStringEntries(record.channels),
+    channelConfigs: normalizeSortedUniqueStringEntries(Object.keys(record.channelConfigs ?? {})),
+    providers: normalizeSortedUniqueStringEntries(record.providers),
+    modelCatalogProviders: normalizeSortedUniqueStringEntries([
+      ...Object.keys(record.modelCatalog?.providers ?? {}),
+      ...Object.keys(record.modelCatalog?.aliases ?? {}),
+      ...(record.modelCatalog?.suppressions ?? []).map((entry) => entry.provider),
+    ]),
+    modelSupportPrefixes: normalizeSortedUniqueStringEntries(record.modelSupport?.modelPrefixes),
+    modelSupportPatterns: normalizeSortedUniqueStringEntries(record.modelSupport?.modelPatterns),
+    autoEnableProviderIds: normalizeSortedUniqueStringEntries(
+      record.autoEnableWhenConfiguredProviders,
+    ),
+    commandAliases: normalizeSortedUniqueStringEntries(
+      record.commandAliases?.map((alias) => alias.name),
+    ),
+    contracts,
   };
 }
 
@@ -73,7 +95,7 @@ export function collectPluginManifestCompatCodes(
   if (record.activation?.onCapabilities?.length) {
     codes.push("activation-capability-hint");
   }
-  return sortUnique(codes) as readonly PluginCompatCode[];
+  return normalizeSortedUniqueStringEntries(codes) as readonly PluginCompatCode[];
 }
 
 function resolvePackageJsonPath(
@@ -87,7 +109,9 @@ function resolvePackageJsonPath(
     safeRealpathSync(candidate.packageDir, realpathCache) ?? path.resolve(candidate.packageDir);
   const packageJsonPath = path.join(packageDir, "package.json");
   const rootDir =
-    safeRealpathSync(candidate.rootDir, realpathCache) ?? path.resolve(candidate.rootDir);
+    candidate.rootDir === candidate.packageDir
+      ? packageDir
+      : (safeRealpathSync(candidate.rootDir, realpathCache) ?? path.resolve(candidate.rootDir));
   const packageJsonRealPath = safeRealpathSync(packageJsonPath, realpathCache);
   return packageJsonRealPath && isPathInside(rootDir, packageJsonRealPath)
     ? packageJsonPath
@@ -99,7 +123,10 @@ function resolvePackageJsonRelativePath(
   packageJsonPath: string,
   realpathCache: Map<string, string>,
 ): string {
-  const resolvedRootDir = safeRealpathSync(rootDir, realpathCache) ?? path.resolve(rootDir);
+  const resolvedRootDir =
+    rootDir === path.dirname(packageJsonPath)
+      ? path.dirname(packageJsonPath)
+      : (safeRealpathSync(rootDir, realpathCache) ?? path.resolve(rootDir));
   const relativePath = path.relative(resolvedRootDir, packageJsonPath) || "package.json";
   return relativePath.split(path.sep).join("/");
 }
@@ -258,6 +285,7 @@ export function buildInstalledPluginIndexRecords(params: {
       origin: record.origin,
       enabled,
       startup: buildStartupInfo(record),
+      contributions: buildContributionInfo(record),
       compat: collectPluginManifestCompatCodes(record),
     };
     if (record.format && record.format !== "openclaw") {

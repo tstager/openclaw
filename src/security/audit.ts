@@ -1,7 +1,10 @@
 import path from "node:path";
+import { normalizeProviderId } from "@openclaw/model-catalog-core/provider-id";
+import { asNullableRecord } from "@openclaw/normalization-core/record-coerce";
+import { normalizeOptionalLowercaseString } from "@openclaw/normalization-core/string-coerce";
+import { normalizeStringEntries } from "@openclaw/normalization-core/string-normalization";
 import { resolveAgentWorkspaceDir, resolveDefaultAgentId } from "../agents/agent-scope.js";
 import { resolveExecDefaults } from "../agents/exec-defaults.js";
-import { normalizeProviderId } from "../agents/provider-id.js";
 import { resolveSandboxConfigForAgent } from "../agents/sandbox/config.js";
 import type { ChannelPlugin } from "../channels/plugins/types.plugin.js";
 import type { ConfigFileSnapshot, OpenClawConfig } from "../config/config.js";
@@ -24,8 +27,6 @@ import {
 import { listRiskyConfiguredSafeBins } from "../infra/exec-safe-bin-semantics.js";
 import { normalizeTrustedSafeBinDirs } from "../infra/exec-safe-bin-trust.js";
 import { DEFAULT_AGENT_ID } from "../routing/session-key.js";
-import { asNullableRecord } from "../shared/record-coerce.js";
-import { normalizeOptionalLowercaseString } from "../shared/string-coerce.js";
 import { collectDeepCodeSafetyFindings } from "./audit-deep-code-safety.js";
 import { collectDeepProbeFindings } from "./audit-deep-probe-findings.js";
 import {
@@ -283,7 +284,7 @@ function normalizeAllowFromList(list: Array<string | number> | undefined | null)
   if (!Array.isArray(list)) {
     return [];
   }
-  return list.map((v) => String(v).trim()).filter(Boolean);
+  return normalizeStringEntries(list);
 }
 
 export async function collectFilesystemFindings(params: {
@@ -642,7 +643,13 @@ function findClaudeCliBackendConfig(
     return backends[directKey];
   }
   for (const [key, backend] of Object.entries(backends)) {
-    if (normalizeProviderId(key) === "claude-cli") {
+    const normalizedKey = normalizeProviderId(key);
+    const command = normalizeOptionalLowercaseString(backend.command);
+    if (
+      normalizedKey === "claude-cli" ||
+      normalizedKey === "anthropic-cli" ||
+      command === "claude"
+    ) {
       return backend;
     }
   }

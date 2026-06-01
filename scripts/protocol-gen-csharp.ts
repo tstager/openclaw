@@ -1,7 +1,11 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { ErrorCodes, PROTOCOL_VERSION, ProtocolSchemas } from "../src/gateway/protocol/schema.js";
+import {
+  ErrorCodes,
+  PROTOCOL_VERSION,
+  ProtocolSchemas,
+} from "../packages/gateway-protocol/src/schema.js";
 
 type JsonSchema = {
   const?: string | number | boolean;
@@ -154,9 +158,7 @@ function pascalCase(input: string): string {
     .trim()
     .split(/\s+/)
     .filter(Boolean);
-  const result = parts
-    .map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`)
-    .join("");
+  const result = parts.map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`).join("");
   return /^[0-9]/.test(result) ? `_${result}` : result || "Value";
 }
 
@@ -178,7 +180,12 @@ function csharpType(schema: JsonSchema, required: boolean, allowStructuralNamed 
   if (named && named !== "GatewayFrame" && emittedSchemaNames.has(named)) {
     base = named;
   } else if (schema.const !== undefined) {
-    base = typeof schema.const === "boolean" ? "bool" : typeof schema.const === "number" ? "double" : "string";
+    base =
+      typeof schema.const === "boolean"
+        ? "bool"
+        : typeof schema.const === "number"
+          ? "double"
+          : "string";
   } else if (schemaType === "string" || schema.enum) {
     base = "string";
   } else if (schemaType === "integer") {

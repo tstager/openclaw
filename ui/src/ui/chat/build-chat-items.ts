@@ -8,7 +8,7 @@ import { extractTextCached } from "./message-extract.ts";
 import { normalizeMessage, stripMessageDisplayMetadataText } from "./message-normalizer.ts";
 import { normalizeRoleForGrouping } from "./role-normalizer.ts";
 import { messageMatchesSearchQuery } from "./search-match.ts";
-import { extractToolCards, extractToolPreview } from "./tool-cards.ts";
+import { extractToolCardsCached, extractToolPreview } from "./tool-cards.ts";
 
 export type BuildChatItemsProps = {
   sessionKey: string;
@@ -92,7 +92,7 @@ function extractChatMessagePreview(toolMessage: unknown): {
   if (!normalized) {
     return null;
   }
-  const cards = extractToolCards(toolMessage, "preview");
+  const cards = extractToolCardsCached(toolMessage, "preview");
   for (let index = cards.length - 1; index >= 0; index--) {
     const card = cards[index];
     if (card?.preview?.kind === "canvas") {
@@ -507,7 +507,7 @@ export function buildChatItems(props: BuildChatItemsProps): Array<ChatItem | Mes
             : `divider:compaction:${normalized.timestamp}:${i}`,
         label: "Compacted history",
         description:
-          "Earlier turns are preserved in a compaction checkpoint. Open session checkpoints to branch or restore that pre-compaction view.",
+          "The compacted transcript is preserved as a checkpoint. Open session checkpoints to branch or restore from that compacted view.",
         action: {
           kind: "session-checkpoints",
           label: "Open checkpoints",
@@ -572,6 +572,7 @@ export function buildChatItems(props: BuildChatItemsProps): Array<ChatItem | Mes
           key: `stream-seg:${props.sessionKey}:${i}`,
           text: visibleText,
           startedAt: segments[i].ts,
+          isStreaming: false,
         });
       }
     }
@@ -595,6 +596,7 @@ export function buildChatItems(props: BuildChatItemsProps): Array<ChatItem | Mes
           key,
           text: visibleText,
           startedAt: props.streamStartedAt ?? Date.now(),
+          isStreaming: true,
         });
       }
     } else if (props.stream.trim().length === 0) {

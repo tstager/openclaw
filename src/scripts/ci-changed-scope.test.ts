@@ -318,24 +318,6 @@ describe("detectChangedScope", () => {
       runChangedSmoke: false,
       runControlUiI18n: false,
     });
-    expect(detectChangedScope(["scripts/install-discord-native-opus.mjs"])).toEqual({
-      runNode: true,
-      runMacos: false,
-      runAndroid: false,
-      runWindows: true,
-      runSkillsPython: false,
-      runChangedSmoke: false,
-      runControlUiI18n: false,
-    });
-    expect(detectChangedScope(["test/scripts/install-discord-native-opus.test.ts"])).toEqual({
-      runNode: true,
-      runMacos: false,
-      runAndroid: false,
-      runWindows: true,
-      runSkillsPython: false,
-      runChangedSmoke: false,
-      runControlUiI18n: false,
-    });
     expect(detectChangedScope(["scripts/install.ps1"])).toEqual({
       runNode: true,
       runMacos: false,
@@ -468,7 +450,16 @@ describe("detectChangedScope", () => {
       runChangedSmoke: true,
       runControlUiI18n: false,
     });
-    expect(detectChangedScope(["src/gateway/protocol/messages.ts"])).toEqual({
+    expect(detectChangedScope(["packages/gateway-protocol/src/schema/messages.ts"])).toEqual({
+      runNode: true,
+      runMacos: false,
+      runAndroid: false,
+      runWindows: false,
+      runSkillsPython: false,
+      runChangedSmoke: true,
+      runControlUiI18n: false,
+    });
+    expect(detectChangedScope(["packages/gateway-client/src/client.ts"])).toEqual({
       runNode: true,
       runMacos: false,
       runAndroid: false,
@@ -527,6 +518,10 @@ describe("detectChangedScope", () => {
       runFullInstallSmoke: false,
     });
     expect(detectInstallSmokeScope(["src/plugins/loader.ts"])).toEqual({
+      runFastInstallSmoke: true,
+      runFullInstallSmoke: false,
+    });
+    expect(detectInstallSmokeScope(["packages/gateway-client/src/client.ts"])).toEqual({
       runFastInstallSmoke: true,
       runFullInstallSmoke: false,
     });
@@ -595,7 +590,7 @@ describe("detectChangedScope", () => {
     ).toEqual({
       runFastOnly: true,
       runPluginContracts: true,
-      runCiRouting: false,
+      runCiRouting: true,
     });
   });
 
@@ -603,9 +598,15 @@ describe("detectChangedScope", () => {
     expect(
       detectNodeFastScope([
         ".github/workflows/ci.yml",
+        "scripts/check-changed.mjs",
         "scripts/ci-changed-scope.mjs",
+        "scripts/run-vitest.mjs",
+        "scripts/test-projects.test-support.d.mts",
         "src/commands/status.scan-result.test.ts",
         "src/scripts/ci-changed-scope.test.ts",
+        "test/scripts/changed-lanes.test.ts",
+        "test/scripts/run-vitest.test.ts",
+        "test/scripts/test-projects.test.ts",
         "docs/ci.md",
       ]),
     ).toEqual({

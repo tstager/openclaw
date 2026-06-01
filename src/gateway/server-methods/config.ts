@@ -1,5 +1,23 @@
 import { execFile } from "node:child_process";
 import {
+  asDateTimestampMs,
+  resolveExpiresAtMsFromDurationMs,
+} from "@openclaw/normalization-core/number-coercion";
+import { isRecord } from "@openclaw/normalization-core/record-coerce";
+import { normalizeStringEntries } from "@openclaw/normalization-core/string-normalization";
+import {
+  ErrorCodes,
+  errorShape,
+  formatValidationErrors,
+  validateConfigApplyParams,
+  validateConfigGetParams,
+  validateConfigPatchParams,
+  validateConfigSchemaLookupParams,
+  validateConfigSchemaLookupResult,
+  validateConfigSchemaParams,
+  validateConfigSetParams,
+} from "../../../packages/gateway-protocol/src/index.js";
+import {
   createConfigIO,
   parseConfigJson5,
   readConfigFileSnapshot,
@@ -32,18 +50,6 @@ import {
   resolveControlPlaneActor,
   summarizeChangedPaths,
 } from "../control-plane-audit.js";
-import {
-  ErrorCodes,
-  errorShape,
-  formatValidationErrors,
-  validateConfigApplyParams,
-  validateConfigGetParams,
-  validateConfigPatchParams,
-  validateConfigSchemaLookupParams,
-  validateConfigSchemaLookupResult,
-  validateConfigSchemaParams,
-  validateConfigSetParams,
-} from "../protocol/index.js";
 import { resolveBaseHashParam } from "./base-hash.js";
 import {
   commitGatewayConfigWrite,
@@ -192,12 +198,8 @@ function formatConfigOpenError(error: unknown): string {
   return String(error);
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
 function hasOwnRecordValue(value: unknown, key: string): boolean {
-  return isRecord(value) && Object.prototype.hasOwnProperty.call(value, key);
+  return isRecord(value) && Object.hasOwn(value, key);
 }
 
 function stripBundledProviderRuntimeDefaults(params: {
@@ -216,6 +218,7 @@ function stripBundledProviderRuntimeDefaults(params: {
 
   let nextProviders: Record<string, unknown> | undefined;
   for (const [providerId, provider] of Object.entries(models.providers)) {
+    // Runtime overlays can materialize empty defaults that should not become persisted config.
     if (!isBuiltInModelProviderOverlayId(providerId) || !isRecord(provider)) {
       continue;
     }
@@ -275,6 +278,7 @@ function parseValidateConfigFromRawOrRespond(
     );
     return null;
   }
+  // Validate against runtime shape, but write the source-shaped config the operator submitted.
   const projectedValidationCandidate = snapshot.valid
     ? applyMergePatch(
         projectSourceOntoRuntimeShape(snapshot.resolved, snapshot.config),
@@ -320,9 +324,9 @@ function parseValidateConfigFromRawOrRespond(
 
 function summarizeConfigValidationIssues(issues: ReadonlyArray<ConfigValidationIssue>): string {
   const trimmed = issues.slice(0, MAX_CONFIG_ISSUES_IN_ERROR_MESSAGE);
-  const lines = formatConfigIssueLines(trimmed, "", { normalizeRoot: true })
-    .map((line) => line.trim())
-    .filter(Boolean);
+  const lines = normalizeStringEntries(
+    formatConfigIssueLines(trimmed, "", { normalizeRoot: true }),
+  );
   if (lines.length === 0) {
     return "invalid config";
   }
@@ -368,16 +372,32 @@ function clearConfigSchemaResponseCache() {
 }
 
 function loadSchemaWithPlugins(): ConfigSchemaResponse {
-  const now = Date.now();
-  if (configSchemaResponseCache && configSchemaResponseCache.expiresAtMs > now) {
+  const now = asDateTimestampMs(Date.now());
+  const cachedExpiresAt =
+    configSchemaResponseCache === null
+      ? undefined
+      : asDateTimestampMs(configSchemaResponseCache.expiresAtMs);
+  if (
+    configSchemaResponseCache &&
+    now !== undefined &&
+    cachedExpiresAt !== undefined &&
+    cachedExpiresAt > now
+  ) {
     return configSchemaResponseCache.response;
   }
+  if (configSchemaResponseCache) {
+    configSchemaResponseCache = null;
+  }
 
+  // Plugin schema loading is process-local; short caching avoids repeated UI lookups per render.
   const response = loadGatewayRuntimeConfigSchema();
-  configSchemaResponseCache = {
-    expiresAtMs: Date.now() + CONFIG_SCHEMA_RESPONSE_CACHE_TTL_MS,
-    response,
-  };
+  const expiresAtMs = resolveExpiresAtMsFromDurationMs(CONFIG_SCHEMA_RESPONSE_CACHE_TTL_MS);
+  if (expiresAtMs !== undefined) {
+    configSchemaResponseCache = {
+      expiresAtMs,
+      response,
+    };
+  }
   return response;
 }
 
@@ -508,6 +528,7 @@ export const configHandlers: GatewayRequestHandlers = {
       return;
     }
     const merged = applyMergePatch(snapshot.config, parsedRes.parsed, {
+      // Arrays with stable ids behave like maps for partial control-plane edits.
       mergeObjectArraysById: true,
     });
     const schemaPatch = loadSchemaWithPlugins();
@@ -704,14 +725,16 @@ export const configHandlers: GatewayRequestHandlers = {
       await execConfigOpenCommand(resolveConfigOpenCommand(configPath));
       respond(true, { ok: true, path: configPath }, undefined);
     } catch (error) {
+      const errorMessage = formatConfigOpenError(error);
+      const isHeadlessError =
+        errorMessage.includes("xdg-open") && errorMessage.includes("no method available");
+      const detailedError = isHeadlessError
+        ? `Cannot open file in headless environment. File path: ${configPath}. This environment appears to lack a graphical or terminal browser handler.`
+        : `Failed to open config file: ${errorMessage}`;
       context?.logGateway?.warn(
-        `config.openFile failed path=${sanitizeLookupPathForLog(configPath)}: ${formatConfigOpenError(error)}`,
+        `config.openFile failed path=${sanitizeLookupPathForLog(configPath)}: ${errorMessage}`,
       );
-      respond(
-        true,
-        { ok: false, path: configPath, error: "failed to open config file" },
-        undefined,
-      );
+      respond(true, { ok: false, path: configPath, error: detailedError }, undefined);
     }
   },
 };

@@ -194,6 +194,7 @@ describe("buildChatItems", () => {
         key: "stream:main:1",
         text: "Visible reply",
         startedAt: 1,
+        isStreaming: true,
       },
     ]);
   });
@@ -389,6 +390,7 @@ describe("buildChatItems", () => {
       kind: "stream",
       text: "Older streamed output.",
       startedAt: 1_000,
+      isStreaming: false,
     });
     expect(requireGroup(items[1]).role).toBe("assistant");
   });
@@ -406,6 +408,7 @@ describe("buildChatItems", () => {
       kind: "stream",
       text: "Timestamped stream.",
       startedAt: Number.MAX_SAFE_INTEGER,
+      isStreaming: false,
     });
     expect(messageRecord(requireGroup(items[1])).content).toBe("Missing timestamp.");
   });
@@ -608,7 +611,7 @@ describe("buildChatItems", () => {
     expect(divider.kind).toBe("divider");
     expect(divider.label).toBe("Compacted history");
     expect(divider.description).toBe(
-      "Earlier turns are preserved in a compaction checkpoint. Open session checkpoints to branch or restore that pre-compaction view.",
+      "The compacted transcript is preserved as a checkpoint. Open session checkpoints to branch or restore from that compacted view.",
     );
     const action = requireRecord(divider.action);
     expect(action.kind).toBe("session-checkpoints");

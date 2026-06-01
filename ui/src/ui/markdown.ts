@@ -84,6 +84,8 @@ const MARKDOWN_PARSE_LIMIT = 40_000;
 const MARKDOWN_CACHE_LIMIT = 200;
 const MARKDOWN_CACHE_MAX_CHARS = 50_000;
 const INLINE_DATA_IMAGE_RE = /^data:image\/[a-z0-9.+-]+;base64,/i;
+const HOST_LOCAL_FILE_HREF_RE =
+  /^(?:~\/|\/(?:Users|home|tmp|private\/tmp|var\/folders|private\/var\/folders)\/|\/[A-Za-z]:\/|[A-Za-z]:[\\/])/;
 const markdownCache = new Map<string, string>();
 const TAIL_LINK_BLUR_CLASS = "chat-link-tail-blur";
 
@@ -100,9 +102,9 @@ type MarkdownRenderEnv = {
 // CJK character ranges for URL boundary detection (RFC 3986: CJK is not valid in raw URLs).
 // CJK Unified Ideographs, CJK Symbols/Punctuation, Fullwidth Forms, Hiragana, Katakana,
 // Hangul Syllables, and CJK Compatibility Ideographs.
-// biome-ignore lint: readability — regex charset is inherently dense
-const CJK_RE =
-  /[\u2E80-\u2FFF\u3000-\u303F\u3040-\u309F\u30A0-\u30FF\u3400-\u4DBF\u4E00-\u9FFF\uAC00-\uD7AF\uF900-\uFAFF\uFF01-\uFF60]/;
+const CJK_RE = new RegExp(
+  "[\\u2E80-\\u2FFF\\u3000-\\u303F\\u3040-\\u309F\\u30A0-\\u30FF\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uAC00-\\uD7AF\\uF900-\\uFAFF\\uFF01-\\uFF60]",
+);
 
 function getCachedMarkdown(key: string): string | null {
   const cached = markdownCache.get(key);
@@ -135,6 +137,10 @@ function shouldRenderCodeBlockCopy(env: unknown): boolean {
   return (env as Partial<MarkdownRenderEnv> | undefined)?.codeBlockChrome !== "none";
 }
 
+function isHostLocalFileHref(href: string): boolean {
+  return HOST_LOCAL_FILE_HREF_RE.test(href.trim());
+}
+
 function installHooks() {
   if (hooksInstalled) {
     return;
@@ -147,6 +153,11 @@ function installHooks() {
     }
     const href = node.getAttribute("href");
     if (!href) {
+      return;
+    }
+
+    if (isHostLocalFileHref(href)) {
+      node.removeAttribute("href");
       return;
     }
 
@@ -338,13 +349,11 @@ md.linkify.add("www", {
           if (c === open) {
             balance[close] = balance[close] === 0 ? 1 : 0;
           }
-        } else {
+        } else if (c === open) {
           // Distinct open/close (e.g., ())
-          if (c === open) {
-            balance[close]++;
-          } else if (c === close) {
-            balance[close]--;
-          }
+          balance[close]++;
+        } else if (c === close) {
+          balance[close]--;
         }
       }
     }
@@ -383,13 +392,11 @@ md.linkify.add("www", {
             len--;
             continue;
           }
-        } else {
+        } else if (balance[ch] < 0) {
           // Distinct pair: strip if more closes than opens
-          if (balance[ch] < 0) {
-            balance[ch]++;
-            len--;
-            continue;
-          }
+          balance[ch]++;
+          len--;
+          continue;
         }
       }
       break;
@@ -603,11 +610,11 @@ md.renderer.rules.code_block = (tokens, idx, _options, env) => {
 };
 
 export function toSanitizedMarkdownHtml(
-  markdown: string,
+  markdownLocal: string,
   options: MarkdownRenderOptions = {},
 ): string {
   const renderOptions = normalizeMarkdownRenderOptions(options);
-  const input = stripUnsupportedCitationControlMarkers(markdown).trim();
+  const input = stripUnsupportedCitationControlMarkers(markdownLocal).trim();
   if (!input) {
     return "";
   }

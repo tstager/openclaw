@@ -1,3 +1,4 @@
+import { isRecord } from "@openclaw/normalization-core/record-coerce";
 import { Type } from "typebox";
 import {
   HEARTBEAT_RESPONSE_TOOL_NAME,
@@ -22,10 +23,6 @@ const HeartbeatResponseToolSchema = Type.Object(
   },
   { additionalProperties: false },
 );
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === "object" && !Array.isArray(value);
-}
 
 function readRequiredBoolean(params: Record<string, unknown>, key: string): boolean {
   const raw = readSnakeCaseParamRaw(params, key);
