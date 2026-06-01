@@ -2,7 +2,7 @@
 
 This manual explains how the OpenClaw Windows companion app works, how it connects to an OpenClaw Gateway, what each page in the app is for, and how to configure the settings that control its behavior. It is written for operators who want to run the Windows app against a local or remote gateway and use it as a native control surface for chat, approvals, pairing, diagnostics, and Windows-specific capabilities.
 
-The Windows companion is an **operator client**, not a second gateway. The gateway remains the source of truth for sessions, approvals, pairing, channel connections, model/provider auth, the Control UI, and the OpenClaw HTTP and WebSocket APIs. The Windows app stores local preferences and Windows-specific runtime data, then uses the gateway's WebSocket and CLI surfaces to operate the system.
+The Windows companion is a **dual-role client**, not a second gateway. It connects to the gateway as both an **operator UI** (requesting the full operator scope set over its `openclaw-windows` client id) and a **Windows-native capability node** (advertising Canvas/A2UI, screen capture, camera, and — when explicitly enabled — secure system execution). The gateway remains the source of truth for sessions, approvals, pairing, channel connections, model/provider auth, the Control UI, and the OpenClaw HTTP and WebSocket APIs. The Windows app stores local preferences and Windows-specific runtime data, then uses the gateway's WebSocket and CLI surfaces to operate the system. See [Full node mode, operator scopes, and secure execution](#full-node-mode-operator-scopes-and-secure-execution) for the node and scope details.
 
 ## What the Windows companion owns
 
@@ -11,6 +11,8 @@ The Windows companion owns:
 - the native WinUI shell and navigation
 - the local chat workspace for one selected OpenClaw session
 - Windows-only features such as local screen capture, bounded screen recording, notifications, overlays, global hotkeys, and local speech clip generation
+- the Windows-native capability node: Canvas/A2UI, screen snapshot and recording, and camera commands exposed to the gateway through `node.invoke`
+- the local execution policy that gates secure system execution (`system.which`, `system.run.prepare`, `system.run`) behind explicit enablement
 - app-local preferences, activity history, notification history, and structured diagnostics
 - operator views for approvals, pairing, sessions, logs, and onboarding status
 
@@ -36,6 +38,42 @@ The practical split is:
 
 - **gateway**: state, auth, channels, sessions, approvals, pairing, HTTP APIs, dashboard
 - **Windows companion**: operator UX plus Windows-native device features
+
+## Full node mode, operator scopes, and secure execution
+
+The Windows companion connects to the gateway twice: once as an operator UI socket and once as a capability node socket. Both use the first-class `openclaw-windows` gateway client id.
+
+### Operator scopes
+
+On the operator socket the app requests the complete operator scope set: `operator.read`, `operator.write`, `operator.admin`, `operator.approvals`, `operator.pairing`, and `operator.talk.secrets`. The gateway is default-deny on scopes and only grants the scopes that are bound to the paired device, so privileged scopes such as `operator.admin` and `operator.talk.secrets` may not be granted to a freshly paired device.
+
+The app surfaces the result honestly:
+
+- **Home** shows a **Scopes** row summarizing granted vs. missing scopes.
+- **Settings > Gateway Connection** lists the requested scopes and the granted/missing summary.
+- **Pairing** shows the capability, granted scopes, missing scopes, the Windows node state, and the pairing requirement, with a **Repair access** button.
+
+If a device is stuck on stale narrow scopes (connected but missing baseline operator scopes), use **Repair access** on the Pairing page. It resets the local device identity and reconnects so the gateway can re-issue access at the current pairing's scope level.
+
+### Windows node capabilities
+
+When **Canvas and A2UI node** is enabled (Settings > Devices), the node advertises its capabilities and commands to the gateway, derived from the host and your preferences:
+
+- **caps**: `canvas`, `screen`, `camera`
+- **Canvas/A2UI commands**: `canvas.present`, `canvas.hide`, `canvas.navigate`, `canvas.eval`, `canvas.snapshot`, `canvas.a2ui.push`, `canvas.a2ui.pushJSONL`, `canvas.a2ui.reset`
+- **device commands**: `screen.snapshot`, `screen.record`, `camera.list`, `camera.snap`
+
+The screen and camera commands run through the same native services as the Devices page; results return structured `node.invoke` payloads with file metadata, and failures return structured errors (`INVALID_REQUEST` for bad params, `UNAUTHORIZED` for denied consent, `UNAVAILABLE` for missing devices). `screen.record` and `camera.snap` are high-risk node commands, so the gateway only routes them when they are allowlisted in `gateway.nodes.allowCommands`.
+
+### Secure system execution
+
+System execution is **off by default**. Enable **Allow secure system execution (system.run)** in Settings > Devices to advertise `system.which`, `system.run.prepare`, and `system.run`. An optional local allowlist restricts which executables may run; an empty allowlist permits any executable once execution is enabled. Each run returns a `node.invoke` result and emits `exec.finished` (or `exec.denied`) node events carrying the `runId` and `sessionKey`.
+
+This local enablement is defense in depth. On the gateway side, `system.run`, `system.run.prepare`, and `system.which` are desktop host commands that require **node pairing**, and approving the pairing of a node that advertises system execution requires an operator with **both** `operator.pairing` and `operator.admin`. The Pairing page explains this requirement when the node advertises system execution.
+
+### Node topology in the tray
+
+The tray flyout shows a **Nodes** section with one row per node — this Windows node plus any remote nodes the gateway reports — each with an online/paired role line and a platform badge. The Gateway status row's detail is annotated with the connected/paired node counts, and the flyout header's master toggle enables or disables the Windows node.
 
 ## Recommended deployment patterns
 
@@ -391,6 +429,8 @@ The gateway creates and owns pairing requests. The Windows app is a frontend for
 
 Approve when you trust the requesting device or node. After approval, the gateway issues a token and the device reconnects with that identity.
 
+The Pairing page also shows an **Operator and node access** card with the current capability, granted scopes, missing scopes, the Windows node state, and the pairing requirement, plus a **Repair access** button. Approving a node that advertises secure system execution requires an operator with both `operator.pairing` and `operator.admin`. See [Full node mode, operator scopes, and secure execution](#full-node-mode-operator-scopes-and-secure-execution).
+
 ### When to use Pairing
 
 Use Pairing whenever:
@@ -735,6 +775,10 @@ Controls the local voice-controls preference.
 #### Register Ctrl+Shift+Space push-to-talk hotkey
 
 Controls whether the app should register the global push-to-talk hotkey.
+
+#### Allow secure system execution (system.run) behind node pairing
+
+Controls whether the Windows node advertises and runs the secure system execution commands. It is off by default. See [Secure system execution](#secure-system-execution) for the pairing and admin requirements.
 
 ### Runtime feature storage
 
