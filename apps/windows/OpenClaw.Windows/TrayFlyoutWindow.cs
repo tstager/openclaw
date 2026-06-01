@@ -428,10 +428,10 @@ public sealed class TrayFlyoutWindow : Window
     }
 
     /// <summary>
-    /// Builds the branded header band: the app mark glyph and the product title, with a reserved trailing slot for
-    /// the node master toggle that the full-node-scopes plan wires (omitted until then).
+    /// Builds the branded header band: the app mark glyph, the product title, and the trailing node master toggle
+    /// that enables/disables the Windows node without dismissing the flyout.
     /// </summary>
-    private static FrameworkElement BuildHeader(TrayFlyoutHeader header, WindowsThemePalette palette)
+    private FrameworkElement BuildHeader(TrayFlyoutHeader header, WindowsThemePalette palette)
     {
         var content = new StackPanel
         {
@@ -457,6 +457,24 @@ public sealed class TrayFlyoutWindow : Window
 
         var grid = BuildRowGrid(content);
         grid.Padding = new Thickness(8, 8, 8, 8);
+
+        if (header.MasterToggleAction is { } masterToggleAction)
+        {
+            var toggle = new ToggleSwitch
+            {
+                IsOn = header.NodeEnabled,
+                OnContent = null,
+                OffContent = null,
+                MinWidth = 0,
+                HorizontalAlignment = XamlHorizontalAlignment.Right,
+                VerticalAlignment = XamlVerticalAlignment.Center,
+            };
+            ToolTipService.SetToolTip(toggle, "Enable the Windows node");
+            toggle.Toggled += (_, _) => this.InvokeToggle(masterToggleAction);
+            Grid.SetColumn(toggle, 1);
+            grid.Children.Add(toggle);
+        }
+
         return grid;
     }
 

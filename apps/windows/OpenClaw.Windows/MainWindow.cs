@@ -101,8 +101,10 @@ public sealed class MainWindow : Window
     private readonly TextBlock approvalsStatusText = new();
     private readonly StackPanel pairingList = new() { Spacing = 8 };
     private readonly TextBlock pairingStatusText = new();
+    private readonly StackPanel pairingAccessRows = new() { Spacing = 4 };
     private IReadOnlyList<PendingApproval> latestApprovals = [];
     private IReadOnlyList<PairingRequest> latestPairingRequests = [];
+    private IReadOnlyList<GatewayNodeSummary> latestNodes = [];
     private bool approvalsLoaded;
     private bool pairingLoaded;
     private int lastNotifiedApprovalCount;
@@ -138,6 +140,7 @@ public sealed class MainWindow : Window
     private readonly XamlCheckBox redactSensitiveContentInput = new();
     private readonly XamlCheckBox canvasNodeEnabledInput = new();
     private readonly XamlCheckBox settingsVoiceControlsInput = new();
+    private readonly XamlCheckBox settingsSystemExecutionInput = new();
     private readonly XamlCheckBox settingsGlobalHotkeyInput = new();
     private readonly XamlComboBox themePreferenceInput = new();
     private readonly XamlComboBox accentColorInput = new();
@@ -171,8 +174,10 @@ public sealed class MainWindow : Window
     private WindowsTopologyPreferences topologyPreferences = AppPreferences.Default.Topology;
     private WindowsDiagnosticsPreferences diagnosticsPreferences = AppPreferences.Default.Diagnostics;
     private WindowsPolicyPreferences policyPreferences = AppPreferences.Default.Policy;
+    private WindowsExecutionPolicyPreferences executionPreferences = AppPreferences.Default.Execution;
     private bool canvasNodeEnabled = AppPreferences.Default.CanvasNodeEnabled;
     private bool voiceControlsEnabled;
+    private bool systemExecutionEnabled;
     private bool globalHotkeyEnabled;
     private IReadOnlyList<WindowsDevicePermissionStatus> latestDevicePermissionStatuses = [];
     private string mediaDeviceSummary = "Media devices have not been checked yet.";
@@ -345,7 +350,9 @@ public sealed class MainWindow : Window
             this.latestApprovals.Count,
             this.latestPairingRequests.Count,
             this.coordinator.LastActivity,
-            this.appState.Notifications.Latest);
+            this.appState.Notifications.Latest,
+            this.latestNodes,
+            this.appState.CanvasNode.NodeId);
     }
 
     /// <summary>
@@ -1528,9 +1535,40 @@ public sealed class MainWindow : Window
         Grid.SetColumn(refreshButton, 1);
         header.Children.Add(refreshButton);
         panel.Children.Add(header);
+
+        var repairButton = new XamlButton
+        {
+            Content = "Repair access",
+            HorizontalAlignment = XamlHorizontalAlignment.Left,
+            Command = this.CreateCommand(async () => await this.RepairAccessAsync()),
+        };
+        AutomationProperties.SetName(repairButton, "Repair operator access");
+        panel.Children.Add(BuildDashboardCard("Operator and node access", BuildSettingsSection(
+            this.pairingAccessRows,
+            repairButton)));
+
         panel.Children.Add(this.pairingList);
         this.RenderPairing();
         return panel;
+    }
+
+    /// <summary>
+    /// Re-requests operator access by resetting the stale narrow device identity and reconnecting.
+    /// </summary>
+    private async Task RepairAccessAsync()
+    {
+        this.pairingStatusText.Text = "Repairing operator access...";
+        try
+        {
+            await this.appState.Realtime.RepairDeviceIdentityAsync();
+            await this.RecordActivityAsync("gateway", "Operator access repaired", "Reset the Windows device identity and reconnected to re-request operator scopes.");
+            await this.RefreshPairingAsync();
+        }
+        catch (Exception ex)
+        {
+            this.pairingStatusText.Text = $"Repair failed: {ex.Message}";
+            CrashLog.Write(ex);
+        }
     }
 
     private UIElement BuildDevicesPanel()
@@ -1688,6 +1726,10 @@ public sealed class MainWindow : Window
             this.settingsGlobalHotkeyInput,
             "Register Ctrl+Shift+Space push-to-talk hotkey",
             value => this.globalHotkeyEnabled = value);
+        ConfigureSettingsToggle(
+            this.settingsSystemExecutionInput,
+            "Allow secure system execution (system.run) behind node pairing",
+            value => this.systemExecutionEnabled = value);
 
         panel.Children.Add(BuildDashboardCard("Gateway Connection", BuildSettingsSection(
             BuildSettingsField("Gateway URL", "Realtime Gateway WebSocket endpoint.", this.gatewayUrlInput),
@@ -1743,7 +1785,8 @@ public sealed class MainWindow : Window
         panel.Children.Add(BuildDashboardCard("Devices", BuildSettingsSection(
             this.canvasNodeEnabledInput,
             this.settingsVoiceControlsInput,
-            this.settingsGlobalHotkeyInput)));
+            this.settingsGlobalHotkeyInput,
+            this.settingsSystemExecutionInput)));
         panel.Children.Add(BuildDashboardCard(this.S("Shell.Settings.RuntimeFeatures.Title", "Runtime feature storage"), BuildSettingsSection(
             BuildDashboardRow(this.S("Shell.Settings.RuntimeFeatures.Captures", "Captures"), this.appState.DeviceCapabilities.CaptureRoot),
             BuildDashboardRow(this.S("Shell.Settings.RuntimeFeatures.Speech", "Speech clips"), this.appState.TextToSpeech.OutputRoot),
@@ -3536,8 +3579,10 @@ public sealed class MainWindow : Window
             this.topologyPreferences = preferences.Topology;
             this.diagnosticsPreferences = preferences.Diagnostics;
             this.policyPreferences = preferences.Policy;
+            this.executionPreferences = preferences.Execution;
             this.canvasNodeEnabled = preferences.CanvasNodeEnabled;
             this.voiceControlsEnabled = preferences.VoiceControlsEnabled;
+            this.systemExecutionEnabled = preferences.Execution.AllowSystemExecution;
             this.globalHotkeyEnabled = preferences.GlobalHotkeyEnabled;
             this.tunnelHostInput.Text = preferences.Topology.SshHost;
             this.tunnelRemoteHostInput.Text = preferences.Topology.RemoteHost;
@@ -3563,6 +3608,7 @@ public sealed class MainWindow : Window
             this.canvasNodeEnabledInput.IsChecked = preferences.CanvasNodeEnabled;
             this.settingsVoiceControlsInput.IsChecked = preferences.VoiceControlsEnabled;
             this.settingsGlobalHotkeyInput.IsChecked = preferences.GlobalHotkeyEnabled;
+            this.settingsSystemExecutionInput.IsChecked = preferences.Execution.AllowSystemExecution;
             await this.appState.Tunnel.ApplyPreferencesAsync(preferences.Topology);
             this.RenderHomeDashboard();
             this.RenderSettingsSummary(preferences);
@@ -4438,8 +4484,48 @@ public sealed class MainWindow : Window
                 WindowsNotificationKind.Pairing);
         }
         this.lastNotifiedPairingCount = this.latestPairingRequests.Count;
+        await this.RefreshNodesAsync();
         this.RenderPairing();
         this.RenderHomeDashboard();
+    }
+
+    /// <summary>
+    /// Best-effort refresh of the gateway node topology used by the tray and pairing UI.
+    /// </summary>
+    private async Task RefreshNodesAsync()
+    {
+        try
+        {
+            this.latestNodes = await this.appState.Realtime.ListNodesAsync();
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or GatewayRpcException or TimeoutException or OperationCanceledException)
+        {
+            this.latestNodes = [];
+        }
+    }
+
+    /// <summary>
+    /// Renders granted/missing operator scopes, node state, and the admin-needed explanation on the Pairing page.
+    /// </summary>
+    private void RenderPairingAccess()
+    {
+        var access = WindowsNodeAccessStatus.Create(
+            this.appState.Realtime.Authorization,
+            this.coordinator.RealtimeState,
+            this.appState.CanvasNode.State,
+            WindowsNodeSurface.Build(WindowsHostCapabilityProbe.Current, this.currentPreferences)
+                .Commands.Contains(WindowsNodeSystemCommands.Run));
+
+        this.pairingAccessRows.Children.Clear();
+        this.pairingAccessRows.Children.Add(BuildDashboardRow("Capability", access.Capability));
+        this.pairingAccessRows.Children.Add(BuildDashboardRow(
+            "Granted scopes",
+            access.GrantedScopes.Count > 0 ? string.Join(", ", access.GrantedScopes) : "None"));
+        this.pairingAccessRows.Children.Add(BuildDashboardRow(
+            "Missing scopes",
+            access.MissingScopes.Count > 0 ? string.Join(", ", access.MissingScopes) : "None"));
+        this.pairingAccessRows.Children.Add(BuildDashboardRow("Windows node", access.NodeStateLabel));
+        this.pairingAccessRows.Children.Add(BuildDashboardRow("Pairing requirement", access.Explanation));
     }
 
     private void RenderPairing()
@@ -4449,6 +4535,7 @@ public sealed class MainWindow : Window
             this.latestPairingRequests,
             this.coordinator.RealtimeState);
         this.pairingStatusText.Text = this.pairingLoaded ? summary.PairingStatus : "Pairing not checked yet";
+        this.RenderPairingAccess();
         this.pairingList.Children.Clear();
         if (!this.pairingLoaded)
         {
@@ -4894,6 +4981,7 @@ public sealed class MainWindow : Window
             Topology = this.topologyPreferences,
             Diagnostics = this.diagnosticsPreferences,
             Policy = this.policyPreferences,
+            Execution = this.executionPreferences with { AllowSystemExecution = this.systemExecutionEnabled },
         });
         await this.RecordActivityAsync("settings", "Settings saved", "Updated Windows companion settings.");
         await this.RefreshAllAsync();
@@ -4976,6 +5064,9 @@ public sealed class MainWindow : Window
         this.canvasNodeEnabledInput.IsChecked = preferences.CanvasNodeEnabled;
         this.settingsVoiceControlsInput.IsChecked = preferences.VoiceControlsEnabled;
         this.settingsGlobalHotkeyInput.IsChecked = preferences.GlobalHotkeyEnabled;
+        this.settingsSystemExecutionInput.IsChecked = preferences.Execution.AllowSystemExecution;
+        this.executionPreferences = preferences.Execution;
+        this.systemExecutionEnabled = preferences.Execution.AllowSystemExecution;
         this.SyncHotkeyRegistration(preferences.GlobalHotkeyEnabled);
         this.PopulateTextToSpeechVoices();
         this.browserProxyActionResult = this.appState.BrowserProxy.CreateStatus(preferences, this.coordinator.GatewayStatus).Detail;

@@ -52,6 +52,11 @@ public sealed class WindowsCanvasNodeClient : IAsyncDisposable
 
     public WindowsCanvasNodeState State { get; private set; } = WindowsCanvasNodeState.Disconnected;
 
+    /// <summary>
+    /// The gateway node id this client connects as, once a device identity has been loaded.
+    /// </summary>
+    public string? NodeId => this.nodeId;
+
     public string? CanvasSurfaceUrl { get; private set; }
 
     public string? A2UIHostUrl => WindowsCanvasA2UIUrl.ResolveFromCanvasPluginSurfaceUrl(this.CanvasSurfaceUrl);

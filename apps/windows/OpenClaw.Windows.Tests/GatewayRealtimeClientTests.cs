@@ -482,6 +482,88 @@ public sealed class GatewayRealtimeClientTests
         await client.DisposeAsync();
     }
 
+    [TestMethod]
+    public void ParsesNodeListPayload()
+    {
+        using var document = JsonDocument.Parse(
+            """
+            {
+              "ts": 1,
+              "nodes": [
+                { "nodeId": "win-1", "displayName": "Trent PC", "platform": "windows", "connected": true, "paired": true },
+                { "nodeId": "mac-1", "platform": "macos", "connected": false, "paired": true }
+              ]
+            }
+            """);
+
+        var nodes = GatewayRealtimeClient.ParseNodesPayload(document.RootElement);
+
+        Assert.HasCount(2, nodes);
+        Assert.AreEqual("win-1", nodes[0].NodeId);
+        Assert.AreEqual("Trent PC", nodes[0].DisplayName);
+        Assert.AreEqual("windows", nodes[0].Platform);
+        Assert.IsTrue(nodes[0].Connected);
+        Assert.IsTrue(nodes[0].Paired);
+        Assert.AreEqual("mac-1", nodes[1].NodeId);
+        Assert.IsFalse(nodes[1].Connected);
+    }
+
+    [TestMethod]
+    public async Task RepairDeviceIdentityResetsIdentityAndReconnects()
+    {
+        var connectRequests = new List<JsonElement>();
+        await using var server = GatewayRealtimeTestServer.Start(
+            async (socket, request) =>
+            {
+                using var document = JsonDocument.Parse(request);
+                var frame = document.RootElement;
+                if (ReadString(frame, "method") != "connect")
+                {
+                    return;
+                }
+
+                connectRequests.Add(frame.Clone());
+                var id = ReadString(frame, "id") ?? "";
+                if (connectRequests.Count == 1)
+                {
+                    await SendOkResponseAsync(socket, id, scopes: ["operator.read", "operator.pairing"]);
+                    return;
+                }
+
+                await SendOkResponseAsync(
+                    socket,
+                    id,
+                    scopes:
+                    [
+                        "operator.read",
+                        "operator.write",
+                        "operator.approvals",
+                        "operator.pairing",
+                    ]);
+            },
+            challengeNonce: "nonce-1");
+        var credentials = new InMemoryAppCredentialStore();
+        await credentials.SaveDeviceTokenAsync("narrow-device-token");
+        var client = CreateClient(
+            server.WebSocketUrl,
+            TimeSpan.FromSeconds(5),
+            credentials,
+            new DeviceIdentityStore(credentials));
+
+        await client.ConnectAsync();
+        Assert.HasCount(1, connectRequests);
+
+        await client.RepairDeviceIdentityAsync();
+
+        Assert.HasCount(2, connectRequests);
+        Assert.AreNotEqual(
+            connectRequests[0].GetProperty("params").GetProperty("device").GetProperty("id").GetString(),
+            connectRequests[1].GetProperty("params").GetProperty("device").GetProperty("id").GetString());
+        Assert.IsNotNull(client.Authorization);
+        Assert.AreEqual("write_capable", client.Authorization.Capability);
+        await client.DisposeAsync();
+    }
+
     private static GatewayRealtimeClient CreateClient(string gatewayUrl, TimeSpan requestTimeout)
     {
         return CreateClient(

@@ -71,6 +71,11 @@ public sealed record TrayActionRow(string Label, string Glyph, TrayFlyoutAction 
 public sealed record TrayToggleRow(string Label, string Glyph, bool IsOn, TrayFlyoutAction ToggleAction);
 
 /// <summary>
+/// A per-node topology row: a node's display name, an online/paired role line, and a platform badge.
+/// </summary>
+public sealed record TrayNodeRow(string Name, string? Platform, bool Online, bool Paired, bool IsLocal);
+
+/// <summary>
 /// A flyout section grouping status, action, and toggle rows under an optional heading. Sessions 3-6 add sections here.
 /// </summary>
 public sealed record TrayFlyoutSection(
@@ -92,10 +97,14 @@ public sealed record TrayFlyoutSection(
 }
 
 /// <summary>
-/// The branded header band shown above the first section: the app mark glyph, the product title, and a
-/// reserved slot for the node master toggle (wired by the full-node-scopes plan; omitted until then).
+/// The branded header band shown above the first section: the app mark glyph, the product title, and the
+/// node master toggle (the top-right switch that enables/disables the Windows node).
 /// </summary>
-public sealed record TrayFlyoutHeader(string Title, string IconGlyph);
+public sealed record TrayFlyoutHeader(
+    string Title,
+    string IconGlyph,
+    bool NodeEnabled = false,
+    TrayFlyoutAction? MasterToggleAction = null);
 
 /// <summary>
 /// The compact, ordered set of sections the tray flyout renders for a given snapshot, with an optional
@@ -205,13 +214,53 @@ public static class TrayFlyoutComposer
         var sections = new List<TrayFlyoutSection>
         {
             BuildStatusSection(snapshot),
-            BuildQuickActionsSection(snapshot),
-            BuildPermissionsSection(snapshot),
-            BuildSupportSection(),
-            BuildGatewaySection(snapshot),
         };
+        if (snapshot.Nodes.Count > 0)
+        {
+            sections.Add(BuildNodesSection(snapshot));
+        }
+        sections.Add(BuildQuickActionsSection(snapshot));
+        sections.Add(BuildPermissionsSection(snapshot));
+        sections.Add(BuildSupportSection());
+        sections.Add(BuildGatewaySection(snapshot));
 
-        return new TrayFlyoutModel(sections, new TrayFlyoutHeader(HeaderTitle, HeaderIconGlyph));
+        return new TrayFlyoutModel(
+            sections,
+            new TrayFlyoutHeader(
+                HeaderTitle,
+                HeaderIconGlyph,
+                snapshot.CanvasNodeEnabled,
+                TrayFlyoutAction.ToggleCanvasNode));
+    }
+
+    /// <summary>
+    /// Per-node topology rows (this Windows node and any remote nodes the gateway reports), each with an
+    /// online/paired role line and a platform badge, mirroring the reference flyout's node list.
+    /// </summary>
+    private static TrayFlyoutSection BuildNodesSection(WindowsTraySnapshot snapshot)
+    {
+        var statusRows = snapshot.Nodes
+            .Select(node => new TrayStatusRow(
+                Label: node.Name,
+                Detail: DescribeNodeRole(node),
+                Tone: node.Online ? TrayStatusTone.Success : node.Paired ? TrayStatusTone.Caution : TrayStatusTone.Neutral,
+                Badge: DescribePlatform(node.Platform),
+                Action: TrayFlyoutAction.OpenPairing))
+            .ToArray();
+
+        return new TrayFlyoutSection(Heading: "Nodes", StatusRows: statusRows, ActionRows: []);
+    }
+
+    private static string DescribeNodeRole(TrayNodeRow node)
+    {
+        var presence = node.Online ? "Online" : "Offline";
+        var pairing = node.Paired ? "paired" : "unpaired";
+        return $"{presence} · {pairing} node";
+    }
+
+    private static string DescribePlatform(string? platform)
+    {
+        return string.IsNullOrWhiteSpace(platform) ? "node" : platform;
     }
 
     /// <summary>
@@ -225,7 +274,7 @@ public static class TrayFlyoutComposer
         {
             new(
                 Label: $"Gateway: {DescribeGateway(snapshot)}",
-                Detail: snapshot.GatewayUrl,
+                Detail: DescribeGatewayDetail(snapshot),
                 Tone: ResolveGatewayTone(snapshot),
                 Badge: snapshot.GatewayIsLocal ? "Local" : "Remote",
                 Action: TrayFlyoutAction.OpenHome),
@@ -383,6 +432,18 @@ public static class TrayFlyoutComposer
     private static string DescribeGateway(WindowsTraySnapshot snapshot)
     {
         return snapshot.GatewayRunning ? "Running" : snapshot.GatewayState;
+    }
+
+    /// <summary>
+    /// Annotates the gateway row's detail with the node-paired / connected-node summary when any nodes are known.
+    /// </summary>
+    private static string DescribeGatewayDetail(WindowsTraySnapshot snapshot)
+    {
+        if (snapshot.Nodes.Count == 0)
+        {
+            return snapshot.GatewayUrl;
+        }
+        return $"{snapshot.GatewayUrl} · {snapshot.ConnectedNodeCount} node(s) online, {snapshot.PairedNodeCount} paired";
     }
 
     private static TrayStatusTone ResolveGatewayTone(WindowsTraySnapshot snapshot)

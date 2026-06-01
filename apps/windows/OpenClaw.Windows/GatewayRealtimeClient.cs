@@ -113,6 +113,16 @@ public sealed record PendingApproval(
     string? SessionKey);
 
 /// <summary>
+/// A node the gateway reports through <c>node.list</c> (this Windows node and any remote nodes).
+/// </summary>
+public sealed record GatewayNodeSummary(
+    string NodeId,
+    string DisplayName,
+    string? Platform,
+    bool Connected,
+    bool Paired);
+
+/// <summary>
 /// Pending device or node pairing request.
 /// </summary>
 public sealed record PairingRequest(
@@ -444,6 +454,49 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
     public static IReadOnlyList<PairingRequest> ParsePairingPayload(string kind, JsonElement payload)
     {
         return ParsePairingList(kind, payload).ToArray();
+    }
+
+    /// <summary>
+    /// Lists the nodes the gateway knows about so the tray and pairing UI can show node topology.
+    /// </summary>
+    public async Task<IReadOnlyList<GatewayNodeSummary>> ListNodesAsync(CancellationToken cancellationToken = default)
+    {
+        var payload = await this.RequestAsync("node.list", new { }, cancellationToken);
+        return ParseNodesPayload(payload);
+    }
+
+    /// <summary>
+    /// Accepts both the wrapped (<c>{ nodes: [...] }</c>) and bare-array node list payloads.
+    /// </summary>
+    public static IReadOnlyList<GatewayNodeSummary> ParseNodesPayload(JsonElement payload)
+    {
+        var array = payload.ValueKind == JsonValueKind.Array
+            ? payload
+            : payload.TryGetProperty("nodes", out var nodes) && nodes.ValueKind == JsonValueKind.Array
+                ? nodes
+                : default;
+        if (array.ValueKind != JsonValueKind.Array)
+        {
+            return [];
+        }
+
+        return array.EnumerateArray()
+            .Select(ParseNodeSummary)
+            .Where(static node => node is not null)
+            .Cast<GatewayNodeSummary>()
+            .ToArray();
+    }
+
+    /// <summary>
+    /// Resets the stored device identity and reconnects so a device stuck on stale narrow scopes can re-request access.
+    /// </summary>
+    public async Task RepairDeviceIdentityAsync(CancellationToken cancellationToken = default)
+    {
+        if (this.deviceIdentityStore is not null)
+        {
+            await this.deviceIdentityStore.ResetAsync(cancellationToken);
+        }
+        await this.ReconnectAsync(cancellationToken);
     }
 
     /// <summary>
@@ -881,6 +934,22 @@ public sealed class GatewayRealtimeClient : IAsyncDisposable
             ReadString(element, "cwd") ?? ReadString(element, "systemRunPlan", "cwd"),
             ReadString(element, "agentId") ?? ReadString(element, "systemRunPlan", "agentId"),
             ReadString(element, "sessionKey") ?? ReadString(element, "systemRunPlan", "sessionKey"));
+    }
+
+    private static GatewayNodeSummary? ParseNodeSummary(JsonElement element)
+    {
+        var nodeId = ReadString(element, "nodeId") ?? ReadString(element, "id");
+        if (string.IsNullOrWhiteSpace(nodeId))
+        {
+            return null;
+        }
+
+        return new GatewayNodeSummary(
+            nodeId,
+            ReadString(element, "displayName") ?? nodeId,
+            ReadString(element, "platform"),
+            ReadBool(element, "connected") == true,
+            ReadBool(element, "paired") == true);
     }
 
     private static PairingRequest[] ParsePairingList(string kind, JsonElement payload)

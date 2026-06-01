@@ -49,7 +49,10 @@ public sealed record WindowsTraySnapshot(
     WindowsThemePreference Theme,
     WindowsAccentColorPreference Accent,
     WindowsColorThemePreference ColorTheme,
-    IReadOnlyList<GatewayCliAction> AvailableGatewayActions)
+    IReadOnlyList<GatewayCliAction> AvailableGatewayActions,
+    IReadOnlyList<TrayNodeRow> Nodes,
+    int ConnectedNodeCount,
+    int PairedNodeCount)
 {
     /// <summary>
     /// Builds the tray snapshot from live gateway, realtime, node, and preference state.
@@ -64,11 +67,14 @@ public sealed record WindowsTraySnapshot(
         int pendingApprovalCount,
         int pendingPairingCount,
         string? lastActivity,
-        WindowsNotificationActivity? latestNotification)
+        WindowsNotificationActivity? latestNotification,
+        IReadOnlyList<GatewayNodeSummary>? nodes = null,
+        string? localNodeId = null)
     {
         var gatewayRunning = ResolveGatewayRunning(status);
         var realtimeConnected = realtimeState == GatewayRealtimeState.Connected;
         var gatewayUrl = status?.DashboardUrl ?? preferences.GatewayUrl;
+        var nodeRows = ResolveNodeRows(nodes, localNodeId, canvasNodeState, canvasNodeEnabled);
 
         return new WindowsTraySnapshot(
             GatewayState: status?.State ?? "unknown",
@@ -93,7 +99,49 @@ public sealed record WindowsTraySnapshot(
             Theme: preferences.ThemePreference,
             Accent: preferences.AccentColorPreference,
             ColorTheme: preferences.ColorThemePreference,
-            AvailableGatewayActions: ResolveGatewayActions(status, gatewayRunning));
+            AvailableGatewayActions: ResolveGatewayActions(status, gatewayRunning),
+            Nodes: nodeRows,
+            ConnectedNodeCount: nodeRows.Count(node => node.Online),
+            PairedNodeCount: nodeRows.Count(node => node.Paired));
+    }
+
+    /// <summary>
+    /// Projects gateway-reported nodes into tray rows, marking this Windows node local and synthesizing a local row
+    /// from canvas state when the gateway has not yet reported it.
+    /// </summary>
+    private static IReadOnlyList<TrayNodeRow> ResolveNodeRows(
+        IReadOnlyList<GatewayNodeSummary>? nodes,
+        string? localNodeId,
+        WindowsCanvasNodeState canvasNodeState,
+        bool canvasNodeEnabled)
+    {
+        var rows = new List<TrayNodeRow>();
+        var sawLocal = false;
+        foreach (var node in nodes ?? [])
+        {
+            var isLocal = localNodeId is not null &&
+                string.Equals(node.NodeId, localNodeId, StringComparison.Ordinal);
+            sawLocal |= isLocal;
+            rows.Add(new TrayNodeRow(
+                Name: isLocal ? "This Windows node" : node.DisplayName,
+                Platform: isLocal ? "windows" : node.Platform,
+                Online: node.Connected,
+                Paired: node.Paired,
+                IsLocal: isLocal));
+        }
+
+        if (canvasNodeEnabled && !sawLocal)
+        {
+            var online = canvasNodeState == WindowsCanvasNodeState.Connected;
+            rows.Insert(0, new TrayNodeRow(
+                Name: "This Windows node",
+                Platform: "windows",
+                Online: online,
+                Paired: online,
+                IsLocal: true));
+        }
+
+        return rows;
     }
 
     /// <summary>
