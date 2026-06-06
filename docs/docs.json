@@ -1331,6 +1331,7 @@
                       "tools/kimi-search",
                       "tools/minimax-search",
                       "tools/ollama-search",
+                      "tools/parallel-search",
                       "tools/perplexity-search",
                       "tools/searxng-search",
                       "tools/tavily"
@@ -1469,6 +1470,7 @@
                   "platforms/macos",
                   "platforms/linux",
                   "platforms/windows",
+                  "platforms/windows-native",
                   "platforms/android",
                   "platforms/ios",
                   "platforms/easyrunner"
