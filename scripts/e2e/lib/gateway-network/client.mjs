@@ -11,10 +11,36 @@ function delay(ms) {
   });
 }
 
+function remainingDeadlineMs(deadline) {
+  return Math.max(1, deadline - Date.now());
+}
+
 async function openSocket(url, timeoutMs = 10_000) {
   const ws = new WebSocket(url);
   await waitForWebSocketOpen(ws, timeoutMs, "ws open timeout");
   return ws;
+}
+
+function isRecord(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+export function hasGatewayHealthSummaryPayload(response) {
+  if (!isRecord(response) || !isRecord(response.payload)) {
+    return false;
+  }
+  const { payload } = response;
+  return (
+    payload.ok === true &&
+    typeof payload.ts === "number" &&
+    typeof payload.durationMs === "number" &&
+    typeof payload.defaultAgentId === "string" &&
+    payload.defaultAgentId.trim() !== "" &&
+    Array.isArray(payload.agents) &&
+    isRecord(payload.channels) &&
+    Array.isArray(payload.channelOrder) &&
+    isRecord(payload.sessions)
+  );
 }
 
 export function responseError(method, response) {
@@ -46,7 +72,7 @@ export async function runGatewayNetworkClient(
   const deadline = Date.now() + timeoutMs;
   const delayImpl = deps.delay ?? delay;
   const onceFrameImpl = deps.onceFrame ?? onceFrame;
-  const openSocketImpl = deps.openSocket ?? ((targetUrl) => openSocket(targetUrl));
+  const openSocketImpl = deps.openSocket ?? openSocket;
   const protocolVersion = deps.protocolVersion ?? (await readProtocolVersion());
   const stdout = deps.stdout ?? console.log;
 
@@ -54,7 +80,7 @@ export async function runGatewayNetworkClient(
   while (Date.now() < deadline) {
     let ws;
     try {
-      ws = await openSocketImpl(url);
+      ws = await openSocketImpl(url, remainingDeadlineMs(deadline));
       ws.send(
         JSON.stringify({
           type: "req",
@@ -79,6 +105,7 @@ export async function runGatewayNetworkClient(
       const connectRes = await onceFrameImpl(
         ws,
         (frame) => frame?.type === "res" && frame?.id === "c1",
+        remainingDeadlineMs(deadline),
       );
       if (!connectRes.ok) {
         lastError = responseError("connect", connectRes);
@@ -90,8 +117,12 @@ export async function runGatewayNetworkClient(
         const healthRes = await onceFrameImpl(
           ws,
           (frame) => frame?.type === "res" && frame?.id === "h1",
+          remainingDeadlineMs(deadline),
         );
         if (healthRes.ok) {
+          if (!hasGatewayHealthSummaryPayload(healthRes)) {
+            throw new Error("health failed: missing health summary payload");
+          }
           stdout("ok");
           return;
         }
@@ -107,7 +138,10 @@ export async function runGatewayNetworkClient(
       ws?.close();
     }
 
-    await delayImpl(500);
+    const retryDelayMs = Math.min(500, deadline - Date.now());
+    if (retryDelayMs > 0) {
+      await delayImpl(retryDelayMs);
+    }
   }
 
   throw lastError ?? new Error("connect failed: timeout");

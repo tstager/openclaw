@@ -1,11 +1,27 @@
 // Gateway Network Client tests cover gateway network client script behavior.
 import { EventEmitter } from "node:events";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { runGatewayNetworkClient } from "../../scripts/e2e/lib/gateway-network/client.mjs";
 import { readGatewayNetworkClientConnectTimeoutMs } from "../../scripts/e2e/lib/gateway-network/limits.mjs";
 import { onceFrame } from "../../scripts/e2e/lib/gateway-network/ws-frames.mjs";
 
 describe("gateway network WebSocket open guard", () => {
+  function healthResponse() {
+    return {
+      ok: true,
+      payload: {
+        agents: [],
+        channelOrder: [],
+        channels: {},
+        defaultAgentId: "codex",
+        durationMs: 3,
+        ok: true,
+        sessions: { count: 0, path: "/state/sessions", recent: [] },
+        ts: Date.now(),
+      },
+    };
+  }
+
   it("rejects loose client timeout env values instead of parsing prefixes", () => {
     expect(() =>
       readGatewayNetworkClientConnectTimeoutMs({
@@ -110,7 +126,11 @@ describe("gateway network WebSocket open guard", () => {
       stdout,
       deps: {
         delay: async () => {},
-        onceFrame: async (_ws: unknown, predicate: (frame: unknown) => boolean) => {
+        onceFrame: async (
+          _ws: unknown,
+          predicate: (frame: unknown) => boolean,
+          _timeoutMs?: number,
+        ) => {
           const frame = {
             type: "res",
             id: sentMethods.at(-1) === "connect" ? "c1" : "h1",
@@ -129,7 +149,7 @@ describe("gateway network WebSocket open guard", () => {
   }
 
   it("proves health after the authenticated connect handshake", async () => {
-    const harness = createNetworkClientHarness([{ ok: true }, { ok: true }]);
+    const harness = createNetworkClientHarness([{ ok: true }, healthResponse()]);
 
     await runGatewayNetworkClient(
       { token: "secret-token", url: "ws://127.0.0.1:12345", timeoutMs: 1000 },
@@ -138,6 +158,74 @@ describe("gateway network WebSocket open guard", () => {
 
     expect(harness.sentMethods).toEqual(["connect", "health"]);
     expect(harness.stdout).toEqual(["ok"]);
+    expect(harness.closeCount).toBe(1);
+  });
+
+  it("bounds socket and frame waits by the client deadline", async () => {
+    const harness = createNetworkClientHarness([{ ok: true }, healthResponse()]);
+    const openSocket = vi.fn(harness.deps.openSocket);
+    const onceFrame = vi.fn(harness.deps.onceFrame);
+
+    await runGatewayNetworkClient(
+      { token: "secret-token", url: "ws://127.0.0.1:12345", timeoutMs: 250 },
+      {
+        ...harness.deps,
+        onceFrame,
+        openSocket,
+      },
+    );
+
+    expect(openSocket.mock.calls[0]?.[1]).toBeGreaterThan(0);
+    expect(openSocket.mock.calls[0]?.[1]).toBeLessThanOrEqual(250);
+    expect(onceFrame.mock.calls.map((call) => call[2])).toHaveLength(2);
+    for (const frameTimeoutMs of onceFrame.mock.calls.map((call) => call[2])) {
+      expect(frameTimeoutMs).toBeGreaterThan(0);
+      expect(frameTimeoutMs).toBeLessThanOrEqual(250);
+    }
+  });
+
+  it("does not sleep past the remaining client deadline between retries", async () => {
+    const delays: number[] = [];
+    let now = 1_000;
+
+    const dateSpy = vi.spyOn(Date, "now").mockImplementation(() => now);
+    try {
+      await expect(
+        runGatewayNetworkClient(
+          { token: "secret-token", url: "ws://127.0.0.1:12345", timeoutMs: 250 },
+          {
+            delay: async (ms: number) => {
+              delays.push(ms);
+              now += ms;
+            },
+            openSocket: async () => {
+              now += 200;
+              throw new Error("ECONNREFUSED");
+            },
+            protocolVersion: 1,
+            stdout: () => {},
+          },
+        ),
+      ).rejects.toThrow("ECONNREFUSED");
+    } finally {
+      dateSpy.mockRestore();
+    }
+
+    expect(delays).toEqual([50]);
+  });
+
+  it("fails a connected socket whose health success lacks summary evidence", async () => {
+    const harness = createNetworkClientHarness([{ ok: true }, { ok: true }]);
+
+    await expect(
+      runGatewayNetworkClient(
+        { token: "secret-token", url: "ws://127.0.0.1:12345", timeoutMs: 1000 },
+        harness.deps,
+      ),
+    ).rejects.toThrow("health failed: missing health summary payload");
+
+    expect(harness.sentMethods).toEqual(["connect", "health"]);
+    expect(harness.stdout).toEqual([]);
     expect(harness.closeCount).toBe(1);
   });
 
